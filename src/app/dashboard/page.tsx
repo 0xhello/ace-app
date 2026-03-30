@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import GamesFeed from "./GamesFeed";
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export default function DashboardPage() {
   return (

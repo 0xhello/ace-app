@@ -3,7 +3,7 @@ import { Game } from "@/types/game";
 
 async function getGames(): Promise<Game[]> {
   const url = `${process.env.ODDS_API_URL || "http://localhost:8000"}/games`;
-  const res = await fetch(url, { next: { revalidate: 60 } });
+  const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) return [];
   const data = await res.json();
   return data.games || [];
