@@ -2,7 +2,7 @@
 
 import { Game } from "@/types/game";
 import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
-import { Star, TrendingUp, TrendingDown } from "lucide-react";
+import { Star, Minus } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta } from "@/lib/books";
 
@@ -31,7 +31,6 @@ function bestTotal(game: Game, side: "Over" | "Under") {
 }
 
 function buildLeg(id: string, game: Game, market: string, label: string, odds: number, book?: string): SlipLeg {
-  const b = book ? bookMeta(book) : null;
   return {
     id,
     gameId: game.id,
@@ -39,7 +38,7 @@ function buildLeg(id: string, game: Game, market: string, label: string, odds: n
     market,
     label,
     odds,
-    book: b?.short,
+    book: book ? (bookMeta(book).short) : undefined,
   };
 }
 
@@ -58,14 +57,14 @@ function OddsBtn({
     <button
       onClick={() => onToggle(leg)}
       className={cn(
-        "w-[70px] h-[46px] rounded-md border flex flex-col items-center justify-center transition-all duration-75 select-none",
+        "w-[68px] h-[46px] rounded-md border flex flex-col items-center justify-center gap-[2px] transition-all duration-75 select-none group",
         selected
-          ? "border-[#00ff7f]/40 bg-[#00ff7f]/10 shadow-[0_0_0_1px_rgba(0,255,127,0.12)]"
-          : "border-[#1e1e24] bg-[#111113] hover:border-[#2a2a35] hover:bg-[#161618]"
+          ? "border-[#00ff7f]/40 bg-[#00ff7f]/10 shadow-[0_0_0_1px_rgba(0,255,127,0.1)]"
+          : "border-[#1e1e24] bg-[#0f0f11] hover:border-[#2a2a35] hover:bg-[#161618]"
       )}
     >
       {point !== undefined && (
-        <span className="text-[10px] text-[#71717a] leading-none mb-0.5 font-medium">
+        <span className="text-[10px] font-semibold leading-none text-[#71717a]">
           {point > 0 ? `+${point}` : point}
         </span>
       )}
@@ -76,7 +75,9 @@ function OddsBtn({
         {formatAmericanOdds(leg.odds)}
       </span>
       {leg.book && (
-        <span className="text-[9px] text-[#3f3f46] mt-[2px] leading-none">{leg.book}</span>
+        <span className="text-[9px] leading-none text-[#3a3a3a] group-hover:text-[#52525b] transition-colors">
+          {leg.book}
+        </span>
       )}
     </button>
   );
@@ -84,8 +85,17 @@ function OddsBtn({
 
 function EmptyCell() {
   return (
-    <div className="w-[70px] h-[46px] rounded-md border border-dashed border-[#1e1e24]/50 flex items-center justify-center">
-      <span className="text-[11px] text-[#3f3f46]">—</span>
+    <div className="w-[68px] h-[46px] rounded-md border border-dashed border-[#1e1e24]/40 flex items-center justify-center">
+      <span className="text-[12px] text-[#2a2a35]">—</span>
+    </div>
+  );
+}
+
+// Movement indicator — placeholder, will be dynamic in Phase 5
+function MovementChip() {
+  return (
+    <div className="flex items-center justify-center w-4 h-4">
+      <Minus className="h-2.5 w-2.5 text-[#2a2a35]" />
     </div>
   );
 }
@@ -123,74 +133,102 @@ export default function GameRow({
 
   return (
     <div className={cn(
-      "relative border-b border-[#1e1e24] last:border-b-0 transition-colors",
-      isLive ? "bg-[#ef4444]/[0.025] hover:bg-[#ef4444]/[0.04]" : "hover:bg-white/[0.015]"
+      "relative border-b border-[#1a1a1f] last:border-b-0 transition-colors",
+      isLive ? "bg-[#ef4444]/[0.025] hover:bg-[#ef4444]/[0.04]" : "hover:bg-[#ffffff]/[0.012]"
     )}>
-      {isLive && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[#ef4444]/70 rounded-r" />}
+      {/* Live left accent */}
+      {isLive && <div className="absolute left-0 top-2 bottom-2 w-[2px] bg-[#ef4444]/70 rounded-r" />}
 
       <div
-        className="grid items-center gap-3 px-4 py-3 pl-5"
-        style={{ gridTemplateColumns: "minmax(200px,1fr) 70px 70px 70px 32px" }}
+        className="grid items-center gap-3 px-4 py-3.5 pl-5"
+        style={{ gridTemplateColumns: "minmax(190px,1fr) 68px 68px 68px 28px" }}
       >
-        {/* Team info */}
+        {/* ── Game info ─────────────────────────── */}
         <div className="min-w-0">
+          {/* Meta */}
           <div className="flex items-center gap-2 mb-2.5">
-            <span className="text-[10px] font-semibold text-[#52525b] uppercase tracking-wider">{game.sport_title}</span>
-            <span className="text-[#27272a]">·</span>
+            <span className="text-[10px] font-semibold text-[#52525b] uppercase tracking-widest">
+              {game.sport_title}
+            </span>
             {isLive ? (
-              <span className="flex items-center gap-1 text-[10px] font-bold text-[#ef4444] uppercase">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />Live
+              <span className="inline-flex items-center gap-1 bg-[#ef4444]/15 border border-[#ef4444]/25 text-[#ef4444] text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full">
+                <span className="h-1 w-1 rounded-full bg-[#ef4444] animate-pulse" />
+                Live
               </span>
             ) : (
               <span className="text-[10px] text-[#52525b]">{timeUntilGame(game.commence_time)}</span>
             )}
-            <span className="text-[#27272a]">·</span>
-            <span className="text-[10px] text-[#3f3f46]">{game.num_books} books</span>
+            <span className="text-[10px] text-[#3a3a3a]">{game.num_books} books</span>
           </div>
 
-          <div className="space-y-2">
-            {[away, home].map((team, idx) => (
-              <div key={team} className="flex items-center gap-2">
-                <div className="h-[24px] w-[24px] rounded-md bg-[#18181b] border border-[#27272a] flex items-center justify-center text-[8px] font-bold text-[#a1a1aa] shrink-0 tracking-wider">
-                  {teamAbbr(team)}
-                </div>
-                <span className="text-[13px] font-medium text-white truncate">{team}</span>
-                {idx === 0 && <span className="text-[10px] text-[#3f3f46] ml-auto shrink-0">@</span>}
+          {/* Teams */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <div className="h-[22px] w-[22px] rounded-md bg-[#161618] border border-[#252528] flex items-center justify-center text-[8px] font-bold text-[#71717a] shrink-0 tracking-wider">
+                {teamAbbr(away)}
               </div>
-            ))}
+              <span className="text-[13px] font-medium text-white truncate">{away}</span>
+            </div>
+
+            {/* @ divider */}
+            <div className="flex items-center gap-2 pl-[5px]">
+              <div className="h-px w-[12px] bg-[#252528]" />
+              <span className="text-[9px] text-[#3a3a3a] font-medium">@</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="h-[22px] w-[22px] rounded-md bg-[#161618] border border-[#252528] flex items-center justify-center text-[8px] font-bold text-[#71717a] shrink-0 tracking-wider">
+                {teamAbbr(home)}
+              </div>
+              <span className="text-[13px] font-medium text-white truncate">{home}</span>
+            </div>
           </div>
+        </div>
 
-          {/* AI placeholder badge */}
-          <div className="mt-2 flex items-center gap-2">
-            <span className="text-[10px] text-[#00ff7f]/60 flex items-center gap-1">
-              <TrendingUp className="h-2.5 w-2.5" /> AI signals in Phase 4
-            </span>
+        {/* ── Moneyline ──────────────────────── */}
+        <div className="flex flex-col gap-[5px] items-center">
+          <div className="flex items-center gap-1">
+            {awayMLLeg ? <OddsBtn leg={awayMLLeg} selected={selectedIds.includes(awayMLLeg.id)} onToggle={onToggleLeg} /> : <EmptyCell />}
+            <MovementChip />
+          </div>
+          <div className="flex items-center gap-1">
+            {homeMLLeg ? <OddsBtn leg={homeMLLeg} selected={selectedIds.includes(homeMLLeg.id)} onToggle={onToggleLeg} /> : <EmptyCell />}
+            <MovementChip />
           </div>
         </div>
 
-        {/* Moneyline */}
-        <div className="flex flex-col gap-[6px] items-center pt-[26px]">
-          {awayMLLeg ? <OddsBtn leg={awayMLLeg} selected={selectedIds.includes(awayMLLeg.id)} onToggle={onToggleLeg} /> : <EmptyCell />}
-          {homeMLLeg ? <OddsBtn leg={homeMLLeg} selected={selectedIds.includes(homeMLLeg.id)} onToggle={onToggleLeg} /> : <EmptyCell />}
+        {/* ── Spread ─────────────────────────── */}
+        <div className="flex flex-col gap-[5px] items-center">
+          <div className="flex items-center gap-1">
+            {awaySpLeg ? <OddsBtn leg={awaySpLeg} selected={selectedIds.includes(awaySpLeg.id)} onToggle={onToggleLeg} point={awaySpread?.point} /> : <EmptyCell />}
+            <MovementChip />
+          </div>
+          <div className="flex items-center gap-1">
+            {homeSpLeg ? <OddsBtn leg={homeSpLeg} selected={selectedIds.includes(homeSpLeg.id)} onToggle={onToggleLeg} point={homeSpread?.point} /> : <EmptyCell />}
+            <MovementChip />
+          </div>
         </div>
 
-        {/* Spread */}
-        <div className="flex flex-col gap-[6px] items-center pt-[26px]">
-          {awaySpLeg ? <OddsBtn leg={awaySpLeg} selected={selectedIds.includes(awaySpLeg.id)} onToggle={onToggleLeg} point={awaySpread?.point} /> : <EmptyCell />}
-          {homeSpLeg ? <OddsBtn leg={homeSpLeg} selected={selectedIds.includes(homeSpLeg.id)} onToggle={onToggleLeg} point={homeSpread?.point} /> : <EmptyCell />}
+        {/* ── Total ──────────────────────────── */}
+        <div className="flex flex-col gap-[5px] items-center">
+          <div className="flex items-center gap-1">
+            {overLeg ? <OddsBtn leg={overLeg} selected={selectedIds.includes(overLeg.id)} onToggle={onToggleLeg} point={over?.point} /> : <EmptyCell />}
+            <MovementChip />
+          </div>
+          <div className="flex items-center gap-1">
+            {underLeg ? <OddsBtn leg={underLeg} selected={selectedIds.includes(underLeg.id)} onToggle={onToggleLeg} point={under?.point} /> : <EmptyCell />}
+            <MovementChip />
+          </div>
         </div>
 
-        {/* Total */}
-        <div className="flex flex-col gap-[6px] items-center pt-[26px]">
-          {overLeg ? <OddsBtn leg={overLeg} selected={selectedIds.includes(overLeg.id)} onToggle={onToggleLeg} point={over?.point} /> : <EmptyCell />}
-          {underLeg ? <OddsBtn leg={underLeg} selected={selectedIds.includes(underLeg.id)} onToggle={onToggleLeg} point={under?.point} /> : <EmptyCell />}
-        </div>
-
-        {/* Watch */}
+        {/* ── Watch ──────────────────────────── */}
         <div className="flex items-center justify-center self-center">
           <button
             onClick={() => onToggleWatch(game.id)}
-            className={cn("p-1.5 rounded-md transition-all", watchlisted ? "text-[#00ff7f]" : "text-[#3f3f46] hover:text-[#71717a]")}
+            className={cn(
+              "p-1.5 rounded-md transition-all",
+              watchlisted ? "text-[#00ff7f]" : "text-[#2a2a35] hover:text-[#52525b]"
+            )}
           >
             <Star className={cn("h-3.5 w-3.5", watchlisted && "fill-current")} />
           </button>
