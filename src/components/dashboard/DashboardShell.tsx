@@ -158,12 +158,15 @@ export default function DashboardShell({ games }: { games: Game[] }) {
         </div>
 
         {/* Board headers */}
-        <div className="shrink-0 px-4 py-2 grid items-center gap-3 border-b border-[#1e1e24]" style={{ gridTemplateColumns: "1fr auto auto auto auto" }}>
+        <div
+          className="shrink-0 px-4 py-2 pl-5 grid items-center gap-4 border-b border-[#1e1e24] bg-[#0d0d10]"
+          style={{ gridTemplateColumns: "minmax(180px,1fr) 62px 62px 62px 36px" }}
+        >
           <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider">Game</span>
-          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider w-[58px] text-center">ML</span>
-          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider w-[58px] text-center">Spread</span>
-          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider w-[58px] text-center">Total</span>
-          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider w-[46px] text-center">Watch</span>
+          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider text-center">ML</span>
+          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider text-center">Spread</span>
+          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider text-center">Total</span>
+          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider text-center">★</span>
         </div>
 
         {/* Game rows — scrollable */}
