@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import GamesFeed from "./GamesFeed";
+import { LayoutGrid } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 

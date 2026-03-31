@@ -2,11 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { Game } from "@/types/game";
-import GameCard from "@/components/GameCard";
-import { Activity, Filter, Search, Sparkles, TrendingUp, X } from "lucide-react";
+import GameRow from "@/components/GameRow";
+import { Activity, Search, Sparkles, TrendingUp, X, ChevronRight, Plus } from "lucide-react";
 import { cn, formatAmericanOdds } from "@/lib/utils";
 
-type SportFilter = "ALL" | "NBA" | "NFL" | "MLB" | "NHL" | "NCAAB" | "NCAAF";
+type SportFilter = "ALL" | "NBA" | "NFL" | "MLB" | "NHL" | "NCAAB";
 type TimeFilter = "ALL" | "LIVE" | "TODAY";
 
 export interface SlipLeg {
@@ -19,27 +19,36 @@ export interface SlipLeg {
   book?: string;
 }
 
+function slipDecimal(odds: number) {
+  return odds > 0 ? odds / 100 + 1 : 100 / Math.abs(odds) + 1;
+}
+
 export default function DashboardShell({ games }: { games: Game[] }) {
-  const [sportFilter, setSportFilter] = useState<SportFilter>("ALL");
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>("ALL");
+  const [sport, setSport] = useState<SportFilter>("ALL");
+  const [time, setTime] = useState<TimeFilter>("ALL");
   const [query, setQuery] = useState("");
   const [slip, setSlip] = useState<SlipLeg[]>([]);
-
-  const filteredGames = useMemo(() => {
-    return games.filter((game) => {
-      const sportMatch = sportFilter === "ALL" || game.sport_title.toUpperCase() === sportFilter;
-      const timeMatch = timeFilter === "ALL"
-        || (timeFilter === "LIVE" && game.status === "live")
-        || (timeFilter === "TODAY" && new Date(game.commence_time).toDateString() === new Date().toDateString());
-      const q = query.trim().toLowerCase();
-      const textMatch = !q || `${game.away_team} ${game.home_team} ${game.sport_title}`.toLowerCase().includes(q);
-      return sportMatch && timeMatch && textMatch;
-    });
-  }, [games, sportFilter, timeFilter, query]);
+  const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
 
   const liveCount = games.filter((g) => g.status === "live").length;
 
-  function toggleSlip(leg: SlipLeg) {
+  const filtered = useMemo(() => {
+    return games.filter((g) => {
+      const sportOk = sport === "ALL" || g.sport_title.toUpperCase().includes(sport);
+      const timeOk =
+        time === "ALL" ||
+        (time === "LIVE" && g.status === "live") ||
+        (time === "TODAY" && new Date(g.commence_time).toDateString() === new Date().toDateString());
+      const q = query.toLowerCase().trim();
+      const textOk = !q || `${g.away_team} ${g.home_team} ${g.sport_title}`.toLowerCase().includes(q);
+      return sportOk && timeOk && textOk;
+    });
+  }, [games, sport, time, query]);
+
+  const liveGames = filtered.filter((g) => g.status === "live");
+  const upcomingGames = filtered.filter((g) => g.status !== "live");
+
+  function toggleLeg(leg: SlipLeg) {
     setSlip((prev) => prev.some((x) => x.id === leg.id) ? prev.filter((x) => x.id !== leg.id) : [...prev, leg]);
   }
 
@@ -47,144 +56,246 @@ export default function DashboardShell({ games }: { games: Game[] }) {
     setSlip((prev) => prev.filter((x) => x.id !== id));
   }
 
-  const combinedDecimal = slip.reduce((acc, leg) => {
-    const american = leg.odds;
-    const dec = american > 0 ? (american / 100 + 1) : (100 / Math.abs(american) + 1);
-    return acc * dec;
-  }, 1);
+  function toggleWatch(id: string) {
+    setWatchlist((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  const combinedDecimal = slip.reduce((acc, l) => acc * slipDecimal(l.odds), 1);
+  const combinedAmerican = combinedDecimal >= 2 ? Math.round((combinedDecimal - 1) * 100) : Math.round(-100 / (combinedDecimal - 1));
+  const selectedIds = slip.map((x) => x.id);
 
   return (
-    <div className="p-4 md:p-6 xl:p-8 max-w-[1600px] mx-auto">
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-6">
-        <div className="space-y-5">
-          <div className="rounded-2xl border border-ace-border bg-ace-card px-4 py-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-xs text-ace-secondary mb-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-ace-green animate-pulse" />
-                  40+ books synced · live market intelligence
-                </div>
-                <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-white">The terminal for sports bettors.</h1>
-                <p className="text-sm text-ace-secondary mt-1">Scan the slate, spot the edge, build the ticket.</p>
-              </div>
-              <div className="flex items-center gap-2 rounded-xl border border-ace-border bg-black/20 px-3 py-2 text-xs text-ace-secondary">
-                <Activity className="h-4 w-4 text-ace-green" />
-                {liveCount} live · {games.length} total games
-              </div>
-            </div>
+    <div className="flex flex-1 overflow-hidden">
+      {/* ── Main board ─────────────────────────────────── */}
+      <div className="flex flex-col flex-1 overflow-hidden">
+
+        {/* Top bar */}
+        <div className="shrink-0 h-14 border-b border-[#1e1e24] flex items-center gap-3 px-4">
+          {/* Sport pills */}
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+            {(["ALL", "NBA", "NFL", "MLB", "NHL", "NCAAB"] as SportFilter[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => setSport(s)}
+                className={cn(
+                  "px-3 py-1 rounded-md text-[12px] font-medium shrink-0 transition-colors",
+                  sport === s
+                    ? "bg-[#00ff7f]/10 text-[#00ff7f] border border-[#00ff7f]/20"
+                    : "text-[#71717a] hover:text-white"
+                )}
+              >
+                {s}
+              </button>
+            ))}
           </div>
 
-          <div className="rounded-2xl border border-ace-border bg-ace-card px-4 py-3 flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              {["ALL","NBA","NFL","MLB","NHL","NCAAB"].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSportFilter(s as SportFilter)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
-                    sportFilter === s ? "border-ace-green/30 bg-ace-green/10 text-ace-green" : "border-ace-border bg-transparent text-ace-secondary hover:text-white hover:bg-ace-surface"
-                  )}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-center gap-2 flex-wrap">
-                {["ALL","LIVE","TODAY"].map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTimeFilter(t as TimeFilter)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
-                      timeFilter === t ? "border-ace-green/30 bg-ace-green/10 text-ace-green" : "border-ace-border text-ace-secondary hover:text-white hover:bg-ace-surface"
-                    )}
-                  >
-                    {t === "LIVE" ? `LIVE (${liveCount})` : t}
-                  </button>
-                ))}
-                <div className="ml-1 flex items-center gap-1.5 text-xs text-ace-muted">
-                  <Filter className="h-3.5 w-3.5" />
-                  ML / Spread / Total inline
-                </div>
-              </div>
-              <div className="flex items-center gap-2 rounded-xl border border-ace-border bg-black/20 px-3 py-2 min-w-[260px]">
-                <Search className="h-4 w-4 text-ace-muted" />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search teams or leagues"
-                  className="bg-transparent outline-none w-full text-sm text-white placeholder:text-ace-muted"
-                />
-              </div>
-            </div>
+          <div className="h-4 w-px bg-[#27272a] shrink-0" />
+
+          {/* Time pills */}
+          <div className="flex items-center gap-1">
+            {(["ALL", "LIVE", "TODAY"] as TimeFilter[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTime(t)}
+                className={cn(
+                  "px-3 py-1 rounded-md text-[12px] font-medium transition-colors flex items-center gap-1.5",
+                  time === t
+                    ? "bg-[#00ff7f]/10 text-[#00ff7f] border border-[#00ff7f]/20"
+                    : "text-[#71717a] hover:text-white"
+                )}
+              >
+                {t === "LIVE" && liveCount > 0 && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
+                )}
+                {t === "LIVE" ? `LIVE (${liveCount})` : t}
+              </button>
+            ))}
           </div>
 
-          <div className="rounded-2xl border border-ace-border bg-ace-card p-3 flex flex-wrap gap-2 text-xs">
-            <div className="px-3 py-2 rounded-lg bg-ace-green/10 text-ace-green border border-ace-green/20 flex items-center gap-2"><Sparkles className="h-3.5 w-3.5" /> AI edge layer coming next</div>
-            <div className="px-3 py-2 rounded-lg bg-black/20 text-ace-secondary border border-ace-border">Best-book highlighting live</div>
-            <div className="px-3 py-2 rounded-lg bg-black/20 text-ace-secondary border border-ace-border">Slip intelligence active</div>
+          <div className="flex-1" />
+
+          {/* Search */}
+          <div className="flex items-center gap-2 bg-[#111113] border border-[#1e1e24] rounded-lg px-3 py-1.5 w-52">
+            <Search className="h-3.5 w-3.5 text-[#52525b] shrink-0" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search teams…"
+              className="bg-transparent outline-none text-[12px] text-white placeholder:text-[#52525b] w-full"
+            />
           </div>
 
-          <div className="space-y-3">
-            {filteredGames.map((game) => (
-              <GameCard key={game.id} game={game} onToggleLeg={toggleSlip} selectedLegIds={slip.map((x) => x.id)} />
+          {/* Live status */}
+          <div className="flex items-center gap-2 text-[11px] text-[#52525b] shrink-0">
+            <Activity className="h-3.5 w-3.5 text-[#00ff7f]" />
+            {games.length} games · {liveCount} live
+          </div>
+        </div>
+
+        {/* Intelligence strip */}
+        <div className="shrink-0 border-b border-[#1e1e24] bg-[#0d0d10] px-4 py-2 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+          <span className="text-[10px] font-semibold text-[#52525b] uppercase tracking-wider shrink-0">SIGNALS</span>
+          <div className="flex items-center gap-2">
+            {[
+              { text: "AI edge layer · coming next", accent: true },
+              { text: "Best-book live", accent: false },
+              { text: "Line movement tracking · Phase 4", accent: false },
+              { text: "Playability scores · Phase 4", accent: false },
+            ].map((item, i) => (
+              <div key={i} className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] shrink-0",
+                item.accent ? "border-[#00ff7f]/20 bg-[#00ff7f]/8 text-[#00ff7f]" : "border-[#1e1e24] text-[#52525b]"
+              )}>
+                {item.accent && <Sparkles className="h-3 w-3" />}
+                {item.text}
+              </div>
             ))}
           </div>
         </div>
 
-        <aside className="xl:sticky xl:top-6 h-fit space-y-4">
-          <div className="rounded-2xl border border-ace-border bg-ace-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-ace-border flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-white">Slip</h2>
-                <p className="text-xs text-ace-muted">Build while you research</p>
+        {/* Board headers */}
+        <div className="shrink-0 px-4 py-2 grid items-center gap-3 border-b border-[#1e1e24]" style={{ gridTemplateColumns: "1fr auto auto auto auto" }}>
+          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider">Game</span>
+          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider w-[58px] text-center">ML</span>
+          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider w-[58px] text-center">Spread</span>
+          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider w-[58px] text-center">Total</span>
+          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider w-[46px] text-center">Watch</span>
+        </div>
+
+        {/* Game rows — scrollable */}
+        <div className="flex-1 overflow-y-auto">
+          {liveGames.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 px-4 py-2 bg-[#ef4444]/5 border-b border-[#ef4444]/10">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
+                <span className="text-[11px] font-semibold text-[#ef4444] uppercase tracking-wider">Live Now</span>
+                <span className="text-[11px] text-[#ef4444]/60">({liveGames.length})</span>
               </div>
-              <div className="text-xs px-2 py-1 rounded-full bg-ace-green/10 text-ace-green border border-ace-green/20">{slip.length} legs</div>
+              {liveGames.map((g) => (
+                <GameRow key={g.id} game={g} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} />
+              ))}
             </div>
-            <div className="p-4 space-y-3">
-              {slip.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-ace-border p-6 text-center">
-                  <p className="text-sm text-white mb-1">No legs added yet</p>
-                  <p className="text-xs text-ace-muted">Click any odds button on the board to start building.</p>
+          )}
+
+          {upcomingGames.length > 0 && (
+            <div>
+              {liveGames.length > 0 && (
+                <div className="flex items-center gap-2 px-4 py-2 border-b border-[#1e1e24] bg-[#0d0d10]">
+                  <span className="text-[11px] font-semibold text-[#52525b] uppercase tracking-wider">Upcoming</span>
+                  <span className="text-[11px] text-[#3f3f46]">({upcomingGames.length})</span>
                 </div>
-              ) : (
-                slip.map((leg) => (
-                  <div key={leg.id} className="rounded-xl border border-ace-border bg-black/20 p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-xs text-ace-muted">{leg.matchup}</p>
-                        <p className="text-sm font-medium text-white mt-0.5">{leg.label}</p>
-                        <p className="text-xs text-ace-secondary mt-1">{leg.market}{leg.book ? ` · ${leg.book}` : ""}</p>
-                      </div>
-                      <button onClick={() => removeLeg(leg.id)} className="text-ace-muted hover:text-white"><X className="h-4 w-4" /></button>
-                    </div>
-                    <div className="mt-2 text-sm font-mono font-semibold text-ace-green">{formatAmericanOdds(leg.odds)}</div>
-                  </div>
-                ))
               )}
+              {upcomingGames.map((g) => (
+                <GameRow key={g.id} game={g} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} />
+              ))}
             </div>
-            <div className="border-t border-ace-border p-4 space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-ace-secondary">Combined decimal</span>
-                <span className="text-white font-mono">{slip.length ? combinedDecimal.toFixed(2) : "—"}</span>
+          )}
+
+          {filtered.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-24 gap-2 text-center">
+              <p className="text-white font-medium">No games found</p>
+              <p className="text-sm text-[#52525b]">Try adjusting your filters</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Right rail ─────────────────────────────────── */}
+      <div className="w-[320px] shrink-0 border-l border-[#1e1e24] flex flex-col overflow-hidden">
+
+        {/* Slip header */}
+        <div className="shrink-0 h-14 border-b border-[#1e1e24] flex items-center justify-between px-4">
+          <div>
+            <h2 className="text-[13px] font-semibold text-white">Slip</h2>
+            <p className="text-[10px] text-[#52525b]">Click odds to add legs</p>
+          </div>
+          {slip.length > 0 && (
+            <button onClick={() => setSlip([])} className="text-[11px] text-[#52525b] hover:text-white transition-colors">Clear all</button>
+          )}
+        </div>
+
+        {/* Slip body */}
+        <div className="flex-1 overflow-y-auto">
+          {slip.length === 0 ? (
+            <div className="flex flex-col items-center justify-center px-6 py-10 gap-3 text-center">
+              <div className="h-10 w-10 rounded-xl border border-dashed border-[#27272a] flex items-center justify-center">
+                <Plus className="h-5 w-5 text-[#3f3f46]" />
               </div>
-              <div className="rounded-xl bg-ace-green/10 border border-ace-green/20 p-3">
-                <p className="text-xs uppercase tracking-wide text-ace-green font-semibold mb-1">Slip intelligence</p>
-                <p className="text-sm text-white">{slip.length < 2 ? "Add more legs to see correlation and execution guidance." : "Good start. Next layer: correlation checks, playability, and best-book routing."}</p>
-              </div>
+              <p className="text-[13px] font-medium text-white">No legs added</p>
+              <p className="text-[11px] text-[#52525b] leading-relaxed">Click any odds button on the board to start building your slip.</p>
+            </div>
+          ) : (
+            <div className="p-3 space-y-2">
+              {slip.map((leg) => (
+                <div key={leg.id} className="rounded-lg border border-[#1e1e24] bg-[#111113] p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-[#52525b] truncate">{leg.matchup}</p>
+                      <p className="text-[12px] font-medium text-white mt-0.5 truncate">{leg.label}</p>
+                      <p className="text-[10px] text-[#52525b] mt-0.5">{leg.market}{leg.book ? ` · ${leg.book}` : ""}</p>
+                    </div>
+                    <button onClick={() => removeLeg(leg.id)} className="text-[#3f3f46] hover:text-white shrink-0 mt-0.5">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className={cn("mt-2 text-[13px] font-mono font-bold", leg.odds > 0 ? "text-[#00ff7f]" : "text-white")}>
+                    {formatAmericanOdds(leg.odds)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Slip footer — combined odds */}
+        {slip.length >= 2 && (
+          <div className="shrink-0 border-t border-[#1e1e24] p-4 space-y-3">
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-[#71717a]">Combined odds</span>
+              <span className="text-white font-mono font-semibold">{formatAmericanOdds(combinedAmerican)}</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-[#71717a]">Implied prob.</span>
+              <span className="text-white font-mono">{(100 / combinedDecimal).toFixed(1)}%</span>
+            </div>
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-[#71717a]">$100 returns</span>
+              <span className="text-[#00ff7f] font-mono font-semibold">${((combinedDecimal - 1) * 100).toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Intelligence zone */}
+        <div className="shrink-0 border-t border-[#1e1e24]">
+          <div className="px-4 py-3 border-b border-[#1e1e24]">
+            <p className="text-[10px] font-semibold text-[#52525b] uppercase tracking-wider mb-2">Slip Intelligence</p>
+            <div className="rounded-lg border border-[#00ff7f]/15 bg-[#00ff7f]/6 p-3">
+              <p className="text-[11px] text-[#00ff7f] font-semibold mb-1">Coming in Phase 3</p>
+              <p className="text-[11px] text-[#52525b] leading-relaxed">Correlation warnings, playability status, best-book execution routing, and EV estimates.</p>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-ace-border bg-ace-card p-4">
-            <h3 className="text-sm font-semibold text-white mb-3">Market tape</h3>
-            <div className="space-y-2 text-xs">
-              <div className="rounded-lg bg-black/20 border border-ace-border px-3 py-2 text-ace-secondary">BOS ML improved across 2 books</div>
-              <div className="rounded-lg bg-black/20 border border-ace-border px-3 py-2 text-ace-secondary">Totals disagreement detected on late slate</div>
-              <div className="rounded-lg bg-black/20 border border-ace-border px-3 py-2 text-ace-secondary">AI signal lane plugs in next phase</div>
+          {/* Market tape */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold text-[#52525b] uppercase tracking-wider mb-2">Market Tape</p>
+            <div className="space-y-1.5">
+              {[
+                "Line movement detection active in Phase 4",
+                "AI signal lane wires in Phase 4",
+                "40+ books synced · refreshing",
+              ].map((t, i) => (
+                <div key={i} className="flex items-center gap-2 text-[11px] text-[#52525b] py-1">
+                  <ChevronRight className="h-3 w-3 shrink-0" />
+                  {t}
+                </div>
+              ))}
             </div>
           </div>
-        </aside>
+        </div>
       </div>
     </div>
   );
