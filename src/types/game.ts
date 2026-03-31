@@ -10,14 +10,20 @@ export type BookKey =
   | "bovada"
   | "mybookieag";
 
+export interface MarketOutcome {
+  name: string;
+  price: number;
+  point?: number;
+}
+
 export interface BookOdds {
   sportsbook: BookKey;
   title: string;
   last_update: string;
   markets: {
-    h2h?: { name: string; price: number }[];
-    spreads?: { name: string; price: number; point: number }[];
-    totals?: { name: string; price: number; point: number }[];
+    h2h?: MarketOutcome[];
+    spreads?: MarketOutcome[];
+    totals?: MarketOutcome[];
   };
 }
 

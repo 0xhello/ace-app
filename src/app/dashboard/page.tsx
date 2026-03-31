@@ -5,22 +5,9 @@ export const dynamic = "force-dynamic";
 
 export default function DashboardPage() {
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Today's Games</h1>
-          <p className="text-ace-muted text-sm mt-0.5">Live odds from 40+ sportsbooks</p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-ace-muted bg-ace-card border border-ace-border px-3 py-1.5 rounded-full">
-          <span className="h-1.5 w-1.5 rounded-full bg-ace-green animate-pulse" />
-          Auto-refreshing
-        </div>
-      </div>
-
-      <Suspense fallback={<GamesSkeleton />}>
-        <GamesFeed />
-      </Suspense>
-    </div>
+    <Suspense fallback={<GamesSkeleton />}>
+      <GamesFeed />
+    </Suspense>
   );
 }
 

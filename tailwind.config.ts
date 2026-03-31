@@ -6,14 +6,18 @@ const config: Config = {
     extend: {
       colors: {
         ace: {
-          bg: "#0a0a0f",
-          card: "#13131a",
-          border: "#1e1e2e",
-          gold: "#f59e0b",
-          green: "#22c55e",
+          bg: "#09090b",
+          card: "#111113",
+          surface: "#18181b",
+          border: "#1e1e24",
+          "border-active": "#2a2a35",
+          green: "#00ff7f",
+          "green-deep": "#00c060",
+          "green-dim": "#00ff7f1a",
           red: "#ef4444",
-          blue: "#3b82f6",
-          muted: "#6b7280",
+          "red-dim": "#ef44441a",
+          muted: "#71717a",
+          secondary: "#a1a1aa",
         },
       },
       fontFamily: {
