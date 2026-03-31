@@ -5,8 +5,9 @@ import { Game } from "@/types/game";
 import GameRow from "@/components/GameRow";
 import TopAIPicks from "@/components/TopAIPicks";
 import BetSlip from "@/components/BetSlip";
-import { Activity, Search, Sparkles, Star, TrendingUp, Zap, ChevronDown } from "lucide-react";
+import { Activity, Search, Sparkles, Star, TrendingUp, Zap, ChevronDown, AlertTriangle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getSignalsForGame, hasHighSeveritySignal } from "@/lib/signals";
 
 type SportFilter = "ALL" | "NBA" | "NFL" | "MLB" | "NHL" | "NCAAB";
 type TimeFilter = "ALL" | "LIVE" | "TODAY";
@@ -39,8 +40,18 @@ export default function DashboardShell({ games }: { games: Game[] }) {
   const [slip, setSlip] = useState<SlipLeg[]>([]);
   const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
   const [watchlistOnly, setWatchlistOnly] = useState(false);
+  const [signalFilter, setSignalFilter] = useState<"none" | "high" | "volatile" | "new">("none");
 
   const liveCount = games.filter((g) => g.status === "live").length;
+
+  // Signal counts for slate summary
+  const highImpactCount = useMemo(() => {
+    return games.filter((g) => hasHighSeveritySignal(g.id, g.home_team, g.away_team)).length;
+  }, [games]);
+
+  const signalGameCount = useMemo(() => {
+    return games.filter((g) => getSignalsForGame(g.id, g.home_team, g.away_team).length > 0).length;
+  }, [games]);
 
   const sportCounts = useMemo(() => {
     const c: Record<string, number> = { ALL: games.length };
@@ -62,9 +73,17 @@ export default function DashboardShell({ games }: { games: Game[] }) {
       const q = query.toLowerCase().trim();
       const textOk = !q || `${g.away_team} ${g.home_team} ${g.sport_title}`.toLowerCase().includes(q);
       const wlOk = !watchlistOnly || watchlist.has(g.id);
-      return sportOk && timeOk && textOk && wlOk;
+
+      let sigOk = true;
+      if (signalFilter === "high") {
+        sigOk = hasHighSeveritySignal(g.id, g.home_team, g.away_team);
+      } else if (signalFilter === "new" || signalFilter === "volatile") {
+        sigOk = getSignalsForGame(g.id, g.home_team, g.away_team).length > 0;
+      }
+
+      return sportOk && timeOk && textOk && wlOk && sigOk;
     });
-  }, [games, sport, time, query, watchlistOnly, watchlist]);
+  }, [games, sport, time, query, watchlistOnly, watchlist, signalFilter]);
 
   const liveGames = filtered.filter((g) => g.status === "live");
   const upcomingGames = filtered.filter((g) => g.status !== "live");
@@ -162,6 +181,42 @@ export default function DashboardShell({ games }: { games: Game[] }) {
                 <Star className={cn("h-3 w-3", watchlistOnly && "fill-current")} />
                 {watchlist.size > 0 && <span className="font-mono">{watchlist.size}</span>}
               </button>
+
+              <div className="h-4 w-px bg-[#141417] mx-1" />
+
+              {/* Signal filters */}
+              <button
+                onClick={() => setSignalFilter(signalFilter === "high" ? "none" : "high")}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all",
+                  signalFilter === "high" ? "text-[#ef4444] bg-[#ef4444]/8" : "text-[#3f3f46] hover:text-[#71717a]"
+                )}
+              >
+                <AlertTriangle className="h-3 w-3" />
+                High Impact
+              </button>
+
+              <button
+                onClick={() => setSignalFilter(signalFilter === "volatile" ? "none" : "volatile")}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all",
+                  signalFilter === "volatile" ? "text-[#f59e0b] bg-[#f59e0b]/8" : "text-[#3f3f46] hover:text-[#71717a]"
+                )}
+              >
+                <Zap className="h-3 w-3" />
+                Volatile
+              </button>
+
+              <button
+                onClick={() => setSignalFilter(signalFilter === "new" ? "none" : "new")}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all",
+                  signalFilter === "new" ? "text-[#3b82f6] bg-[#3b82f6]/8" : "text-[#3f3f46] hover:text-[#71717a]"
+                )}
+              >
+                <Clock className="h-3 w-3" />
+                New Signals
+              </button>
             </div>
           </div>
         </div>
@@ -180,8 +235,14 @@ export default function DashboardShell({ games }: { games: Game[] }) {
           )}
           <div className="flex items-center gap-1.5 text-[10px]">
             <Sparkles className="h-3 w-3 text-[#00ff7f]/50" />
-            <span className="text-[#3f3f46]">4 AI signals</span>
+            <span className="text-[#3f3f46]">{signalGameCount} with signals</span>
           </div>
+          {highImpactCount > 0 && (
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <AlertTriangle className="h-3 w-3 text-[#ef4444]/50" />
+              <span className="text-[#ef4444]/70">{highImpactCount} high impact</span>
+            </div>
+          )}
           {watchlist.size > 0 && (
             <div className="flex items-center gap-1.5 text-[10px]">
               <Star className="h-3 w-3 text-[#00ff7f]/50 fill-[#00ff7f]/50" />

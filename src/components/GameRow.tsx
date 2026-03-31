@@ -5,6 +5,9 @@ import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
 import { Star } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta } from "@/lib/books";
+import { getTopSignalForGame, getConfidenceForGame, hasHighSeveritySignal } from "@/lib/signals";
+import { SignalChip, SignalSummaryLine } from "@/components/SignalBadge";
+import { ConfidencePill } from "@/components/ConfidenceBadge";
 
 function bestH2H(game: Game, team: string) {
   const all = game.bookmakers.flatMap((b) =>
@@ -113,6 +116,11 @@ export default function GameRow({
   const away = game.away_team;
   const home = game.home_team;
 
+  // Signal system
+  const topSignal = getTopSignalForGame(game.id, home, away);
+  const confidence = getConfidenceForGame(game.id);
+  const isHighSeverity = hasHighSeveritySignal(game.id, home, away);
+
   const awayML = bestH2H(game, away);
   const homeML = bestH2H(game, home);
   const awaySpread = bestSpread(game, away);
@@ -130,20 +138,18 @@ export default function GameRow({
   return (
     <div className={cn(
       "relative group/row transition-colors",
-      isLive
-        ? "bg-[#ef4444]/[0.02] hover:bg-[#ef4444]/[0.04]"
-        : "hover:bg-white/[0.015]"
+      isHighSeverity && "bg-[#ef4444]/[0.015]",
+      isLive ? "bg-[#ef4444]/[0.02] hover:bg-[#ef4444]/[0.04]" : "hover:bg-white/[0.015]"
     )}>
-      {/* Live accent */}
       {isLive && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[#ef4444]" />}
+      {!isLive && isHighSeverity && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[#f59e0b]/50" />}
 
       <div
         className="grid items-center gap-2 px-5 py-2.5"
-        style={{ gridTemplateColumns: "minmax(180px,1fr) repeat(3, 80px) 28px" }}
+        style={{ gridTemplateColumns: "minmax(200px,1fr) repeat(3, 80px) 28px" }}
       >
         {/* ── Game info ──────────────── */}
         <div className="min-w-0 flex items-center gap-3">
-          {/* Time / status block */}
           <div className="w-[48px] shrink-0 text-center">
             {isLive ? (
               <div className="flex flex-col items-center gap-0.5">
@@ -157,7 +163,6 @@ export default function GameRow({
             )}
           </div>
 
-          {/* Teams */}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-[3px]">
               <div className="h-[18px] w-[18px] rounded bg-[#111113] border border-[#1a1a1f] flex items-center justify-center text-[7px] font-bold text-[#52525b] shrink-0">
@@ -171,11 +176,26 @@ export default function GameRow({
               </div>
               <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
             </div>
-            <div className="flex items-center gap-1.5 mt-1 pl-[26px]">
+
+            {/* Signal + confidence row */}
+            <div className="flex items-center gap-2 mt-1.5 pl-[26px]">
               <span className="text-[9px] text-[#3f3f46] uppercase tracking-wider">{game.sport_title}</span>
-              <span className="text-[9px] text-[#27272a]">·</span>
-              <span className="text-[9px] text-[#3f3f46]">{game.num_books} books</span>
+              <span className="text-[9px] text-[#1e1e24]">·</span>
+              <ConfidencePill confidence={confidence} compact />
+              {topSignal && (
+                <>
+                  <span className="text-[9px] text-[#1e1e24]">·</span>
+                  <SignalChip signal={topSignal} compact />
+                </>
+              )}
             </div>
+
+            {/* Signal summary line */}
+            {topSignal && (
+              <div className="pl-[26px] mt-0.5">
+                <SignalSummaryLine signal={topSignal} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -185,19 +205,19 @@ export default function GameRow({
           <OddsCell leg={homeMLLeg} selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false} onToggle={onToggleLeg} bookKey={homeML?.book} />
         </div>
 
-        {/* ── Spread ─────────────── */}
+        {/* ── Spread ─────────── */}
         <div className="flex flex-col gap-[3px]">
           <OddsCell leg={awaySpLeg} selected={awaySpLeg ? selectedIds.includes(awaySpLeg.id) : false} onToggle={onToggleLeg} point={awaySpread?.point} bookKey={awaySpread?.book} />
           <OddsCell leg={homeSpLeg} selected={homeSpLeg ? selectedIds.includes(homeSpLeg.id) : false} onToggle={onToggleLeg} point={homeSpread?.point} bookKey={homeSpread?.book} />
         </div>
 
-        {/* ── Total ──────────────── */}
+        {/* ── Total ──────────── */}
         <div className="flex flex-col gap-[3px]">
           <OddsCell leg={overLeg} selected={overLeg ? selectedIds.includes(overLeg.id) : false} onToggle={onToggleLeg} point={over?.point} bookKey={over?.book} />
           <OddsCell leg={underLeg} selected={underLeg ? selectedIds.includes(underLeg.id) : false} onToggle={onToggleLeg} point={under?.point} bookKey={under?.book} />
         </div>
 
-        {/* ── Watch ──────────────── */}
+        {/* ── Watch ──────────── */}
         <button
           onClick={() => onToggleWatch(game.id)}
           className={cn(
@@ -211,7 +231,6 @@ export default function GameRow({
         </button>
       </div>
 
-      {/* Bottom border */}
       <div className="mx-5 h-px bg-[#111113]" />
     </div>
   );
