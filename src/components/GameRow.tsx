@@ -2,7 +2,7 @@
 
 import { Game } from "@/types/game";
 import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
-import { Star, Minus } from "lucide-react";
+import { Star } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta } from "@/lib/books";
 
@@ -38,65 +38,61 @@ function buildLeg(id: string, game: Game, market: string, label: string, odds: n
     market,
     label,
     odds,
-    book: book ? (bookMeta(book).short) : undefined,
+    book: book ? bookMeta(book).short : undefined,
   };
 }
 
-function OddsBtn({
+function OddsCell({
   leg,
   selected,
   onToggle,
   point,
+  bookKey,
 }: {
-  leg: SlipLeg;
+  leg: SlipLeg | null;
   selected: boolean;
   onToggle: (l: SlipLeg) => void;
   point?: number;
+  bookKey?: string;
 }) {
+  if (!leg) {
+    return (
+      <div className="h-[38px] flex items-center justify-center">
+        <span className="text-[11px] text-[#1e1e24]">—</span>
+      </div>
+    );
+  }
+
+  const bm = bookKey ? bookMeta(bookKey) : null;
+
   return (
     <button
       onClick={() => onToggle(leg)}
       className={cn(
-        "w-[68px] h-[46px] rounded-md border flex flex-col items-center justify-center gap-[2px] transition-all duration-75 select-none group",
+        "h-[38px] w-full rounded-md border flex items-center justify-center gap-1.5 transition-all duration-75 select-none group/btn",
         selected
-          ? "border-[#00ff7f]/40 bg-[#00ff7f]/10 shadow-[0_0_0_1px_rgba(0,255,127,0.1)]"
-          : "border-[#1e1e24] bg-[#0f0f11] hover:border-[#2a2a35] hover:bg-[#161618]"
+          ? "border-[#00ff7f]/30 bg-[#00ff7f]/8"
+          : "border-[#141417] bg-[#0a0a0c] hover:border-[#1e1e24] hover:bg-[#0f0f11]"
       )}
     >
       {point !== undefined && (
-        <span className="text-[10px] font-semibold leading-none text-[#71717a]">
+        <span className="text-[10px] font-medium text-[#52525b]">
           {point > 0 ? `+${point}` : point}
         </span>
       )}
       <span className={cn(
-        "font-mono text-[13px] font-bold leading-none",
-        selected ? "text-[#00ff7f]" : leg.odds > 0 ? "text-[#00ff7f]" : "text-white"
+        "font-mono text-[12px] font-bold",
+        selected ? "text-[#00ff7f]" : leg.odds > 0 ? "text-[#00ff7f]" : "text-[#e4e4e7]"
       )}>
         {formatAmericanOdds(leg.odds)}
       </span>
-      {leg.book && (
-        <span className="text-[9px] leading-none text-[#3a3a3a] group-hover:text-[#52525b] transition-colors">
-          {leg.book}
-        </span>
+      {bm && (
+        <span
+          className="h-[5px] w-[5px] rounded-full shrink-0 opacity-40 group-hover/btn:opacity-70 transition-opacity"
+          style={{ background: bm.color }}
+        />
       )}
     </button>
-  );
-}
-
-function EmptyCell() {
-  return (
-    <div className="w-[68px] h-[46px] rounded-md border border-dashed border-[#1e1e24]/40 flex items-center justify-center">
-      <span className="text-[12px] text-[#2a2a35]">—</span>
-    </div>
-  );
-}
-
-// Movement indicator — placeholder, will be dynamic in Phase 5
-function MovementChip() {
-  return (
-    <div className="flex items-center justify-center w-4 h-4">
-      <Minus className="h-2.5 w-2.5 text-[#2a2a35]" />
-    </div>
   );
 }
 
@@ -133,107 +129,90 @@ export default function GameRow({
 
   return (
     <div className={cn(
-      "relative border-b border-[#1a1a1f] last:border-b-0 transition-colors",
-      isLive ? "bg-[#ef4444]/[0.025] hover:bg-[#ef4444]/[0.04]" : "hover:bg-[#ffffff]/[0.012]"
+      "relative group/row transition-colors",
+      isLive
+        ? "bg-[#ef4444]/[0.02] hover:bg-[#ef4444]/[0.04]"
+        : "hover:bg-white/[0.015]"
     )}>
-      {/* Live left accent */}
-      {isLive && <div className="absolute left-0 top-2 bottom-2 w-[2px] bg-[#ef4444]/70 rounded-r" />}
+      {/* Live accent */}
+      {isLive && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[#ef4444]" />}
 
       <div
-        className="grid items-center gap-3 px-4 py-3.5 pl-5"
-        style={{ gridTemplateColumns: "minmax(190px,1fr) 68px 68px 68px 28px" }}
+        className="grid items-center gap-2 px-5 py-2.5"
+        style={{ gridTemplateColumns: "minmax(180px,1fr) repeat(3, 80px) 28px" }}
       >
-        {/* ── Game info ─────────────────────────── */}
-        <div className="min-w-0">
-          {/* Meta */}
-          <div className="flex items-center gap-2 mb-2.5">
-            <span className="text-[10px] font-semibold text-[#52525b] uppercase tracking-widest">
-              {game.sport_title}
-            </span>
+        {/* ── Game info ──────────────── */}
+        <div className="min-w-0 flex items-center gap-3">
+          {/* Time / status block */}
+          <div className="w-[48px] shrink-0 text-center">
             {isLive ? (
-              <span className="inline-flex items-center gap-1 bg-[#ef4444]/15 border border-[#ef4444]/25 text-[#ef4444] text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full">
-                <span className="h-1 w-1 rounded-full bg-[#ef4444] animate-pulse" />
-                Live
-              </span>
+              <div className="flex flex-col items-center gap-0.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
+                <span className="text-[9px] font-bold text-[#ef4444] uppercase tracking-widest">Live</span>
+              </div>
             ) : (
-              <span className="text-[10px] text-[#52525b]">{timeUntilGame(game.commence_time)}</span>
+              <span className="text-[10px] text-[#52525b] font-medium leading-tight block">
+                {timeUntilGame(game.commence_time)}
+              </span>
             )}
-            <span className="text-[10px] text-[#3a3a3a]">{game.num_books} books</span>
           </div>
 
           {/* Teams */}
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <div className="h-[22px] w-[22px] rounded-md bg-[#161618] border border-[#252528] flex items-center justify-center text-[8px] font-bold text-[#71717a] shrink-0 tracking-wider">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-[3px]">
+              <div className="h-[18px] w-[18px] rounded bg-[#111113] border border-[#1a1a1f] flex items-center justify-center text-[7px] font-bold text-[#52525b] shrink-0">
                 {teamAbbr(away)}
               </div>
-              <span className="text-[13px] font-medium text-white truncate">{away}</span>
+              <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{away}</span>
             </div>
-
-            {/* @ divider */}
-            <div className="flex items-center gap-2 pl-[5px]">
-              <div className="h-px w-[12px] bg-[#252528]" />
-              <span className="text-[9px] text-[#3a3a3a] font-medium">@</span>
-            </div>
-
             <div className="flex items-center gap-2">
-              <div className="h-[22px] w-[22px] rounded-md bg-[#161618] border border-[#252528] flex items-center justify-center text-[8px] font-bold text-[#71717a] shrink-0 tracking-wider">
+              <div className="h-[18px] w-[18px] rounded bg-[#111113] border border-[#1a1a1f] flex items-center justify-center text-[7px] font-bold text-[#52525b] shrink-0">
                 {teamAbbr(home)}
               </div>
-              <span className="text-[13px] font-medium text-white truncate">{home}</span>
+              <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
+            </div>
+            <div className="flex items-center gap-1.5 mt-1 pl-[26px]">
+              <span className="text-[9px] text-[#3f3f46] uppercase tracking-wider">{game.sport_title}</span>
+              <span className="text-[9px] text-[#27272a]">·</span>
+              <span className="text-[9px] text-[#3f3f46]">{game.num_books} books</span>
             </div>
           </div>
         </div>
 
-        {/* ── Moneyline ──────────────────────── */}
-        <div className="flex flex-col gap-[5px] items-center">
-          <div className="flex items-center gap-1">
-            {awayMLLeg ? <OddsBtn leg={awayMLLeg} selected={selectedIds.includes(awayMLLeg.id)} onToggle={onToggleLeg} /> : <EmptyCell />}
-            <MovementChip />
-          </div>
-          <div className="flex items-center gap-1">
-            {homeMLLeg ? <OddsBtn leg={homeMLLeg} selected={selectedIds.includes(homeMLLeg.id)} onToggle={onToggleLeg} /> : <EmptyCell />}
-            <MovementChip />
-          </div>
+        {/* ── Moneyline ──────────── */}
+        <div className="flex flex-col gap-[3px]">
+          <OddsCell leg={awayMLLeg} selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false} onToggle={onToggleLeg} bookKey={awayML?.book} />
+          <OddsCell leg={homeMLLeg} selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false} onToggle={onToggleLeg} bookKey={homeML?.book} />
         </div>
 
-        {/* ── Spread ─────────────────────────── */}
-        <div className="flex flex-col gap-[5px] items-center">
-          <div className="flex items-center gap-1">
-            {awaySpLeg ? <OddsBtn leg={awaySpLeg} selected={selectedIds.includes(awaySpLeg.id)} onToggle={onToggleLeg} point={awaySpread?.point} /> : <EmptyCell />}
-            <MovementChip />
-          </div>
-          <div className="flex items-center gap-1">
-            {homeSpLeg ? <OddsBtn leg={homeSpLeg} selected={selectedIds.includes(homeSpLeg.id)} onToggle={onToggleLeg} point={homeSpread?.point} /> : <EmptyCell />}
-            <MovementChip />
-          </div>
+        {/* ── Spread ─────────────── */}
+        <div className="flex flex-col gap-[3px]">
+          <OddsCell leg={awaySpLeg} selected={awaySpLeg ? selectedIds.includes(awaySpLeg.id) : false} onToggle={onToggleLeg} point={awaySpread?.point} bookKey={awaySpread?.book} />
+          <OddsCell leg={homeSpLeg} selected={homeSpLeg ? selectedIds.includes(homeSpLeg.id) : false} onToggle={onToggleLeg} point={homeSpread?.point} bookKey={homeSpread?.book} />
         </div>
 
-        {/* ── Total ──────────────────────────── */}
-        <div className="flex flex-col gap-[5px] items-center">
-          <div className="flex items-center gap-1">
-            {overLeg ? <OddsBtn leg={overLeg} selected={selectedIds.includes(overLeg.id)} onToggle={onToggleLeg} point={over?.point} /> : <EmptyCell />}
-            <MovementChip />
-          </div>
-          <div className="flex items-center gap-1">
-            {underLeg ? <OddsBtn leg={underLeg} selected={selectedIds.includes(underLeg.id)} onToggle={onToggleLeg} point={under?.point} /> : <EmptyCell />}
-            <MovementChip />
-          </div>
+        {/* ── Total ──────────────── */}
+        <div className="flex flex-col gap-[3px]">
+          <OddsCell leg={overLeg} selected={overLeg ? selectedIds.includes(overLeg.id) : false} onToggle={onToggleLeg} point={over?.point} bookKey={over?.book} />
+          <OddsCell leg={underLeg} selected={underLeg ? selectedIds.includes(underLeg.id) : false} onToggle={onToggleLeg} point={under?.point} bookKey={under?.book} />
         </div>
 
-        {/* ── Watch ──────────────────────────── */}
-        <div className="flex items-center justify-center self-center">
-          <button
-            onClick={() => onToggleWatch(game.id)}
-            className={cn(
-              "p-1.5 rounded-md transition-all",
-              watchlisted ? "text-[#00ff7f]" : "text-[#2a2a35] hover:text-[#52525b]"
-            )}
-          >
-            <Star className={cn("h-3.5 w-3.5", watchlisted && "fill-current")} />
-          </button>
-        </div>
+        {/* ── Watch ──────────────── */}
+        <button
+          onClick={() => onToggleWatch(game.id)}
+          className={cn(
+            "flex items-center justify-center self-center p-1 rounded transition-all",
+            watchlisted
+              ? "text-[#00ff7f] drop-shadow-[0_0_3px_rgba(0,255,127,0.3)]"
+              : "text-[#1e1e24] group-hover/row:text-[#3f3f46]"
+          )}
+        >
+          <Star className={cn("h-3.5 w-3.5", watchlisted && "fill-current")} />
+        </button>
       </div>
+
+      {/* Bottom border */}
+      <div className="mx-5 h-px bg-[#111113]" />
     </div>
   );
 }

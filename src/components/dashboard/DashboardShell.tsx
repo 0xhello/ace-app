@@ -5,7 +5,7 @@ import { Game } from "@/types/game";
 import GameRow from "@/components/GameRow";
 import TopAIPicks from "@/components/TopAIPicks";
 import BetSlip from "@/components/BetSlip";
-import { Activity, Search, Sparkles, Star, TrendingUp, Zap } from "lucide-react";
+import { Activity, Search, Sparkles, Star, TrendingUp, Zap, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type SportFilter = "ALL" | "NBA" | "NFL" | "MLB" | "NHL" | "NCAAB";
@@ -21,8 +21,13 @@ export interface SlipLeg {
   book?: string;
 }
 
-const SPORT_EMOJIS: Record<string, string> = {
-  ALL: "🏆", NBA: "🏀", NFL: "🏈", MLB: "⚾", NHL: "🏒", NCAAB: "🎓",
+const SPORT_LABELS: Record<string, { emoji: string; label: string }> = {
+  ALL:   { emoji: "🏆", label: "All" },
+  NBA:   { emoji: "🏀", label: "NBA" },
+  NFL:   { emoji: "🏈", label: "NFL" },
+  MLB:   { emoji: "⚾", label: "MLB" },
+  NHL:   { emoji: "🏒", label: "NHL" },
+  NCAAB: { emoji: "🎓", label: "NCAAB" },
 };
 
 const SPORTS: SportFilter[] = ["ALL", "NBA", "NFL", "MLB", "NHL", "NCAAB"];
@@ -33,7 +38,6 @@ export default function DashboardShell({ games }: { games: Game[] }) {
   const [query, setQuery] = useState("");
   const [slip, setSlip] = useState<SlipLeg[]>([]);
   const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
-  const [aiPicksOnly, setAiPicksOnly] = useState(false);
   const [watchlistOnly, setWatchlistOnly] = useState(false);
 
   const liveCount = games.filter((g) => g.status === "live").length;
@@ -81,145 +85,134 @@ export default function DashboardShell({ games }: { games: Game[] }) {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* ── Main board ─────────────────────────────────────── */}
-      <div className="flex flex-col flex-1 overflow-hidden">
+      {/* ── Main board ─────────────────────── */}
+      <div className="flex flex-col flex-1 overflow-hidden bg-[#09090b]">
 
-        {/* Top header */}
-        <div className="shrink-0 border-b border-[#1e1e24] bg-[#09090b]">
-          {/* Title row */}
-          <div className="flex items-center gap-4 px-6 h-12">
-            <h1 className="text-[15px] font-semibold text-white">Today's Games</h1>
-            <div className="flex-1 max-w-[420px] ml-2">
-              <div className="flex items-center gap-2 bg-[#111113] border border-[#1e1e24] rounded-lg px-3 py-1.5">
-                <Search className="h-3.5 w-3.5 text-[#52525b] shrink-0" />
+        {/* ── Command bar ──────────────── */}
+        <div className="shrink-0 border-b border-[#141417] bg-[#08080a]">
+          <div className="flex items-center gap-3 px-5 h-11">
+            {/* Sport selector */}
+            <div className="flex items-center gap-0.5 bg-[#0c0c0e] border border-[#141417] rounded-lg p-0.5">
+              {SPORTS.map((s) => {
+                const info = SPORT_LABELS[s];
+                const count = sportCounts[s];
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setSport(s)}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all",
+                      sport === s
+                        ? "bg-[#141417] text-white shadow-sm"
+                        : "text-[#52525b] hover:text-[#a1a1aa]"
+                    )}
+                  >
+                    <span className="text-[10px]">{info.emoji}</span>
+                    <span>{info.label}</span>
+                    {count !== undefined && count > 0 && (
+                      <span className={cn("text-[9px] font-mono", sport === s ? "text-[#00ff7f]" : "text-[#3f3f46]")}>
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search */}
+            <div className="flex-1 max-w-[320px]">
+              <div className="flex items-center gap-2 bg-[#0c0c0e] border border-[#141417] rounded-lg px-2.5 py-1.5">
+                <Search className="h-3 w-3 text-[#3f3f46] shrink-0" />
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search teams, players, sports..."
-                  className="bg-transparent outline-none text-[12px] text-white placeholder:text-[#52525b] w-full"
+                  placeholder="Search teams or matchups..."
+                  className="bg-transparent outline-none text-[11px] text-white placeholder:text-[#3f3f46] w-full"
                 />
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-3 text-[11px] text-[#52525b]">
-              <Activity className="h-3.5 w-3.5 text-[#00ff7f]" />
-              {liveCount} live · {games.length} total
-            </div>
-          </div>
 
-          {/* Sport tabs */}
-          <div className="flex items-center gap-1 px-4 pb-0 overflow-x-auto scrollbar-hide border-t border-[#1e1e24] pt-2">
-            {SPORTS.map((s) => (
+            {/* Quick filters */}
+            <div className="flex items-center gap-1 ml-auto">
+              {(["ALL", "LIVE", "TODAY"] as TimeFilter[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTime(t)}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-semibold transition-all",
+                    time === t
+                      ? "bg-[#141417] text-white"
+                      : "text-[#3f3f46] hover:text-[#71717a]"
+                  )}
+                >
+                  {t === "LIVE" && <span className={cn("h-1.5 w-1.5 rounded-full", liveCount > 0 ? "bg-[#ef4444] animate-pulse" : "bg-[#3f3f46]")} />}
+                  {t === "ALL" ? "All" : t === "LIVE" ? `Live ${liveCount}` : "Today"}
+                </button>
+              ))}
+
+              <div className="h-4 w-px bg-[#141417] mx-1" />
+
               <button
-                key={s}
-                onClick={() => setSport(s)}
+                onClick={() => setWatchlistOnly(!watchlistOnly)}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium shrink-0 transition-colors mb-2",
-                  sport === s
-                    ? "bg-[#00ff7f]/10 text-[#00ff7f] border border-[#00ff7f]/20"
-                    : "text-[#71717a] hover:text-white border border-transparent hover:bg-white/5"
+                  "flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-all",
+                  watchlistOnly ? "text-[#00ff7f] bg-[#00ff7f]/8" : "text-[#3f3f46] hover:text-[#71717a]"
                 )}
               >
-                <span>{SPORT_EMOJIS[s]}</span>
-                {s}
-                {sportCounts[s] !== undefined && (
-                  <span className={cn("text-[10px]", sport === s ? "text-[#00ff7f]/60" : "text-[#3f3f46]")}>
-                    {sportCounts[s]}
-                  </span>
-                )}
+                <Star className={cn("h-3 w-3", watchlistOnly && "fill-current")} />
+                {watchlist.size > 0 && <span className="font-mono">{watchlist.size}</span>}
               </button>
-            ))}
+            </div>
           </div>
         </div>
 
-        {/* AI Picks banner */}
+        {/* ── Slate summary ────────────── */}
+        <div className="shrink-0 border-b border-[#141417] bg-[#08080a] px-5 py-1.5 flex items-center gap-4">
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <Activity className="h-3 w-3 text-[#00ff7f]" />
+            <span className="text-[#71717a] font-medium">{games.length} games</span>
+          </div>
+          {liveCount > 0 && (
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
+              <span className="text-[#ef4444] font-medium">{liveCount} live</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <Sparkles className="h-3 w-3 text-[#00ff7f]/50" />
+            <span className="text-[#3f3f46]">4 AI signals</span>
+          </div>
+          {watchlist.size > 0 && (
+            <div className="flex items-center gap-1.5 text-[10px]">
+              <Star className="h-3 w-3 text-[#00ff7f]/50 fill-[#00ff7f]/50" />
+              <span className="text-[#3f3f46]">{watchlist.size} watching</span>
+            </div>
+          )}
+        </div>
+
+        {/* ── AI Picks ─────────────────── */}
         <TopAIPicks onAddLeg={toggleLeg} />
 
-        {/* Filter bar */}
-        <div className="shrink-0 border-b border-[#1e1e24] bg-[#09090b] px-4 py-2 flex items-center gap-3 flex-wrap">
-          {/* Time filters */}
-          {(["ALL", "LIVE", "TODAY"] as TimeFilter[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTime(t)}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium border transition-colors",
-                time === t
-                  ? "border-[#00ff7f]/20 bg-[#00ff7f]/10 text-[#00ff7f]"
-                  : "border-transparent text-[#71717a] hover:text-white"
-              )}
-            >
-              {t === "LIVE" && liveCount > 0 && (
-                <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
-              )}
-              {t === "LIVE" ? `Live (${liveCount})` : t === "ALL" ? "All Games" : t}
-            </button>
-          ))}
-
-          <div className="h-3.5 w-px bg-[#27272a]" />
-
-          <span className="text-[11px] text-[#52525b]">Filters:</span>
-
-          <button
-            onClick={() => setAiPicksOnly(!aiPicksOnly)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors",
-              aiPicksOnly ? "border-[#00ff7f]/20 bg-[#00ff7f]/10 text-[#00ff7f]" : "border-[#1e1e24] text-[#52525b] hover:text-white"
-            )}
-          >
-            <Sparkles className="h-3 w-3" /> AI Picks
-          </button>
-
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border border-[#1e1e24] text-[#52525b] hover:text-white transition-colors">
-            <Zap className="h-3 w-3" /> 85%+ Confidence
-          </button>
-
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border border-[#1e1e24] text-[#52525b] hover:text-white transition-colors">
-            <TrendingUp className="h-3 w-3" /> Line Movement
-          </button>
-
-          <button
-            onClick={() => setWatchlistOnly(!watchlistOnly)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium border transition-colors",
-              watchlistOnly ? "border-[#00ff7f]/20 bg-[#00ff7f]/10 text-[#00ff7f]" : "border-[#1e1e24] text-[#52525b] hover:text-white"
-            )}
-          >
-            <Star className="h-3 w-3" /> Watchlist
-            {watchlist.size > 0 && (
-              <span className={cn("text-[9px] px-1 rounded-full", watchlistOnly ? "bg-[#00ff7f]/20 text-[#00ff7f]" : "bg-[#27272a] text-[#52525b]")}>
-                {watchlist.size}
-              </span>
-            )}
-          </button>
-
-          <div className="ml-auto flex items-center gap-3 text-[11px] text-[#52525b]">
-            {watchlist.size > 0 && (
-              <span className="flex items-center gap-1"><Star className="h-3 w-3 text-[#00ff7f] fill-[#00ff7f]" />{watchlist.size} watching</span>
-            )}
-            <span className="flex items-center gap-1"><Sparkles className="h-3 w-3 text-[#00ff7f]" />8 AI picks</span>
-          </div>
-        </div>
-
-        {/* Column headers */}
+        {/* ── Column headers ───────────── */}
         <div
-          className="shrink-0 px-4 py-2 pl-5 grid items-center gap-3 border-b border-[#1e1e24] bg-[#0d0d10]"
-          style={{ gridTemplateColumns: "minmax(200px,1fr) 70px 70px 70px 32px" }}
+          className="shrink-0 px-5 py-1.5 grid items-center gap-2 border-b border-[#141417] bg-[#08080a]"
+          style={{ gridTemplateColumns: "minmax(180px,1fr) repeat(3, 80px) 28px" }}
         >
-          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider">Game</span>
-          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider text-center">ML</span>
-          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider text-center">Spread</span>
-          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider text-center">Total</span>
-          <span className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider text-center">★</span>
+          <span className="text-[9px] text-[#3f3f46] font-semibold uppercase tracking-widest">Matchup</span>
+          <span className="text-[9px] text-[#3f3f46] font-semibold uppercase tracking-widest text-center">ML</span>
+          <span className="text-[9px] text-[#3f3f46] font-semibold uppercase tracking-widest text-center">Spread</span>
+          <span className="text-[9px] text-[#3f3f46] font-semibold uppercase tracking-widest text-center">Total</span>
+          <span />
         </div>
 
-        {/* Scrollable board */}
-        <div className="flex-1 overflow-y-auto">
+        {/* ── Scrollable board ─────────── */}
+        <div className="flex-1 overflow-y-auto scrollbar-hide">
           {liveGames.length > 0 && (
             <>
-              <div className="flex items-center gap-2 px-5 py-2 bg-[#ef4444]/5 border-b border-[#ef4444]/10">
+              <div className="flex items-center gap-2 px-5 py-1.5 bg-[#ef4444]/[0.03] border-b border-[#ef4444]/10">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
-                <span className="text-[10px] font-bold text-[#ef4444] uppercase tracking-wider">Live Now</span>
-                <span className="text-[10px] text-[#ef4444]/50 font-semibold">{liveGames.length}</span>
+                <span className="text-[9px] font-bold text-[#ef4444] uppercase tracking-widest">Live</span>
+                <span className="text-[9px] text-[#ef4444]/40 font-mono">{liveGames.length}</span>
               </div>
               {liveGames.map((g) => (
                 <GameRow key={g.id} game={g} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} />
@@ -230,9 +223,9 @@ export default function DashboardShell({ games }: { games: Game[] }) {
           {upcomingGames.length > 0 && (
             <>
               {liveGames.length > 0 && (
-                <div className="flex items-center gap-2 px-5 py-2 border-b border-[#1e1e24] bg-[#0d0d10]">
-                  <span className="text-[10px] font-bold text-[#52525b] uppercase tracking-wider">Upcoming</span>
-                  <span className="text-[10px] text-[#3f3f46]">{upcomingGames.length}</span>
+                <div className="flex items-center gap-2 px-5 py-1.5 border-b border-[#141417] bg-[#08080a]">
+                  <span className="text-[9px] font-bold text-[#3f3f46] uppercase tracking-widest">Upcoming</span>
+                  <span className="text-[9px] text-[#27272a] font-mono">{upcomingGames.length}</span>
                 </div>
               )}
               {upcomingGames.map((g) => (
@@ -242,16 +235,16 @@ export default function DashboardShell({ games }: { games: Game[] }) {
           )}
 
           {filtered.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-24 gap-2 text-center">
-              <p className="text-white font-medium">No games found</p>
-              <p className="text-sm text-[#52525b]">Try adjusting your filters</p>
+            <div className="flex flex-col items-center justify-center py-20 gap-2 text-center">
+              <p className="text-[13px] text-[#52525b] font-medium">No games match your filters</p>
+              <p className="text-[11px] text-[#3f3f46]">Try adjusting sport or time filters</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Right rail — Bet Calculator ─────────────────── */}
-      <div className="w-[300px] xl:w-[340px] shrink-0 border-l border-[#1e1e24] overflow-hidden">
+      {/* ── Right rail ─────────────────── */}
+      <div className="w-[280px] xl:w-[320px] shrink-0 border-l border-[#141417] overflow-hidden">
         <BetSlip slip={slip} onRemove={removeLeg} onClear={() => setSlip([])} />
       </div>
     </div>
