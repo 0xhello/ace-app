@@ -32,14 +32,32 @@ Objective: Rebuild the dashboard into one clear operating surface with strong in
 - auth/billing
 - full mobile polish
 
-### Work Started
-- 2026-03-31
+### Files Changed
+- src/app/dashboard/layout.tsx
+- src/app/dashboard/page.tsx
+- src/components/Sidebar.tsx
+- src/components/GameRow.tsx (new)
+- src/components/dashboard/DashboardShell.tsx
 
-### Review Goal
-When complete, the dashboard should feel like:
-- one operating surface
-- one intelligent flow
-- one betting workstation
+### Commit
+89ff531
 
-instead of:
-- rough cards and disconnected panels
+### Changes Made
+- Fixed dashboard layout to full-screen h-screen with no-overflow
+- Rebuilt sidebar: collapsible icon-only on mobile, full labels on desktop
+- Built top filter bar: sport pills, time filters, search, live status
+- Built intelligence strip below top bar
+- Built board column headers aligned to rows
+- Rebuilt game row system: teams + ML + Spread + Total + Watch in one row
+- Odds buttons: clean, monospaced, clickable, selected state in ACE green
+- Right rail: slip, combined odds calculator, intelligence placeholder, market tape
+- Scrollable board, fixed top + right rail
+
+### Status
+Deployed to Railway via GitHub push.
+
+### Review URL
+https://ace-app-production-71e8.up.railway.app/dashboard
+
+### Awaiting Review
+Pixl — Phase 1 approval checkpoint.
