@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { ArrowLeft, Bell, Filter, LineChart, Lock } from "lucide-react";
-import { fetchGameById } from "@/lib/games-data";
-import { getConfidenceForGame, getSignalsForGame } from "@/lib/signals";
-import { getTrackingSince, getPrimaryLean, getConfidenceHistory, sortSignals } from "@/lib/tracked";
+import { ArrowLeft, Bell, Filter, LineChart, Lock, Database } from "lucide-react";
+import { fetchGameIntel } from "@/lib/intel-data";
 import { ConfidencePill } from "@/components/ConfidenceBadge";
 import { SignalChip } from "@/components/SignalBadge";
 
@@ -26,18 +24,24 @@ function Sparkline({ values }: { values: { idx: number; pct: number }[] }) {
   );
 }
 
+function historyFromConfidence(pct: number) {
+  return Array.from({ length: 12 }).map((_, i) => ({ idx: i, pct: Math.max(45, Math.min(95, pct + ((i % 5) - 2))) }));
+}
+
 export default async function TrackedGamePage({ params }: { params: Promise<{ gameId: string }> }) {
   const { gameId } = await params;
-  const game = await fetchGameById(gameId);
+  const intel = await fetchGameIntel(gameId);
 
-  if (!game) {
+  if (!intel?.game) {
     return <div className="p-8 text-[#71717a]">Tracked game not found.</div>;
   }
 
-  const confidence = getConfidenceForGame(game.id);
-  const signals = sortSignals(getSignalsForGame(game.id, game.home_team, game.away_team));
-  const history = getConfidenceHistory(game.id);
-  const primaryLean = getPrimaryLean(game);
+  const game = intel.game;
+  const confidence = intel.confidence;
+  const signals = intel.signals || [];
+  const history = historyFromConfidence(confidence?.pct ?? 70);
+  const scoreboard = intel.scoreboard;
+  const sourceStatus = intel.source_status || {};
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#09090b]">
@@ -46,16 +50,25 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
           <ArrowLeft className="h-3.5 w-3.5" /> Back to tracked
         </Link>
 
-        {/* Header */}
         <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-[11px] text-[#52525b] uppercase tracking-widest mb-1">Tracked game intelligence</p>
               <h1 className="text-[22px] font-bold text-white">{game.away_team} @ {game.home_team}</h1>
-              <div className="flex items-center gap-3 mt-2 text-[11px] text-[#71717a]">
+              <div className="flex items-center gap-3 mt-2 text-[11px] text-[#71717a] flex-wrap">
                 <span>{game.status === "live" ? "LIVE" : "Upcoming"}</span>
-                <span>•</span>
-                <span>Tracking since {getTrackingSince(game.id)}</span>
+                {scoreboard?.away_score != null && scoreboard?.home_score != null && (
+                  <>
+                    <span>•</span>
+                    <span className="text-white font-medium">{scoreboard.away_score} - {scoreboard.home_score}</span>
+                  </>
+                )}
+                {scoreboard?.clock && (
+                  <>
+                    <span>•</span>
+                    <span>{scoreboard.clock}</span>
+                  </>
+                )}
                 <span>•</span>
                 <span>{game.sport_title}</span>
               </div>
@@ -66,38 +79,36 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
           </div>
         </div>
 
-        {/* Current AI read */}
         <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-4">
           <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
             <p className="text-[11px] text-[#52525b] uppercase tracking-widest mb-3">Current AI read</p>
-            <div className="flex items-center gap-3 mb-3">
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
               <ConfidencePill confidence={confidence} />
-              <span className="text-[11px] px-2 py-1 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">{confidence.status}</span>
+              <span className="text-[11px] px-2 py-1 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">{confidence?.status}</span>
             </div>
-            <p className="text-[18px] font-semibold text-white mb-2">{primaryLean}</p>
-            <p className="text-[12px] text-[#a1a1aa] leading-relaxed">{confidence.explanation}</p>
+            <p className="text-[18px] font-semibold text-white mb-2">{confidence?.label}</p>
+            <p className="text-[12px] text-[#a1a1aa] leading-relaxed">{confidence?.explanation}</p>
           </div>
 
           <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
-            <p className="text-[11px] text-[#52525b] uppercase tracking-widest mb-3">Odds context</p>
+            <p className="text-[11px] text-[#52525b] uppercase tracking-widest mb-3">Source status</p>
             <div className="space-y-2 text-[12px]">
-              <div className="flex items-center justify-between"><span className="text-[#71717a]">Direction</span><span className="text-[#00ff7f]">Market leaning sharper</span></div>
-              <div className="flex items-center justify-between"><span className="text-[#71717a]">Pressure</span><span className="text-white">Moderate</span></div>
-              <div className="flex items-center justify-between"><span className="text-[#71717a]">Playability</span><span className="text-[#f59e0b]">Watch current price</span></div>
+              <div className="flex items-center justify-between"><span className="text-[#71717a]">Odds</span><span className="text-[#00ff7f]">Ready</span></div>
+              <div className="flex items-center justify-between"><span className="text-[#71717a]">Scoreboard</span><span className="text-white">{sourceStatus.scoreboard?.matched ? "Matched" : sourceStatus.scoreboard?.ok ? "Reachable" : "Unavailable"}</span></div>
+              <div className="flex items-center justify-between"><span className="text-[#71717a]">Injuries</span><span className="text-[#f59e0b]">Mapping needed</span></div>
+              <div className="flex items-center justify-between"><span className="text-[#71717a]">Weather</span><span className="text-[#f59e0b]">Venue coords needed</span></div>
             </div>
           </div>
         </div>
 
-        {/* Confidence history */}
         <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
           <div className="flex items-center justify-between mb-4">
             <p className="text-[11px] text-[#52525b] uppercase tracking-widest">Confidence history</p>
-            <div className="text-[11px] text-[#71717a] inline-flex items-center gap-1.5"><LineChart className="h-3.5 w-3.5 text-[#00ff7f]" /> Last 12 updates</div>
+            <div className="text-[11px] text-[#71717a] inline-flex items-center gap-1.5"><LineChart className="h-3.5 w-3.5 text-[#00ff7f]" /> Internal trend</div>
           </div>
           <Sparkline values={history} />
         </div>
 
-        {/* Signals feed */}
         <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
           <div className="flex items-center justify-between mb-4">
             <p className="text-[11px] text-[#52525b] uppercase tracking-widest">Signals feed</p>
@@ -113,16 +124,18 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
 
           <div className="space-y-3">
             {signals.length === 0 ? (
-              <p className="text-[12px] text-[#71717a]">No active signals.</p>
-            ) : signals.map((signal) => (
-              <details key={signal.id} className="rounded-xl border border-[#141417] bg-[#09090b] p-3 group" open={false}>
+              <div className="rounded-xl border border-[#141417] bg-[#09090b] p-4 text-[12px] text-[#71717a] inline-flex items-center gap-2">
+                <Database className="h-4 w-4 text-[#3f3f46]" /> No internal signals yet from real adapters.
+              </div>
+            ) : signals.map((signal: any) => (
+              <details key={signal.id} className="rounded-xl border border-[#141417] bg-[#09090b] p-3 group">
                 <summary className="list-none cursor-pointer">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <SignalChip signal={signal} compact />
-                        <span className="text-[10px] text-[#52525b] uppercase tracking-wider">benefits: {signal.benefits.length ? signal.benefits.join(", ") : "impact unclear"}</span>
-                        <span className="text-[10px] text-[#52525b] uppercase tracking-wider">harms: {signal.harms.length ? signal.harms.join(", ") : "impact unclear"}</span>
+                        <span className="text-[10px] text-[#52525b] uppercase tracking-wider">benefits: {signal.benefits?.length ? signal.benefits.join(", ") : "impact unclear"}</span>
+                        <span className="text-[10px] text-[#52525b] uppercase tracking-wider">harms: {signal.harms?.length ? signal.harms.join(", ") : "impact unclear"}</span>
                       </div>
                       <p className="text-[12px] text-white font-medium">{signal.summary}</p>
                     </div>
@@ -130,7 +143,7 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
                   </div>
                 </summary>
                 <div className="mt-3 pt-3 border-t border-[#141417] space-y-2">
-                  <p className="text-[12px] text-[#a1a1aa] leading-relaxed">{signal.details}</p>
+                  <pre className="text-[11px] text-[#a1a1aa] whitespace-pre-wrap break-words">{typeof signal.details === "string" ? signal.details : JSON.stringify(signal.details, null, 2)}</pre>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
                     <div><span className="text-[#52525b]">Certainty:</span> <span className="text-white">{signal.certainty}</span></div>
                     <div><span className="text-[#52525b]">Source:</span> <span className="text-white">{signal.sourceCategory}</span></div>
