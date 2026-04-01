@@ -16,7 +16,7 @@ import {
 
 const NAV = [
   { href: "/dashboard", label: "Board", icon: LayoutGrid },
-  { href: "/dashboard/picks", label: "AI Picks", icon: Sparkles },
+  { href: "/dashboard/tracked", label: "Tracked", icon: Sparkles },
   { href: "/dashboard/watchlist", label: "Watchlist", icon: Star },
   { href: "/dashboard/parlay", label: "Builder", icon: Layers },
   { href: "/dashboard/alerts", label: "Alerts", icon: Bell },
