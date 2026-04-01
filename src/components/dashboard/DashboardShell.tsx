@@ -34,7 +34,7 @@ const SPORT_LABELS: Record<string, { emoji: string; label: string }> = {
 
 const SPORTS: SportFilter[] = ["ALL", "NBA", "NFL", "MLB", "NHL", "NCAAB"];
 
-export default function DashboardShell({ games }: { games: Game[] }) {
+export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt }: { games: Game[]; intelMap?: Record<string, any>; boardUpdatedAt?: string | null }) {
   const [sport, setSport] = useState<SportFilter>("ALL");
   const [time, setTime] = useState<TimeFilter>("ALL");
   const [query, setQuery] = useState("");
@@ -46,12 +46,12 @@ export default function DashboardShell({ games }: { games: Game[] }) {
   const liveCount = games.filter((g) => g.status === "live").length;
 
   const highImpactCount = useMemo(() => {
-    return games.filter((g) => hasHighSeveritySignal(g.id, g.home_team, g.away_team)).length;
-  }, [games]);
+    return games.filter((g) => intelMap[g.id]?.has_high_severity ?? hasHighSeveritySignal(g.id, g.home_team, g.away_team)).length;
+  }, [games, intelMap]);
 
   const signalGameCount = useMemo(() => {
-    return games.filter((g) => getSignalsForGame(g.id, g.home_team, g.away_team).length > 0).length;
-  }, [games]);
+    return games.filter((g) => (intelMap[g.id]?.signals_count ?? getSignalsForGame(g.id, g.home_team, g.away_team).length) > 0).length;
+  }, [games, intelMap]);
 
   const sportCounts = useMemo(() => {
     const c: Record<string, number> = { ALL: games.length };
@@ -74,16 +74,23 @@ export default function DashboardShell({ games }: { games: Game[] }) {
       const textOk = !q || `${g.away_team} ${g.home_team} ${g.sport_title}`.toLowerCase().includes(q);
       const wlOk = !watchlistOnly || watchlist.has(g.id);
 
+      const intel = intelMap[g.id];
+      const signalsCount = intel?.signals_count ?? getSignalsForGame(g.id, g.home_team, g.away_team).length;
+      const highSeverity = intel?.has_high_severity ?? hasHighSeveritySignal(g.id, g.home_team, g.away_team);
+      const isVolatile = intel?.is_volatile ?? false;
+
       let sigOk = true;
       if (signalFilter === "high") {
-        sigOk = hasHighSeveritySignal(g.id, g.home_team, g.away_team);
-      } else if (signalFilter === "new" || signalFilter === "volatile") {
-        sigOk = getSignalsForGame(g.id, g.home_team, g.away_team).length > 0;
+        sigOk = highSeverity;
+      } else if (signalFilter === "volatile") {
+        sigOk = isVolatile || signalsCount > 0;
+      } else if (signalFilter === "new") {
+        sigOk = signalsCount > 0;
       }
 
       return sportOk && timeOk && textOk && wlOk && sigOk;
     });
-  }, [games, sport, time, query, watchlistOnly, watchlist, signalFilter]);
+  }, [games, sport, time, query, watchlistOnly, watchlist, signalFilter, intelMap]);
 
   const liveGames = filtered.filter((g) => g.status === "live");
   const upcomingGames = filtered.filter((g) => g.status !== "live");
@@ -101,13 +108,11 @@ export default function DashboardShell({ games }: { games: Game[] }) {
   }
 
   const selectedIds = slip.map((x) => x.id);
+  const boardUpdateLabel = boardUpdatedAt ? new Date(boardUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* ── Main board ─────────────────────── */}
       <div className="flex flex-col flex-1 overflow-hidden bg-[#09090b]">
-
-        {/* ── Top bar: search + notifications ── */}
         <div className="shrink-0 border-b border-[#141417] bg-[#08080a] flex items-center gap-3 px-5 h-11">
           <div className="flex-1 max-w-[400px]">
             <div className="flex items-center gap-2 bg-[#0c0c0e] border border-[#141417] rounded-lg px-3 py-1.5">
@@ -121,7 +126,6 @@ export default function DashboardShell({ games }: { games: Game[] }) {
             </div>
           </div>
 
-          {/* Slate summary chips */}
           <div className="flex items-center gap-3 ml-auto">
             <div className="flex items-center gap-1.5 text-[10px]">
               <Activity className="h-3 w-3 text-[#00ff7f]" />
@@ -139,12 +143,14 @@ export default function DashboardShell({ games }: { games: Game[] }) {
                 <span className="text-[#3f3f46]">{signalGameCount} signals</span>
               </div>
             )}
+            {boardUpdateLabel && (
+              <div className="text-[10px] text-[#3f3f46]">Updated {boardUpdateLabel}</div>
+            )}
 
             <NotificationBell games={games} />
           </div>
         </div>
 
-        {/* ── Sport tabs — own row ─────── */}
         <div className="shrink-0 border-b border-[#141417] bg-[#08080a] px-5 py-1.5">
           <div className="flex items-center gap-1">
             {SPORTS.map((s) => {
@@ -174,9 +180,7 @@ export default function DashboardShell({ games }: { games: Game[] }) {
           </div>
         </div>
 
-        {/* ── Filter bar — separate row ── */}
         <div className="shrink-0 border-b border-[#141417] bg-[#0a0a0c] px-5 py-1.5 flex items-center gap-2">
-          {/* Time filters */}
           {(["ALL", "LIVE", "TODAY"] as TimeFilter[]).map((t) => (
             <button
               key={t}
@@ -195,7 +199,6 @@ export default function DashboardShell({ games }: { games: Game[] }) {
 
           <div className="h-4 w-px bg-[#1e1e24] mx-1" />
 
-          {/* Signal filters */}
           <button
             onClick={() => setSignalFilter(signalFilter === "high" ? "none" : "high")}
             className={cn(
@@ -261,10 +264,8 @@ export default function DashboardShell({ games }: { games: Game[] }) {
           </button>
         </div>
 
-        {/* ── AI Picks ─────────────────── */}
         <TopAIPicks onAddLeg={toggleLeg} />
 
-        {/* ── Column headers ───────────── */}
         <div
           className="shrink-0 px-5 py-1.5 grid items-center gap-2 border-b border-[#141417] bg-[#08080a]"
           style={{ gridTemplateColumns: "minmax(200px,1fr) repeat(3, 80px) 28px" }}
@@ -276,7 +277,6 @@ export default function DashboardShell({ games }: { games: Game[] }) {
           <span />
         </div>
 
-        {/* ── Scrollable board ─────────── */}
         <div className="flex-1 overflow-y-auto scrollbar-hide">
           {liveGames.length > 0 && (
             <>
@@ -286,7 +286,7 @@ export default function DashboardShell({ games }: { games: Game[] }) {
                 <span className="text-[9px] text-[#ef4444]/40 font-mono">{liveGames.length}</span>
               </div>
               {liveGames.map((g) => (
-                <GameRow key={g.id} game={g} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} />
+                <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} />
               ))}
             </>
           )}
@@ -300,7 +300,7 @@ export default function DashboardShell({ games }: { games: Game[] }) {
                 </div>
               )}
               {upcomingGames.map((g) => (
-                <GameRow key={g.id} game={g} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} />
+                <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} />
               ))}
             </>
           )}
@@ -314,7 +314,6 @@ export default function DashboardShell({ games }: { games: Game[] }) {
         </div>
       </div>
 
-      {/* ── Right rail ─────────────────── */}
       <div className="w-[280px] xl:w-[320px] shrink-0 border-l border-[#141417] overflow-hidden">
         <BetSlip slip={slip} onRemove={removeLeg} onClear={() => setSlip([])} />
       </div>

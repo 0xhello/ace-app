@@ -149,20 +149,22 @@ export default function GameRow({
   selectedIds,
   watchlisted,
   onToggleWatch,
+  boardIntel,
 }: {
   game: Game;
   onToggleLeg: (l: SlipLeg) => void;
   selectedIds: string[];
   watchlisted: boolean;
   onToggleWatch: (id: string) => void;
+  boardIntel?: any;
 }) {
   const isLive = game.status === "live";
   const away = game.away_team;
   const home = game.home_team;
 
-  const topSignal = getTopSignalForGame(game.id, home, away);
-  const confidence = getConfidenceForGame(game.id);
-  const isHighSeverity = hasHighSeveritySignal(game.id, home, away);
+  const topSignal = boardIntel?.top_signal ?? getTopSignalForGame(game.id, home, away);
+  const confidence = boardIntel?.confidence ?? getConfidenceForGame(game.id);
+  const isHighSeverity = boardIntel?.has_high_severity ?? hasHighSeveritySignal(game.id, home, away);
   const aiRecommendation = getAIRecommendation(game.id);
 
   const awayML = bestH2H(game, away);
