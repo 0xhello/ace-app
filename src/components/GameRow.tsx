@@ -9,6 +9,7 @@ import { getTopSignalForGame, getConfidenceForGame, hasHighSeveritySignal, getAI
 import { SignalChip, SignalSummaryLine } from "@/components/SignalBadge";
 import { ConfidencePill } from "@/components/ConfidenceBadge";
 import { getTeamLogoUrl } from "@/lib/team-logos";
+import { getTeamStyle } from "@/lib/team-style";
 
 function TeamIcon({ team, sport }: { team: string; sport: string }) {
   const logoUrl = getTeamLogoUrl(team, sport);
@@ -164,6 +165,24 @@ function marketKeyFor(rec: MarketRec) {
   return rec;
 }
 
+function ScoreTag({ team, score, leading }: { team: string; score: string | number; leading?: boolean }) {
+  const style = getTeamStyle(team);
+  const abbr = style?.abbr || teamAbbr(team);
+  const color = style?.color || "#a1a1aa";
+  return (
+    <div className={cn(
+      "h-[23px] flex items-center justify-center gap-1.5 rounded-sm px-1.5 transition-colors",
+      leading ? "bg-white/[0.02]" : ""
+    )}>
+      <span className="text-[9px] font-bold tracking-wide uppercase" style={{ color, opacity: leading ? 1 : 0.82 }}>{abbr}</span>
+      <span className={cn(
+        "text-[14px] font-mono font-bold tabular-nums",
+        leading ? "text-white" : "text-[#777780]"
+      )}>{score}</span>
+    </div>
+  );
+}
+
 function formatLiveState(game: Game, scoreboard: any) {
   if (!scoreboard) return { label: null, meta: null };
   const state = scoreboard?.state;
@@ -315,19 +334,13 @@ export default function GameRow({
 
             <div className="h-full flex items-center justify-center">
               {showScores ? (
-                <div className="w-[32px] overflow-hidden">
-                  <div className={cn(
-                    "h-[23px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums transition-colors rounded-sm",
-                    awayLeading ? "text-white bg-white/[0.02]" : "text-[#777780]"
-                  )}>{awayScore}</div>
-                  <div className="h-px mx-1 bg-white/[0.04]" />
-                  <div className={cn(
-                    "h-[23px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums transition-colors rounded-sm",
-                    homeLeading ? "text-white bg-white/[0.02]" : "text-[#777780]"
-                  )}>{homeScore}</div>
+                <div className="w-[58px] overflow-hidden">
+                  <ScoreTag team={away} score={awayScore} leading={awayLeading} />
+                  <div className="h-px mx-2 bg-white/[0.04]" />
+                  <ScoreTag team={home} score={homeScore} leading={homeLeading} />
                 </div>
               ) : (
-                <div className="w-[32px]" />
+                <div className="w-[58px]" />
               )}
             </div>
           </div>
