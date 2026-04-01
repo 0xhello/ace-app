@@ -8,6 +8,27 @@ import { bookMeta } from "@/lib/books";
 import { getTopSignalForGame, getConfidenceForGame, hasHighSeveritySignal, getAIRecommendation, getMovementDirection, type MarketRec } from "@/lib/signals";
 import { SignalChip, SignalSummaryLine } from "@/components/SignalBadge";
 import { ConfidencePill } from "@/components/ConfidenceBadge";
+import { getTeamLogoUrl } from "@/lib/team-logos";
+
+function TeamIcon({ team, sport }: { team: string; sport: string }) {
+  const logoUrl = getTeamLogoUrl(team, sport);
+  if (logoUrl) {
+    return (
+      <img
+        src={logoUrl}
+        alt={team}
+        className="h-[18px] w-[18px] rounded object-contain shrink-0"
+        loading="lazy"
+        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+      />
+    );
+  }
+  return (
+    <div className="h-[18px] w-[18px] rounded bg-[#111113] border border-[#1a1a1f] flex items-center justify-center text-[7px] font-bold text-[#52525b] shrink-0">
+      {teamAbbr(team)}
+    </div>
+  );
+}
 
 function bestH2H(game: Game, team: string) {
   const all = game.bookmakers.flatMap((b) =>
@@ -207,11 +228,13 @@ export default function GameRow({
               <div className="flex flex-col items-center gap-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
                 <span className="text-[9px] font-bold text-[#ef4444] uppercase tracking-widest">Live</span>
-                {clock && (
+                {clock && clock !== "0.0" && (
                   <span className="text-[8px] text-[#ef4444]/60 font-mono">{clock}</span>
                 )}
-                {period && (
-                  <span className="text-[7px] text-[#ef4444]/40 font-mono">P{period}</span>
+                {period != null && period > 0 && (
+                  <span className="text-[7px] text-[#ef4444]/40 font-mono">
+                    {game.sport?.includes("baseball") ? `${period}${period === 1 ? "st" : period === 2 ? "nd" : period === 3 ? "rd" : "th"}` : `Q${period}`}
+                  </span>
                 )}
               </div>
             ) : (
@@ -223,21 +246,23 @@ export default function GameRow({
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-[3px]">
-              <div className="h-[18px] w-[18px] rounded bg-[#111113] border border-[#1a1a1f] flex items-center justify-center text-[7px] font-bold text-[#52525b] shrink-0">
-                {teamAbbr(away)}
-              </div>
-              <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{away}</span>
+              <TeamIcon team={away} sport={game.sport} />
+              <span className="text-[12px] font-medium text-[#e4e4e7] truncate flex-1">{away}</span>
               {awayScore != null && (
-                <span className="text-[13px] font-mono font-bold text-white ml-auto shrink-0">{awayScore}</span>
+                <span className={cn(
+                  "text-[14px] font-mono font-bold shrink-0 tabular-nums min-w-[24px] text-right",
+                  isLive ? "text-white" : "text-[#52525b]"
+                )}>{awayScore}</span>
               )}
             </div>
             <div className="flex items-center gap-2">
-              <div className="h-[18px] w-[18px] rounded bg-[#111113] border border-[#1a1a1f] flex items-center justify-center text-[7px] font-bold text-[#52525b] shrink-0">
-                {teamAbbr(home)}
-              </div>
-              <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
+              <TeamIcon team={home} sport={game.sport} />
+              <span className="text-[12px] font-medium text-[#e4e4e7] truncate flex-1">{home}</span>
               {homeScore != null && (
-                <span className="text-[13px] font-mono font-bold text-white ml-auto shrink-0">{homeScore}</span>
+                <span className={cn(
+                  "text-[14px] font-mono font-bold shrink-0 tabular-nums min-w-[24px] text-right",
+                  isLive ? "text-white" : "text-[#52525b]"
+                )}>{homeScore}</span>
               )}
             </div>
 

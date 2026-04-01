@@ -11,7 +11,9 @@ export function americanToDecimal(american: number): number {
 }
 
 export function formatAmericanOdds(american: number): string {
-  return american > 0 ? `+${american}` : `${american}`;
+  const abs = Math.abs(american);
+  const formatted = abs >= 10000 ? abs.toLocaleString() : `${abs}`;
+  return american > 0 ? `+${formatted}` : `-${formatted}`;
 }
 
 export function oddsColor(american: number): string {
