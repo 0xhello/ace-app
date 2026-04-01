@@ -165,17 +165,32 @@ function marketKeyFor(rec: MarketRec) {
 }
 
 function formatLiveState(game: Game, scoreboard: any) {
-  if (!scoreboard) return null;
+  if (!scoreboard) return { label: null, meta: null };
   const state = scoreboard?.state;
   const detail = scoreboard?.status_detail;
+  const status = scoreboard?.status;
   const clock = scoreboard?.clock;
   const period = scoreboard?.period;
 
-  if (detail && detail !== "0:00") return detail;
-  if (state === "post") return scoreboard?.status || "Final";
-  if (game.sport?.includes("baseball") && period) return `${period}${period === 1 ? "st" : period === 2 ? "nd" : period === 3 ? "rd" : "th"}`;
-  if (clock && clock !== "0.0" && period) return `${clock} Q${period}`;
-  return game.status === "live" ? "Live" : null;
+  if (state === "post") {
+    return { label: status === "Final" ? "Final" : (status || "Final"), meta: null };
+  }
+
+  if (detail && detail !== "0:00") {
+    if (detail.toLowerCase().includes("final")) return { label: "Final", meta: null };
+    return { label: "Live", meta: detail };
+  }
+
+  if (game.sport?.includes("baseball") && period) {
+    const inning = `${period}${period === 1 ? "st" : period === 2 ? "nd" : period === 3 ? "rd" : "th"}`;
+    return { label: "Live", meta: inning };
+  }
+
+  if (clock && clock !== "0.0" && period) {
+    return { label: "Live", meta: `${clock} Q${period}` };
+  }
+
+  return { label: game.status === "live" ? "Live" : null, meta: null };
 }
 
 export default function GameRow({
@@ -208,10 +223,10 @@ export default function GameRow({
   const homeScore = scoreboard?.home_score;
   const awayRecord = scoreboard?.away_record;
   const homeRecord = scoreboard?.home_record;
-  const liveStateLabel = formatLiveState(game, scoreboard);
+  const liveState = formatLiveState(game, scoreboard);
   const showScores = scoreboard?.state && scoreboard.state !== "pre" && awayScore != null && homeScore != null;
-  const awayLeading = showScores && Number(awayScore) > Number(homeScore);
-  const homeLeading = showScores && Number(homeScore) > Number(awayScore);
+  const awayLeading = scoreboard?.away_winner ?? (showScores && Number(awayScore) > Number(homeScore));
+  const homeLeading = scoreboard?.home_winner ?? (showScores && Number(homeScore) > Number(awayScore));
 
   const awayML = bestH2H(game, away);
   const homeML = bestH2H(game, home);
@@ -241,13 +256,18 @@ export default function GameRow({
         style={{ gridTemplateColumns: "minmax(220px,1fr) repeat(3, 84px) 28px" }}
       >
         <div className="min-w-0 flex items-center gap-3">
-          <div className="w-[52px] shrink-0 text-center">
+          <div className="w-[56px] shrink-0 text-center">
             {isLive ? (
-              <div className="flex flex-col items-center gap-0.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
-                <span className="text-[9px] font-bold text-[#ef4444] uppercase tracking-widest">Live</span>
-                {liveStateLabel && (
-                  <span className="text-[8px] text-[#ef4444]/60 font-mono text-center leading-tight">{liveStateLabel}</span>
+              <div className="inline-flex min-h-[40px] min-w-[44px] flex-col items-center justify-center rounded-md border border-[#1c1c22] bg-[#0d0d10] px-1.5 py-1">
+                <span className={cn(
+                  "text-[9px] font-bold uppercase tracking-widest",
+                  liveState.label === "Final" ? "text-[#a1a1aa]" : "text-[#ef4444]"
+                )}>{liveState.label || "Live"}</span>
+                {liveState.meta && (
+                  <span className={cn(
+                    "mt-0.5 text-[8px] font-mono text-center leading-tight",
+                    liveState.label === "Final" ? "text-[#71717a]" : "text-[#ef4444]/70"
+                  )}>{liveState.meta}</span>
                 )}
               </div>
             ) : (
@@ -257,20 +277,20 @@ export default function GameRow({
             )}
           </div>
 
-          <div className="min-w-0 flex-1 grid grid-cols-[minmax(0,1fr)_44px] gap-3 items-center">
+          <div className="min-w-0 flex-1 grid grid-cols-[minmax(0,1fr)_40px] gap-4 items-center">
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-[3px]">
                 <TeamIcon team={away} sport={game.sport} />
                 <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{away}</span>
                 {awayRecord && (
-                  <span className="text-[10px] text-[#71717a]/70 font-mono shrink-0">{awayRecord}</span>
+                  <span className="text-[10px] text-[#71717a]/60 font-mono tracking-tight shrink-0">{awayRecord}</span>
                 )}
               </div>
               <div className="flex items-center gap-2">
                 <TeamIcon team={home} sport={game.sport} />
                 <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
                 {homeRecord && (
-                  <span className="text-[10px] text-[#71717a]/70 font-mono shrink-0">{homeRecord}</span>
+                  <span className="text-[10px] text-[#71717a]/60 font-mono tracking-tight shrink-0">{homeRecord}</span>
                 )}
               </div>
 
@@ -295,19 +315,19 @@ export default function GameRow({
 
             <div className="h-full flex items-center justify-center">
               {showScores ? (
-                <div className="w-[38px] rounded-lg border border-white/7 bg-[#101013] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] overflow-hidden">
+                <div className="w-[34px] rounded-md border border-white/6 bg-[#101014] overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
                   <div className={cn(
-                    "h-[26px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums",
-                    awayLeading ? "text-white" : "text-[#a1a1aa]"
+                    "h-[24px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums transition-colors",
+                    awayLeading ? "text-white bg-white/[0.03]" : "text-[#7f7f87]"
                   )}>{awayScore}</div>
-                  <div className="h-px bg-white/[0.05]" />
+                  <div className="h-px bg-white/[0.04]" />
                   <div className={cn(
-                    "h-[26px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums",
-                    homeLeading ? "text-white" : "text-[#a1a1aa]"
+                    "h-[24px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums transition-colors",
+                    homeLeading ? "text-white bg-white/[0.03]" : "text-[#7f7f87]"
                   )}>{homeScore}</div>
                 </div>
               ) : (
-                <div className="w-[38px]" />
+                <div className="w-[34px]" />
               )}
             </div>
           </div>
