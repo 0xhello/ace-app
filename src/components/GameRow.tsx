@@ -164,6 +164,20 @@ function marketKeyFor(rec: MarketRec) {
   return rec;
 }
 
+function formatLiveState(game: Game, scoreboard: any) {
+  if (!scoreboard) return null;
+  const state = scoreboard?.state;
+  const detail = scoreboard?.status_detail;
+  const clock = scoreboard?.clock;
+  const period = scoreboard?.period;
+
+  if (detail && detail !== "0:00") return detail;
+  if (state === "post") return scoreboard?.status || "Final";
+  if (game.sport?.includes("baseball") && period) return `${period}${period === 1 ? "st" : period === 2 ? "nd" : period === 3 ? "rd" : "th"}`;
+  if (clock && clock !== "0.0" && period) return `${clock} Q${period}`;
+  return game.status === "live" ? "Live" : null;
+}
+
 export default function GameRow({
   game,
   onToggleLeg,
@@ -194,9 +208,10 @@ export default function GameRow({
   const homeScore = scoreboard?.home_score;
   const awayRecord = scoreboard?.away_record;
   const homeRecord = scoreboard?.home_record;
-  const clock = scoreboard?.clock;
-  const period = scoreboard?.period;
-  const showScores = isLive && awayScore != null && homeScore != null;
+  const liveStateLabel = formatLiveState(game, scoreboard);
+  const showScores = scoreboard?.state && scoreboard.state !== "pre" && awayScore != null && homeScore != null;
+  const awayLeading = showScores && Number(awayScore) > Number(homeScore);
+  const homeLeading = showScores && Number(homeScore) > Number(awayScore);
 
   const awayML = bestH2H(game, away);
   const homeML = bestH2H(game, home);
@@ -226,18 +241,13 @@ export default function GameRow({
         style={{ gridTemplateColumns: "minmax(220px,1fr) repeat(3, 84px) 28px" }}
       >
         <div className="min-w-0 flex items-center gap-3">
-          <div className="w-[48px] shrink-0 text-center">
+          <div className="w-[52px] shrink-0 text-center">
             {isLive ? (
               <div className="flex flex-col items-center gap-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
                 <span className="text-[9px] font-bold text-[#ef4444] uppercase tracking-widest">Live</span>
-                {clock && clock !== "0.0" && (
-                  <span className="text-[8px] text-[#ef4444]/60 font-mono">{clock}</span>
-                )}
-                {period != null && period > 0 && (
-                  <span className="text-[7px] text-[#ef4444]/40 font-mono">
-                    {game.sport?.includes("baseball") ? `${period}${period === 1 ? "st" : period === 2 ? "nd" : period === 3 ? "rd" : "th"}` : `Q${period}`}
-                  </span>
+                {liveStateLabel && (
+                  <span className="text-[8px] text-[#ef4444]/60 font-mono text-center leading-tight">{liveStateLabel}</span>
                 )}
               </div>
             ) : (
@@ -247,49 +257,59 @@ export default function GameRow({
             )}
           </div>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-[3px]">
-              <TeamIcon team={away} sport={game.sport} />
-              <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{away}</span>
-              {awayRecord && (
-                <span className="text-[10px] text-[#71717a]/75 font-mono shrink-0">{awayRecord}</span>
-              )}
-              {showScores && (
-                <span className="ml-auto inline-flex h-6 min-w-[28px] items-center justify-center rounded-md border border-white/8 bg-white/[0.04] px-2 text-[13px] font-mono font-bold text-white tabular-nums shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] shrink-0">
-                  {awayScore}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <TeamIcon team={home} sport={game.sport} />
-              <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
-              {homeRecord && (
-                <span className="text-[10px] text-[#71717a]/75 font-mono shrink-0">{homeRecord}</span>
-              )}
-              {showScores && (
-                <span className="ml-auto inline-flex h-6 min-w-[28px] items-center justify-center rounded-md border border-white/8 bg-white/[0.04] px-2 text-[13px] font-mono font-bold text-white tabular-nums shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] shrink-0">
-                  {homeScore}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 mt-1.5 pl-[26px] flex-wrap">
-              <span className="text-[9px] text-[#3f3f46] uppercase tracking-wider">{game.sport_title}</span>
-              <span className="text-[9px] text-[#1e1e24]">·</span>
-              <ConfidencePill confidence={confidence} compact />
-              {topSignal && (
-                <>
-                  <span className="text-[9px] text-[#1e1e24]">·</span>
-                  <SignalChip signal={topSignal} compact />
-                </>
-              )}
-            </div>
-
-            {topSignal && (
-              <div className="pl-[26px] mt-0.5">
-                <SignalSummaryLine signal={topSignal} />
+          <div className="min-w-0 flex-1 grid grid-cols-[minmax(0,1fr)_44px] gap-3 items-center">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-[3px]">
+                <TeamIcon team={away} sport={game.sport} />
+                <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{away}</span>
+                {awayRecord && (
+                  <span className="text-[10px] text-[#71717a]/70 font-mono shrink-0">{awayRecord}</span>
+                )}
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <TeamIcon team={home} sport={game.sport} />
+                <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
+                {homeRecord && (
+                  <span className="text-[10px] text-[#71717a]/70 font-mono shrink-0">{homeRecord}</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 mt-1.5 pl-[26px] flex-wrap">
+                <span className="text-[9px] text-[#3f3f46] uppercase tracking-wider">{game.sport_title}</span>
+                <span className="text-[9px] text-[#1e1e24]">·</span>
+                <ConfidencePill confidence={confidence} compact />
+                {topSignal && (
+                  <>
+                    <span className="text-[9px] text-[#1e1e24]">·</span>
+                    <SignalChip signal={topSignal} compact />
+                  </>
+                )}
+              </div>
+
+              {topSignal && (
+                <div className="pl-[26px] mt-0.5">
+                  <SignalSummaryLine signal={topSignal} />
+                </div>
+              )}
+            </div>
+
+            <div className="h-full flex items-center justify-center">
+              {showScores ? (
+                <div className="w-[38px] rounded-lg border border-white/7 bg-[#101013] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] overflow-hidden">
+                  <div className={cn(
+                    "h-[26px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums",
+                    awayLeading ? "text-white" : "text-[#a1a1aa]"
+                  )}>{awayScore}</div>
+                  <div className="h-px bg-white/[0.05]" />
+                  <div className={cn(
+                    "h-[26px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums",
+                    homeLeading ? "text-white" : "text-[#a1a1aa]"
+                  )}>{homeScore}</div>
+                </div>
+              ) : (
+                <div className="w-[38px]" />
+              )}
+            </div>
           </div>
         </div>
 
