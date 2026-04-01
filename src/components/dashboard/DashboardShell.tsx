@@ -5,7 +5,8 @@ import { Game } from "@/types/game";
 import GameRow from "@/components/GameRow";
 import TopAIPicks from "@/components/TopAIPicks";
 import BetSlip from "@/components/BetSlip";
-import { Activity, Search, Sparkles, Star, Zap, AlertTriangle, Clock, Bell } from "lucide-react";
+import NotificationBell from "@/components/NotificationBell";
+import { Activity, Search, Sparkles, Star, Zap, AlertTriangle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSignalsForGame, hasHighSeveritySignal } from "@/lib/signals";
 
@@ -139,11 +140,7 @@ export default function DashboardShell({ games }: { games: Game[] }) {
               </div>
             )}
 
-            {/* Notification bell placeholder */}
-            <button className="relative p-1.5 rounded-lg text-[#3f3f46] hover:text-[#71717a] hover:bg-white/[0.03] transition-all">
-              <Bell className="h-4 w-4" />
-              <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-[#ef4444]" />
-            </button>
+            <NotificationBell games={games} />
           </div>
         </div>
 

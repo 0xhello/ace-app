@@ -53,6 +53,7 @@ function OddsCell({
   bookKey,
   recommended,
   recommendationReason,
+  recommendationConfidence,
   movement,
 }: {
   leg: SlipLeg | null;
@@ -62,6 +63,7 @@ function OddsCell({
   bookKey?: string;
   recommended?: boolean;
   recommendationReason?: string;
+  recommendationConfidence?: number;
   movement?: "up" | "down" | null;
 }) {
   if (!leg) {
@@ -75,51 +77,65 @@ function OddsCell({
   const bm = bookKey ? bookMeta(bookKey) : null;
 
   return (
-    <button
-      onClick={() => onToggle(leg)}
-      title={recommended && recommendationReason ? `${leg.label} · ${recommendationReason}` : leg.label}
-      className={cn(
-        "relative h-[40px] w-full rounded-md border flex items-center justify-center gap-1.5 transition-all duration-100 select-none group/btn overflow-hidden",
-        selected
-          ? "border-[#00ff7f]/35 bg-[#00ff7f]/10"
-          : "border-[#141417] bg-[#0a0a0c] hover:border-[#1e1e24] hover:bg-[#0f0f11]",
-        recommended && "border-[#00ff7f]/40 shadow-[0_0_0_1px_rgba(0,255,127,0.08),0_0_18px_rgba(0,255,127,0.08)]"
-      )}
-    >
-      {recommended && <div className="absolute inset-y-0 left-0 w-[2px] bg-[#00ff7f]" />}
+    <div className="relative group/rec">
+      <button
+        onClick={() => onToggle(leg)}
+        className={cn(
+          "relative h-[40px] w-full rounded-md border flex items-center justify-center gap-1.5 transition-all duration-100 select-none group/btn overflow-visible",
+          selected
+            ? "border-[#00ff7f]/35 bg-[#00ff7f]/10"
+            : "border-[#141417] bg-[#0a0a0c] hover:border-[#1e1e24] hover:bg-[#0f0f11]",
+          recommended && "border-[#00ff7f]/40 shadow-[0_0_0_1px_rgba(0,255,127,0.08),0_0_18px_rgba(0,255,127,0.08)]"
+        )}
+      >
+        {recommended && <div className="absolute inset-y-0 left-0 w-[2px] bg-[#00ff7f] rounded-l-md" />}
 
-      {point !== undefined && (
-        <span className="text-[10px] font-medium text-[#52525b]">
-          {point > 0 ? `+${point}` : point}
+        {point !== undefined && (
+          <span className="text-[10px] font-medium text-[#52525b]">
+            {point > 0 ? `+${point}` : point}
+          </span>
+        )}
+
+        <span className={cn(
+          "font-mono text-[12px] font-bold",
+          selected || recommended ? "text-[#00ff7f]" : leg.odds > 0 ? "text-[#00ff7f]" : "text-[#e4e4e7]"
+        )}>
+          {formatAmericanOdds(leg.odds)}
         </span>
-      )}
 
-      <span className={cn(
-        "font-mono text-[12px] font-bold",
-        selected || recommended ? "text-[#00ff7f]" : leg.odds > 0 ? "text-[#00ff7f]" : "text-[#e4e4e7]"
-      )}>
-        {formatAmericanOdds(leg.odds)}
-      </span>
+        {bm && (
+          <span
+            className="h-[5px] w-[5px] rounded-full shrink-0 opacity-40 group-hover/btn:opacity-70 transition-opacity"
+            style={{ background: bm.color }}
+          />
+        )}
 
-      {bm && (
-        <span
-          className="h-[5px] w-[5px] rounded-full shrink-0 opacity-40 group-hover/btn:opacity-70 transition-opacity"
-          style={{ background: bm.color }}
-        />
-      )}
+        {movement && (
+          <span className={cn(
+            "absolute bottom-1 right-1 opacity-70",
+            movement === "up" ? "text-[#00ff7f]" : "text-[#ef4444]"
+          )}>
+            {movement === "up" ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+          </span>
+        )}
 
-      {movement && (
-        <span className="absolute bottom-1 right-1 text-[#00ff7f] opacity-70">
-          {movement === "up" ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-        </span>
-      )}
+        {recommended && (
+          <span className="absolute -top-[7px] left-1/2 -translate-x-1/2 z-20 h-3.5 w-3.5 rounded-full bg-[#0c0c0e] border border-[#00ff7f]/30 flex items-center justify-center text-[#00ff7f] shadow-[0_0_10px_rgba(0,255,127,0.12)]">
+            <Sparkles className="h-2 w-2" />
+          </span>
+        )}
+      </button>
 
-      {recommended && (
-        <span className="absolute top-1 right-1 text-[#00ff7f] opacity-90">
-          <Sparkles className="h-2.5 w-2.5" />
-        </span>
+      {recommended && recommendationReason && (
+        <div className="pointer-events-none absolute left-1/2 bottom-[calc(100%+12px)] -translate-x-1/2 w-[210px] rounded-xl border border-[#2a2a35] bg-[#121216]/95 px-3 py-2.5 shadow-2xl opacity-0 group-hover/rec:opacity-100 transition-opacity z-30">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Sparkles className="h-3 w-3 text-[#00ff7f] shrink-0" />
+            <span className="text-[11px] font-bold text-white">{recommendationConfidence ?? 78}% Confidence</span>
+          </div>
+          <p className="text-[10px] text-[#a1a1aa] leading-relaxed">{recommendationReason}</p>
+        </div>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -225,70 +241,18 @@ export default function GameRow({
         </div>
 
         <div className="flex flex-col gap-[4px]">
-          <OddsCell
-            leg={awayMLLeg}
-            selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false}
-            onToggle={onToggleLeg}
-            bookKey={awayML?.book}
-            recommended={aiRecommendation?.market === "ml-away"}
-            recommendationReason={aiRecommendation?.reason}
-            movement={getMovementDirection(game.id, marketKeyFor("ml-away"))}
-          />
-          <OddsCell
-            leg={homeMLLeg}
-            selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false}
-            onToggle={onToggleLeg}
-            bookKey={homeML?.book}
-            recommended={aiRecommendation?.market === "ml-home"}
-            recommendationReason={aiRecommendation?.reason}
-            movement={getMovementDirection(game.id, marketKeyFor("ml-home"))}
-          />
+          <OddsCell leg={awayMLLeg} selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false} onToggle={onToggleLeg} bookKey={awayML?.book} recommended={aiRecommendation?.market === "ml-away"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={getMovementDirection(game.id, marketKeyFor("ml-away"))} />
+          <OddsCell leg={homeMLLeg} selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false} onToggle={onToggleLeg} bookKey={homeML?.book} recommended={aiRecommendation?.market === "ml-home"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={getMovementDirection(game.id, marketKeyFor("ml-home"))} />
         </div>
 
         <div className="flex flex-col gap-[4px]">
-          <OddsCell
-            leg={awaySpLeg}
-            selected={awaySpLeg ? selectedIds.includes(awaySpLeg.id) : false}
-            onToggle={onToggleLeg}
-            point={awaySpread?.point}
-            bookKey={awaySpread?.book}
-            recommended={aiRecommendation?.market === "sp-away"}
-            recommendationReason={aiRecommendation?.reason}
-            movement={getMovementDirection(game.id, marketKeyFor("sp-away"))}
-          />
-          <OddsCell
-            leg={homeSpLeg}
-            selected={homeSpLeg ? selectedIds.includes(homeSpLeg.id) : false}
-            onToggle={onToggleLeg}
-            point={homeSpread?.point}
-            bookKey={homeSpread?.book}
-            recommended={aiRecommendation?.market === "sp-home"}
-            recommendationReason={aiRecommendation?.reason}
-            movement={getMovementDirection(game.id, marketKeyFor("sp-home"))}
-          />
+          <OddsCell leg={awaySpLeg} selected={awaySpLeg ? selectedIds.includes(awaySpLeg.id) : false} onToggle={onToggleLeg} point={awaySpread?.point} bookKey={awaySpread?.book} recommended={aiRecommendation?.market === "sp-away"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={getMovementDirection(game.id, marketKeyFor("sp-away"))} />
+          <OddsCell leg={homeSpLeg} selected={homeSpLeg ? selectedIds.includes(homeSpLeg.id) : false} onToggle={onToggleLeg} point={homeSpread?.point} bookKey={homeSpread?.book} recommended={aiRecommendation?.market === "sp-home"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={getMovementDirection(game.id, marketKeyFor("sp-home"))} />
         </div>
 
         <div className="flex flex-col gap-[4px]">
-          <OddsCell
-            leg={overLeg}
-            selected={overLeg ? selectedIds.includes(overLeg.id) : false}
-            onToggle={onToggleLeg}
-            point={over?.point}
-            bookKey={over?.book}
-            recommended={aiRecommendation?.market === "ov"}
-            recommendationReason={aiRecommendation?.reason}
-            movement={getMovementDirection(game.id, marketKeyFor("ov"))}
-          />
-          <OddsCell
-            leg={underLeg}
-            selected={underLeg ? selectedIds.includes(underLeg.id) : false}
-            onToggle={onToggleLeg}
-            point={under?.point}
-            bookKey={under?.book}
-            recommended={aiRecommendation?.market === "un"}
-            recommendationReason={aiRecommendation?.reason}
-            movement={getMovementDirection(game.id, marketKeyFor("un"))}
-          />
+          <OddsCell leg={overLeg} selected={overLeg ? selectedIds.includes(overLeg.id) : false} onToggle={onToggleLeg} point={over?.point} bookKey={over?.book} recommended={aiRecommendation?.market === "ov"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={getMovementDirection(game.id, marketKeyFor("ov"))} />
+          <OddsCell leg={underLeg} selected={underLeg ? selectedIds.includes(underLeg.id) : false} onToggle={onToggleLeg} point={under?.point} bookKey={under?.book} recommended={aiRecommendation?.market === "un"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={getMovementDirection(game.id, marketKeyFor("un"))} />
         </div>
 
         <button
