@@ -315,19 +315,19 @@ export default function GameRow({
 
             <div className="h-full flex items-center justify-center">
               {showScores ? (
-                <div className="w-[34px] rounded-md border border-white/6 bg-[#101014] overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
+                <div className="w-[32px] overflow-hidden">
                   <div className={cn(
-                    "h-[24px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums transition-colors",
-                    awayLeading ? "text-white bg-white/[0.03]" : "text-[#7f7f87]"
+                    "h-[23px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums transition-colors rounded-sm",
+                    awayLeading ? "text-white bg-white/[0.02]" : "text-[#777780]"
                   )}>{awayScore}</div>
-                  <div className="h-px bg-white/[0.04]" />
+                  <div className="h-px mx-1 bg-white/[0.04]" />
                   <div className={cn(
-                    "h-[24px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums transition-colors",
-                    homeLeading ? "text-white bg-white/[0.03]" : "text-[#7f7f87]"
+                    "h-[23px] flex items-center justify-center text-[14px] font-mono font-bold tabular-nums transition-colors rounded-sm",
+                    homeLeading ? "text-white bg-white/[0.02]" : "text-[#777780]"
                   )}>{homeScore}</div>
                 </div>
               ) : (
-                <div className="w-[34px]" />
+                <div className="w-[32px]" />
               )}
             </div>
           </div>
