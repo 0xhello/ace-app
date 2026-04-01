@@ -192,8 +192,11 @@ export default function GameRow({
   const scoreboard = boardIntel?.scoreboard;
   const awayScore = scoreboard?.away_score;
   const homeScore = scoreboard?.home_score;
+  const awayRecord = scoreboard?.away_record;
+  const homeRecord = scoreboard?.home_record;
   const clock = scoreboard?.clock;
   const period = scoreboard?.period;
+  const showScores = isLive && awayScore != null && homeScore != null;
 
   const awayML = bestH2H(game, away);
   const homeML = bestH2H(game, home);
@@ -247,22 +250,26 @@ export default function GameRow({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 mb-[3px]">
               <TeamIcon team={away} sport={game.sport} />
-              <span className="text-[12px] font-medium text-[#e4e4e7] truncate flex-1">{away}</span>
-              {awayScore != null && (
-                <span className={cn(
-                  "text-[14px] font-mono font-bold shrink-0 tabular-nums min-w-[24px] text-right",
-                  isLive ? "text-white" : "text-[#52525b]"
-                )}>{awayScore}</span>
+              <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{away}</span>
+              {awayRecord && (
+                <span className="text-[10px] text-[#71717a]/75 font-mono shrink-0">{awayRecord}</span>
+              )}
+              {showScores && (
+                <span className="ml-auto inline-flex h-6 min-w-[28px] items-center justify-center rounded-md border border-white/8 bg-white/[0.04] px-2 text-[13px] font-mono font-bold text-white tabular-nums shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] shrink-0">
+                  {awayScore}
+                </span>
               )}
             </div>
             <div className="flex items-center gap-2">
               <TeamIcon team={home} sport={game.sport} />
-              <span className="text-[12px] font-medium text-[#e4e4e7] truncate flex-1">{home}</span>
-              {homeScore != null && (
-                <span className={cn(
-                  "text-[14px] font-mono font-bold shrink-0 tabular-nums min-w-[24px] text-right",
-                  isLive ? "text-white" : "text-[#52525b]"
-                )}>{homeScore}</span>
+              <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
+              {homeRecord && (
+                <span className="text-[10px] text-[#71717a]/75 font-mono shrink-0">{homeRecord}</span>
+              )}
+              {showScores && (
+                <span className="ml-auto inline-flex h-6 min-w-[28px] items-center justify-center rounded-md border border-white/8 bg-white/[0.04] px-2 text-[13px] font-mono font-bold text-white tabular-nums shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] shrink-0">
+                  {homeScore}
+                </span>
               )}
             </div>
 
