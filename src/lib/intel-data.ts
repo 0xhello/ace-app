@@ -17,3 +17,9 @@ export async function fetchBoardIntel(limit = 50) {
   if (!res.ok) return { count: 0, items: [], updated_at: null };
   return res.json();
 }
+
+export async function fetchTopPicks(limit = 4) {
+  const res = await fetch(`${API_BASE}/intel/picks?limit=${limit}`, { cache: "no-store" });
+  if (!res.ok) return { count: 0, items: [], updated_at: null };
+  return res.json();
+}

@@ -34,7 +34,7 @@ const SPORT_LABELS: Record<string, { emoji: string; label: string }> = {
 
 const SPORTS: SportFilter[] = ["ALL", "NBA", "NFL", "MLB", "NHL", "NCAAB"];
 
-export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt }: { games: Game[]; intelMap?: Record<string, any>; boardUpdatedAt?: string | null }) {
+export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt, topPicks = [] }: { games: Game[]; intelMap?: Record<string, any>; boardUpdatedAt?: string | null; topPicks?: any[] }) {
   const [sport, setSport] = useState<SportFilter>("ALL");
   const [time, setTime] = useState<TimeFilter>("ALL");
   const [query, setQuery] = useState("");
@@ -264,7 +264,7 @@ export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt }:
           </button>
         </div>
 
-        <TopAIPicks onAddLeg={toggleLeg} />
+        <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
 
         <div
           className="shrink-0 px-5 py-1.5 grid items-center gap-2 border-b border-[#141417] bg-[#08080a]"

@@ -165,7 +165,7 @@ export default function GameRow({
   const topSignal = boardIntel?.top_signal ?? getTopSignalForGame(game.id, home, away);
   const confidence = boardIntel?.confidence ?? getConfidenceForGame(game.id);
   const isHighSeverity = boardIntel?.has_high_severity ?? hasHighSeveritySignal(game.id, home, away);
-  const aiRecommendation = getAIRecommendation(game.id);
+  const aiRecommendation = boardIntel?.recommendation ?? getAIRecommendation(game.id);
 
   const awayML = bestH2H(game, away);
   const homeML = bestH2H(game, home);

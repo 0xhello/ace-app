@@ -1,6 +1,6 @@
 import { Game } from "@/types/game";
 import DashboardShell from "@/components/dashboard/DashboardShell";
-import { fetchBoardIntel } from "@/lib/intel-data";
+import { fetchBoardIntel, fetchTopPicks } from "@/lib/intel-data";
 
 async function getGames(): Promise<Game[]> {
   const url = `${process.env.ODDS_API_URL || "http://localhost:8000"}/games`;
@@ -11,9 +11,10 @@ async function getGames(): Promise<Game[]> {
 }
 
 export default async function GamesFeed() {
-  const [games, boardIntel] = await Promise.all([
+  const [games, boardIntel, topPicks] = await Promise.all([
     getGames(),
     fetchBoardIntel(100),
+    fetchTopPicks(4),
   ]);
 
   if (games.length === 0) {
@@ -27,5 +28,5 @@ export default async function GamesFeed() {
 
   const intelMap = Object.fromEntries((boardIntel.items || []).map((item: any) => [item.game_id, item]));
 
-  return <DashboardShell games={games} intelMap={intelMap} boardUpdatedAt={boardIntel.updated_at} />;
+  return <DashboardShell games={games} intelMap={intelMap} boardUpdatedAt={boardIntel.updated_at} topPicks={topPicks.items || []} />;
 }

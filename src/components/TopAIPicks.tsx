@@ -19,8 +19,8 @@ const TYPE_COLOR: Record<string, string> = {
   SPREAD: "#00ff7f",
 };
 
-export default function TopAIPicks({ onAddLeg }: { onAddLeg?: (leg: SlipLeg) => void }) {
-  const picks = generateAIPicks();
+export default function TopAIPicks({ onAddLeg, picks }: { onAddLeg?: (leg: SlipLeg) => void; picks?: any[] }) {
+  const resolvedPicks = picks && picks.length > 0 ? picks : generateAIPicks();
 
   return (
     <div className="shrink-0 border-b border-[#141417] bg-[#08080a]/80">
@@ -30,13 +30,13 @@ export default function TopAIPicks({ onAddLeg }: { onAddLeg?: (leg: SlipLeg) => 
             <Zap className="h-3 w-3 text-[#00ff7f]" />
           </div>
           <span className="text-[11px] font-bold text-white uppercase tracking-widest">AI Picks</span>
-          <span className="text-[10px] text-[#3f3f46] font-mono">{picks.length} signals</span>
+          <span className="text-[10px] text-[#3f3f46] font-mono">{resolvedPicks.length} signals</span>
         </div>
         <button className="text-[10px] text-[#3f3f46] hover:text-[#71717a] transition-colors">View all →</button>
       </div>
 
       <div className="flex gap-2 px-5 pb-2.5 overflow-x-auto scrollbar-hide">
-        {picks.map((pick) => {
+        {resolvedPicks.map((pick) => {
           const color = TYPE_COLOR[pick.type] ?? "#52525b";
           const tagStyle = TAG_STYLE[pick.tag] ?? TAG_STYLE.stable;
 
@@ -45,7 +45,6 @@ export default function TopAIPicks({ onAddLeg }: { onAddLeg?: (leg: SlipLeg) => 
               key={pick.id}
               className="shrink-0 w-[200px] rounded-lg border border-[#141417] bg-[#0c0c0e] hover:border-[#1e1e24] transition-all p-2.5 flex flex-col gap-1.5 group cursor-default"
             >
-              {/* Header: type + tag */}
               <div className="flex items-center justify-between">
                 <span
                   className="text-[8px] font-bold uppercase tracking-widest px-1.5 py-[2px] rounded"
@@ -58,10 +57,8 @@ export default function TopAIPicks({ onAddLeg }: { onAddLeg?: (leg: SlipLeg) => 
                 </span>
               </div>
 
-              {/* Confidence */}
               <ConfidencePill confidence={pick.confidence} compact />
 
-              {/* Pick + odds */}
               <div className="flex items-baseline justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-[13px] font-bold text-white leading-tight truncate">{pick.pick}</p>
@@ -72,12 +69,10 @@ export default function TopAIPicks({ onAddLeg }: { onAddLeg?: (leg: SlipLeg) => 
                 </span>
               </div>
 
-              {/* Signal-based reasoning */}
               <p className="text-[10px] text-[#71717a] leading-relaxed line-clamp-2">
                 {pick.reasoning}
               </p>
 
-              {/* Edge + Add */}
               <div className="flex items-center justify-between pt-1.5 border-t border-[#141417]">
                 <span className="text-[9px] font-mono text-[#00ff7f]/70">{pick.edge} edge</span>
                 <button
