@@ -21,6 +21,51 @@ function pick<T>(arr: T[], seed: number): T {
   return arr[seed % arr.length];
 }
 
+// ── Market-level AI recommendation system ──────────────────────────────────
+
+export type MarketRec = "ml-away" | "ml-home" | "sp-away" | "sp-home" | "ov" | "un";
+
+/**
+ * For a given game, returns which specific market(s) the AI recommends.
+ * Returns null if no strong recommendation exists for this game.
+ */
+export function getAIRecommendation(gameId: string): { market: MarketRec; confidence: number; reason: string } | null {
+  const h = hash(gameId);
+  // ~40% of games get an AI recommendation
+  if (h % 10 < 6) return null;
+
+  const markets: MarketRec[] = ["ml-away", "ml-home", "sp-away", "sp-home", "ov", "un"];
+  const market = pick(markets, h + 3);
+  const confidence = 65 + (h % 30); // 65-94
+
+  const reasons: Record<string, string[]> = {
+    "ml-away": ["Road team showing stronger recent form", "Historical dominance in this matchup"],
+    "ml-home": ["Home court advantage amplified by fatigue", "Strong home record this season"],
+    "sp-away": ["Spread value detected for road team", "Line shifted from sharp action"],
+    "sp-home": ["Home team undervalued at current spread", "Reverse line movement favoring home"],
+    "ov": ["Pace mismatch favors higher scoring", "Both teams top-5 in tempo"],
+    "un": ["Defensive matchup suppresses scoring", "Weather/conditions favor under"],
+  };
+
+  const reasonList = reasons[market] || ["Model detects edge at current price"];
+  const reason = pick(reasonList, h + 7);
+
+  return { market, confidence, reason };
+}
+
+/**
+ * Deterministic movement direction for a market cell.
+ * Returns "up" | "down" | null
+ */
+export function getMovementDirection(gameId: string, marketKey: string): "up" | "down" | null {
+  const h = hash(gameId + marketKey);
+  // ~30% of cells show movement
+  if (h % 10 < 7) return null;
+  return h % 2 === 0 ? "up" : "down";
+}
+
+// ── Signal templates ──────────────────────────────────────────────────────
+
 const INJURY_TEMPLATES: Array<{
   summary: string;
   details: string;
@@ -159,7 +204,7 @@ const CONFIDENCE_TEMPLATES: Array<{
 
 function generateSignalsForGame(gameId: string, homeTeam: string, awayTeam: string): Signal[] {
   const h = hash(gameId);
-  const signalCount = (h % 4); // 0-3 signals per game
+  const signalCount = (h % 4);
   if (signalCount === 0) return [];
 
   const signals: Signal[] = [];
@@ -203,7 +248,7 @@ function generateSignalsForGame(gameId: string, homeTeam: string, awayTeam: stri
 
 function generateConfidence(gameId: string): ConfidenceRead {
   const h = hash(gameId);
-  const pct = 55 + (h % 40); // 55-94
+  const pct = 55 + (h % 40);
 
   if (pct >= 85) {
     return {
@@ -234,7 +279,7 @@ function generateConfidence(gameId: string): ConfidenceRead {
   };
 }
 
-// Public API
+// ── Public API ─────────────────────────────────────────────────────────────
 
 export function getSignalsForGame(gameId: string, homeTeam: string, awayTeam: string): Signal[] {
   return generateSignalsForGame(gameId, homeTeam, awayTeam);
@@ -247,7 +292,6 @@ export function getConfidenceForGame(gameId: string): ConfidenceRead {
 export function getTopSignalForGame(gameId: string, homeTeam: string, awayTeam: string): Signal | null {
   const signals = generateSignalsForGame(gameId, homeTeam, awayTeam);
   if (!signals.length) return null;
-  // Return highest severity signal
   const severityOrder: Record<string, number> = { high: 3, medium: 2, low: 1 };
   return signals.sort((a, b) => (severityOrder[b.severity] || 0) - (severityOrder[a.severity] || 0))[0];
 }

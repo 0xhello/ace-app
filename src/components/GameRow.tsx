@@ -2,10 +2,10 @@
 
 import { Game } from "@/types/game";
 import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
-import { Star } from "lucide-react";
+import { Star, Sparkles, TrendingUp, TrendingDown } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta } from "@/lib/books";
-import { getTopSignalForGame, getConfidenceForGame, hasHighSeveritySignal } from "@/lib/signals";
+import { getTopSignalForGame, getConfidenceForGame, hasHighSeveritySignal, getAIRecommendation, getMovementDirection, type MarketRec } from "@/lib/signals";
 import { SignalChip, SignalSummaryLine } from "@/components/SignalBadge";
 import { ConfidencePill } from "@/components/ConfidenceBadge";
 
@@ -51,16 +51,22 @@ function OddsCell({
   onToggle,
   point,
   bookKey,
+  recommended,
+  recommendationReason,
+  movement,
 }: {
   leg: SlipLeg | null;
   selected: boolean;
   onToggle: (l: SlipLeg) => void;
   point?: number;
   bookKey?: string;
+  recommended?: boolean;
+  recommendationReason?: string;
+  movement?: "up" | "down" | null;
 }) {
   if (!leg) {
     return (
-      <div className="h-[38px] flex items-center justify-center">
+      <div className="h-[40px] flex items-center justify-center rounded-md border border-transparent">
         <span className="text-[11px] text-[#1e1e24]">—</span>
       </div>
     );
@@ -71,32 +77,54 @@ function OddsCell({
   return (
     <button
       onClick={() => onToggle(leg)}
+      title={recommended && recommendationReason ? `${leg.label} · ${recommendationReason}` : leg.label}
       className={cn(
-        "h-[38px] w-full rounded-md border flex items-center justify-center gap-1.5 transition-all duration-75 select-none group/btn",
+        "relative h-[40px] w-full rounded-md border flex items-center justify-center gap-1.5 transition-all duration-100 select-none group/btn overflow-hidden",
         selected
-          ? "border-[#00ff7f]/30 bg-[#00ff7f]/8"
-          : "border-[#141417] bg-[#0a0a0c] hover:border-[#1e1e24] hover:bg-[#0f0f11]"
+          ? "border-[#00ff7f]/35 bg-[#00ff7f]/10"
+          : "border-[#141417] bg-[#0a0a0c] hover:border-[#1e1e24] hover:bg-[#0f0f11]",
+        recommended && "border-[#00ff7f]/40 shadow-[0_0_0_1px_rgba(0,255,127,0.08),0_0_18px_rgba(0,255,127,0.08)]"
       )}
     >
+      {recommended && <div className="absolute inset-y-0 left-0 w-[2px] bg-[#00ff7f]" />}
+
       {point !== undefined && (
         <span className="text-[10px] font-medium text-[#52525b]">
           {point > 0 ? `+${point}` : point}
         </span>
       )}
+
       <span className={cn(
         "font-mono text-[12px] font-bold",
-        selected ? "text-[#00ff7f]" : leg.odds > 0 ? "text-[#00ff7f]" : "text-[#e4e4e7]"
+        selected || recommended ? "text-[#00ff7f]" : leg.odds > 0 ? "text-[#00ff7f]" : "text-[#e4e4e7]"
       )}>
         {formatAmericanOdds(leg.odds)}
       </span>
+
       {bm && (
         <span
           className="h-[5px] w-[5px] rounded-full shrink-0 opacity-40 group-hover/btn:opacity-70 transition-opacity"
           style={{ background: bm.color }}
         />
       )}
+
+      {movement && (
+        <span className="absolute bottom-1 right-1 text-[#00ff7f] opacity-70">
+          {movement === "up" ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+        </span>
+      )}
+
+      {recommended && (
+        <span className="absolute top-1 right-1 text-[#00ff7f] opacity-90">
+          <Sparkles className="h-2.5 w-2.5" />
+        </span>
+      )}
     </button>
   );
+}
+
+function marketKeyFor(rec: MarketRec) {
+  return rec;
 }
 
 export default function GameRow({
@@ -116,10 +144,10 @@ export default function GameRow({
   const away = game.away_team;
   const home = game.home_team;
 
-  // Signal system
   const topSignal = getTopSignalForGame(game.id, home, away);
   const confidence = getConfidenceForGame(game.id);
   const isHighSeverity = hasHighSeveritySignal(game.id, home, away);
+  const aiRecommendation = getAIRecommendation(game.id);
 
   const awayML = bestH2H(game, away);
   const homeML = bestH2H(game, home);
@@ -146,9 +174,8 @@ export default function GameRow({
 
       <div
         className="grid items-center gap-2 px-5 py-2.5"
-        style={{ gridTemplateColumns: "minmax(200px,1fr) repeat(3, 80px) 28px" }}
+        style={{ gridTemplateColumns: "minmax(220px,1fr) repeat(3, 84px) 28px" }}
       >
-        {/* ── Game info ──────────────── */}
         <div className="min-w-0 flex items-center gap-3">
           <div className="w-[48px] shrink-0 text-center">
             {isLive ? (
@@ -177,8 +204,7 @@ export default function GameRow({
               <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
             </div>
 
-            {/* Signal + confidence row */}
-            <div className="flex items-center gap-2 mt-1.5 pl-[26px]">
+            <div className="flex items-center gap-2 mt-1.5 pl-[26px] flex-wrap">
               <span className="text-[9px] text-[#3f3f46] uppercase tracking-wider">{game.sport_title}</span>
               <span className="text-[9px] text-[#1e1e24]">·</span>
               <ConfidencePill confidence={confidence} compact />
@@ -190,7 +216,6 @@ export default function GameRow({
               )}
             </div>
 
-            {/* Signal summary line */}
             {topSignal && (
               <div className="pl-[26px] mt-0.5">
                 <SignalSummaryLine signal={topSignal} />
@@ -199,25 +224,73 @@ export default function GameRow({
           </div>
         </div>
 
-        {/* ── Moneyline ──────────── */}
-        <div className="flex flex-col gap-[3px]">
-          <OddsCell leg={awayMLLeg} selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false} onToggle={onToggleLeg} bookKey={awayML?.book} />
-          <OddsCell leg={homeMLLeg} selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false} onToggle={onToggleLeg} bookKey={homeML?.book} />
+        <div className="flex flex-col gap-[4px]">
+          <OddsCell
+            leg={awayMLLeg}
+            selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false}
+            onToggle={onToggleLeg}
+            bookKey={awayML?.book}
+            recommended={aiRecommendation?.market === "ml-away"}
+            recommendationReason={aiRecommendation?.reason}
+            movement={getMovementDirection(game.id, marketKeyFor("ml-away"))}
+          />
+          <OddsCell
+            leg={homeMLLeg}
+            selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false}
+            onToggle={onToggleLeg}
+            bookKey={homeML?.book}
+            recommended={aiRecommendation?.market === "ml-home"}
+            recommendationReason={aiRecommendation?.reason}
+            movement={getMovementDirection(game.id, marketKeyFor("ml-home"))}
+          />
         </div>
 
-        {/* ── Spread ─────────── */}
-        <div className="flex flex-col gap-[3px]">
-          <OddsCell leg={awaySpLeg} selected={awaySpLeg ? selectedIds.includes(awaySpLeg.id) : false} onToggle={onToggleLeg} point={awaySpread?.point} bookKey={awaySpread?.book} />
-          <OddsCell leg={homeSpLeg} selected={homeSpLeg ? selectedIds.includes(homeSpLeg.id) : false} onToggle={onToggleLeg} point={homeSpread?.point} bookKey={homeSpread?.book} />
+        <div className="flex flex-col gap-[4px]">
+          <OddsCell
+            leg={awaySpLeg}
+            selected={awaySpLeg ? selectedIds.includes(awaySpLeg.id) : false}
+            onToggle={onToggleLeg}
+            point={awaySpread?.point}
+            bookKey={awaySpread?.book}
+            recommended={aiRecommendation?.market === "sp-away"}
+            recommendationReason={aiRecommendation?.reason}
+            movement={getMovementDirection(game.id, marketKeyFor("sp-away"))}
+          />
+          <OddsCell
+            leg={homeSpLeg}
+            selected={homeSpLeg ? selectedIds.includes(homeSpLeg.id) : false}
+            onToggle={onToggleLeg}
+            point={homeSpread?.point}
+            bookKey={homeSpread?.book}
+            recommended={aiRecommendation?.market === "sp-home"}
+            recommendationReason={aiRecommendation?.reason}
+            movement={getMovementDirection(game.id, marketKeyFor("sp-home"))}
+          />
         </div>
 
-        {/* ── Total ──────────── */}
-        <div className="flex flex-col gap-[3px]">
-          <OddsCell leg={overLeg} selected={overLeg ? selectedIds.includes(overLeg.id) : false} onToggle={onToggleLeg} point={over?.point} bookKey={over?.book} />
-          <OddsCell leg={underLeg} selected={underLeg ? selectedIds.includes(underLeg.id) : false} onToggle={onToggleLeg} point={under?.point} bookKey={under?.book} />
+        <div className="flex flex-col gap-[4px]">
+          <OddsCell
+            leg={overLeg}
+            selected={overLeg ? selectedIds.includes(overLeg.id) : false}
+            onToggle={onToggleLeg}
+            point={over?.point}
+            bookKey={over?.book}
+            recommended={aiRecommendation?.market === "ov"}
+            recommendationReason={aiRecommendation?.reason}
+            movement={getMovementDirection(game.id, marketKeyFor("ov"))}
+          />
+          <OddsCell
+            leg={underLeg}
+            selected={underLeg ? selectedIds.includes(underLeg.id) : false}
+            onToggle={onToggleLeg}
+            point={under?.point}
+            bookKey={under?.book}
+            recommended={aiRecommendation?.market === "un"}
+            recommendationReason={aiRecommendation?.reason}
+            movement={getMovementDirection(game.id, marketKeyFor("un"))}
+          />
         </div>
 
-        {/* ── Watch ──────────── */}
         <button
           onClick={() => onToggleWatch(game.id)}
           className={cn(
