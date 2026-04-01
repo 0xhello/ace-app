@@ -75,17 +75,19 @@ export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt, t
       const wlOk = !watchlistOnly || watchlist.has(g.id);
 
       const intel = intelMap[g.id];
+      const hasBackendIntel = !!intel;
       const signalsCount = intel?.signals_count ?? getSignalsForGame(g.id, g.home_team, g.away_team).length;
       const highSeverity = intel?.has_high_severity ?? hasHighSeveritySignal(g.id, g.home_team, g.away_team);
       const isVolatile = intel?.is_volatile ?? false;
+      const hasNewSignal = intel?.has_new_signal ?? signalsCount > 0;
 
       let sigOk = true;
       if (signalFilter === "high") {
         sigOk = highSeverity;
       } else if (signalFilter === "volatile") {
-        sigOk = isVolatile || signalsCount > 0;
+        sigOk = hasBackendIntel ? isVolatile : (isVolatile || signalsCount > 0);
       } else if (signalFilter === "new") {
-        sigOk = signalsCount > 0;
+        sigOk = hasNewSignal;
       }
 
       return sportOk && timeOk && textOk && wlOk && sigOk;

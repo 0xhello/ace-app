@@ -24,8 +24,22 @@ function Sparkline({ values }: { values: { idx: number; pct: number }[] }) {
   );
 }
 
-function historyFromConfidence(pct: number) {
-  return Array.from({ length: 12 }).map((_, i) => ({ idx: i, pct: Math.max(45, Math.min(95, pct + ((i % 5) - 2))) }));
+function historyFromConfidence(pct: number, delta?: number | null) {
+  return Array.from({ length: 12 }).map((_, i) => ({ idx: i, pct: Math.max(45, Math.min(95, pct - (delta ?? 0) + ((i % 5) - 2))) }));
+}
+
+function coverageText(value?: string) {
+  if (!value) return "none";
+  if (value === "not_applicable") return "n/a";
+  return value;
+}
+
+function sourceStatusLabel(status: any, fallback: string) {
+  if (!status) return fallback;
+  if (status.ok && status.coverage) return `${coverageText(status.coverage)} coverage`;
+  if (status.ok) return "Ready";
+  if (status.coverage) return `${coverageText(status.coverage)} coverage`;
+  return fallback;
 }
 
 export default async function TrackedGamePage({ params }: { params: Promise<{ gameId: string }> }) {
@@ -39,9 +53,11 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
   const game = intel.game;
   const confidence = intel.confidence;
   const signals = intel.signals || [];
-  const history = historyFromConfidence(confidence?.pct ?? 70);
+  const history = historyFromConfidence(confidence?.pct ?? 70, confidence?.delta);
   const scoreboard = intel.scoreboard;
   const sourceStatus = intel.source_status || {};
+  const coverage = intel.coverage || {};
+  const deltaLabel = confidence?.delta == null ? "Flat" : confidence.delta > 0 ? `+${confidence.delta}` : `${confidence.delta}`;
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#09090b]">
@@ -85,6 +101,7 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
             <div className="flex items-center gap-3 mb-3 flex-wrap">
               <ConfidencePill confidence={confidence} />
               <span className="text-[11px] px-2 py-1 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">{confidence?.status}</span>
+              <span className="text-[11px] px-2 py-1 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">Δ {deltaLabel}</span>
             </div>
             <p className="text-[18px] font-semibold text-white mb-2">{confidence?.label}</p>
             <p className="text-[12px] text-[#a1a1aa] leading-relaxed">{confidence?.explanation}</p>
@@ -95,8 +112,8 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
             <div className="space-y-2 text-[12px]">
               <div className="flex items-center justify-between"><span className="text-[#71717a]">Odds</span><span className="text-[#00ff7f]">Ready</span></div>
               <div className="flex items-center justify-between"><span className="text-[#71717a]">Scoreboard</span><span className="text-white">{sourceStatus.scoreboard?.matched ? "Matched" : sourceStatus.scoreboard?.ok ? "Reachable" : "Unavailable"}</span></div>
-              <div className="flex items-center justify-between"><span className="text-[#71717a]">Injuries</span><span className="text-[#f59e0b]">Mapping needed</span></div>
-              <div className="flex items-center justify-between"><span className="text-[#71717a]">Weather</span><span className="text-[#f59e0b]">Venue coords needed</span></div>
+              <div className="flex items-center justify-between"><span className="text-[#71717a]">Injuries</span><span className="text-white">{sourceStatusLabel(sourceStatus.injuries, coverageText(coverage.injury_coverage))}</span></div>
+              <div className="flex items-center justify-between"><span className="text-[#71717a]">Weather</span><span className="text-white">{sourceStatusLabel(sourceStatus.weather, coverageText(coverage.weather_coverage))}</span></div>
             </div>
           </div>
         </div>
@@ -149,6 +166,9 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
                     <div><span className="text-[#52525b]">Source:</span> <span className="text-white">{signal.sourceCategory}</span></div>
                     <div><span className="text-[#52525b]">Direction:</span> <span className="text-white">{signal.direction}</span></div>
                     <div><span className="text-[#52525b]">Affected:</span> <span className="text-white">{signal.affectedTeam}</span></div>
+                    <div><span className="text-[#52525b]">Observed:</span> <span className="text-white">{signal.observedAt || "—"}</span></div>
+                    <div><span className="text-[#52525b]">Derived:</span> <span className="text-white">{signal.derivedAt || "—"}</span></div>
+                    <div><span className="text-[#52525b]">Source time:</span> <span className="text-white">{signal.sourceTimestamp || "—"}</span></div>
                   </div>
                 </div>
               </details>

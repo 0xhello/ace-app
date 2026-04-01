@@ -162,10 +162,17 @@ export default function GameRow({
   const away = game.away_team;
   const home = game.home_team;
 
+  const hasBackendIntel = !!boardIntel;
   const topSignal = boardIntel?.top_signal ?? getTopSignalForGame(game.id, home, away);
   const confidence = boardIntel?.confidence ?? getConfidenceForGame(game.id);
   const isHighSeverity = boardIntel?.has_high_severity ?? hasHighSeveritySignal(game.id, home, away);
   const aiRecommendation = boardIntel?.recommendation ?? getAIRecommendation(game.id);
+  const marketMovement = boardIntel?.market_movement ?? {};
+  const scoreboard = boardIntel?.scoreboard;
+  const awayScore = scoreboard?.away_score;
+  const homeScore = scoreboard?.home_score;
+  const clock = scoreboard?.clock;
+  const period = scoreboard?.period;
 
   const awayML = bestH2H(game, away);
   const homeML = bestH2H(game, home);
@@ -200,6 +207,12 @@ export default function GameRow({
               <div className="flex flex-col items-center gap-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
                 <span className="text-[9px] font-bold text-[#ef4444] uppercase tracking-widest">Live</span>
+                {clock && (
+                  <span className="text-[8px] text-[#ef4444]/60 font-mono">{clock}</span>
+                )}
+                {period && (
+                  <span className="text-[7px] text-[#ef4444]/40 font-mono">P{period}</span>
+                )}
               </div>
             ) : (
               <span className="text-[10px] text-[#52525b] font-medium leading-tight block">
@@ -214,12 +227,18 @@ export default function GameRow({
                 {teamAbbr(away)}
               </div>
               <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{away}</span>
+              {awayScore != null && (
+                <span className="text-[13px] font-mono font-bold text-white ml-auto shrink-0">{awayScore}</span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <div className="h-[18px] w-[18px] rounded bg-[#111113] border border-[#1a1a1f] flex items-center justify-center text-[7px] font-bold text-[#52525b] shrink-0">
                 {teamAbbr(home)}
               </div>
               <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
+              {homeScore != null && (
+                <span className="text-[13px] font-mono font-bold text-white ml-auto shrink-0">{homeScore}</span>
+              )}
             </div>
 
             <div className="flex items-center gap-2 mt-1.5 pl-[26px] flex-wrap">
@@ -243,8 +262,8 @@ export default function GameRow({
         </div>
 
         <div className="flex flex-col gap-[4px]">
-          <OddsCell leg={awayMLLeg} selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false} onToggle={onToggleLeg} bookKey={awayML?.book} recommended={aiRecommendation?.market === "ml-away"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={getMovementDirection(game.id, marketKeyFor("ml-away"))} />
-          <OddsCell leg={homeMLLeg} selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false} onToggle={onToggleLeg} bookKey={homeML?.book} recommended={aiRecommendation?.market === "ml-home"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={getMovementDirection(game.id, marketKeyFor("ml-home"))} />
+          <OddsCell leg={awayMLLeg} selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false} onToggle={onToggleLeg} bookKey={awayML?.book} recommended={aiRecommendation?.market === "ml-away"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={hasBackendIntel ? marketMovement["ml-away"] : getMovementDirection(game.id, marketKeyFor("ml-away"))} />
+          <OddsCell leg={homeMLLeg} selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false} onToggle={onToggleLeg} bookKey={homeML?.book} recommended={aiRecommendation?.market === "ml-home"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={hasBackendIntel ? marketMovement["ml-home"] : getMovementDirection(game.id, marketKeyFor("ml-home"))} />
         </div>
 
         <div className="flex flex-col gap-[4px]">

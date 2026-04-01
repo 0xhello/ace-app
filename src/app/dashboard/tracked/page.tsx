@@ -10,6 +10,12 @@ function bucketFor(item: any): "active" | "quiet" | "completed" {
   return "active";
 }
 
+function coverageLabel(item: any) {
+  const injury = item.coverage?.injury_coverage ?? "none";
+  const weather = item.coverage?.weather_coverage ?? "none";
+  return `inj ${injury} · wx ${weather}`;
+}
+
 function Section({ title, icon: Icon, items }: { title: string; icon: any; items: any[] }) {
   return (
     <section className="space-y-3">
@@ -33,12 +39,14 @@ function Section({ title, icon: Icon, items }: { title: string; icon: any; items
               <ChevronRight className="h-4 w-4 text-[#27272a] shrink-0" />
             </div>
 
-            <div className="flex items-center gap-3 text-[10px] mb-2">
+            <div className="flex items-center gap-3 text-[10px] mb-2 flex-wrap">
               <span className="text-[#52525b]">{bucketFor(item) === "active" ? "Monitoring" : bucketFor(item) === "quiet" ? "Quiet" : "Completed"}</span>
               <span className="text-[#27272a]">•</span>
               <span className="text-[#00ff7f] font-mono">{item.signals_count} signals</span>
               <span className="text-[#27272a]">•</span>
               <span className="text-[#71717a]">{item.confidence?.pct}%</span>
+              <span className="text-[#27272a]">•</span>
+              <span className="text-[#3f3f46] uppercase">{coverageLabel(item)}</span>
             </div>
 
             <p className="text-[11px] text-[#a1a1aa] leading-relaxed">{item.summary}</p>
