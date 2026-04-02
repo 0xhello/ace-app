@@ -298,7 +298,7 @@ export default function GameRow({
 
           <div className="min-w-0 flex-1 grid grid-cols-[minmax(0,1fr)_40px] gap-4 items-center">
             <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-[3px]">
+              <div className="flex items-center gap-2.5 mb-[3px] min-w-0">
                 <TeamIcon team={away} sport={game.sport} />
                 <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{away}</span>
                 {awayRecord && (
@@ -334,13 +334,13 @@ export default function GameRow({
 
             <div className="h-full flex items-center justify-center">
               {showScores ? (
-                <div className="w-[58px] overflow-hidden">
+                <div className="w-[74px] min-w-[74px] overflow-visible flex flex-col items-center justify-center">
                   <ScoreTag team={away} score={awayScore} leading={awayLeading} />
-                  <div className="h-px mx-2 bg-white/[0.04]" />
+                  <div className="h-px w-[52px] my-0.5 bg-white/[0.04]" />
                   <ScoreTag team={home} score={homeScore} leading={homeLeading} />
                 </div>
               ) : (
-                <div className="w-[58px]" />
+                <div className="w-[74px] min-w-[74px]" />
               )}
             </div>
           </div>
@@ -378,3 +378,4 @@ export default function GameRow({
     </div>
   );
 }
+
