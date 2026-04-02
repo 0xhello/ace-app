@@ -67,6 +67,26 @@ function impactSummary(signals: any[]) {
   return { benefits, harms };
 }
 
+function relativeTimeLabel(value?: string) {
+  if (!value) return "timing unavailable";
+  const then = new Date(value).getTime();
+  if (Number.isNaN(then)) return "timing unavailable";
+  const diffMs = Date.now() - then;
+  const diffMin = Math.max(0, Math.round(diffMs / 60000));
+  if (diffMin <= 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  return `${diffDay}d ago`;
+}
+
+function signalTone(signal: any) {
+  if (signal?.severity === "high") return "border-[#3f1d1d] bg-[#140c0c]";
+  if (signal?.severity === "medium") return "border-[#1e1e24] bg-[#0b0b0d]";
+  return "border-[#141417] bg-[#09090b]";
+}
+
 export default async function TrackedGamePage({ params }: { params: Promise<{ gameId: string }> }) {
   const { gameId } = await params;
   const intel = await fetchGameIntel(gameId);
@@ -85,6 +105,7 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
   const marketConfidence = intel.market_confidence || {};
   const impact = impactSummary(signals);
   const trackedSummary = changeSummary(confidence, signals);
+  const topObservedAt = signals?.[0]?.observedAt || signals?.[0]?.derivedAt || intel.updated_at;
   const deltaLabel = confidence?.delta == null ? "Flat" : confidence.delta > 0 ? `+${confidence.delta}` : `${confidence.delta}`;
 
   return (
@@ -130,6 +151,7 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
               <ConfidencePill confidence={confidence} />
               <span className="text-[11px] px-2 py-1 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">{confidence?.status}</span>
               <span className="text-[11px] px-2 py-1 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">Δ {deltaLabel}</span>
+              <span className="text-[11px] px-2 py-1 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">updated {relativeTimeLabel(topObservedAt)}</span>
             </div>
             <p className="text-[18px] font-semibold text-white mb-2">{confidence?.label}</p>
             <p className="text-[12px] text-[#a1a1aa] leading-relaxed">{trackedSummary}</p>
@@ -162,7 +184,7 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {Object.entries(marketConfidence).map(([key, value]: any) => (
-                <div key={key} className="rounded-xl border border-[#141417] bg-[#09090b] p-3">
+                <div key={key} className={`rounded-xl border p-3 ${value?.credible ? 'border-[#1e1e24] bg-[#0b0b0d]' : 'border-[#141417] bg-[#09090b]'}`}>
                   <p className="text-[10px] text-[#52525b] uppercase tracking-widest mb-1">{marketLabel(key)}</p>
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="text-[15px] font-semibold text-white">{value?.credible ? `${value.pct}%` : '—'}</span>
@@ -206,6 +228,7 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
               <div>
                 <p className="text-[#52525b] uppercase tracking-widest text-[10px] mb-1">What changed</p>
                 <p className="text-white">{trackedSummary}</p>
+                <p className="mt-1 text-[10px] text-[#71717a] uppercase tracking-wider">Latest update {relativeTimeLabel(topObservedAt)}</p>
               </div>
             </div>
           </div>
@@ -216,12 +239,13 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
                 <Database className="h-4 w-4 text-[#3f3f46]" /> No internal signals yet from real adapters.
               </div>
             ) : signals.map((signal: any) => (
-              <details key={signal.id} className="rounded-xl border border-[#141417] bg-[#09090b] p-3 group">
+              <details key={signal.id} className={`rounded-xl border p-3 group ${signalTone(signal)}`}>
                 <summary className="list-none cursor-pointer">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <SignalChip signal={signal} compact />
+                        <span className="text-[10px] px-2 py-0.5 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">{relativeTimeLabel(signal.observedAt || signal.derivedAt)}</span>
                         <span className="text-[10px] text-[#52525b] uppercase tracking-wider">benefits: {signal.benefits?.length ? signal.benefits.join(", ") : "impact unclear"}</span>
                         <span className="text-[10px] text-[#52525b] uppercase tracking-wider">harms: {signal.harms?.length ? signal.harms.join(", ") : "impact unclear"}</span>
                       </div>
