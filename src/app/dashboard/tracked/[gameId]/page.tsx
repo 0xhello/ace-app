@@ -146,12 +146,34 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-[11px] text-[#52525b] uppercase tracking-widest">Confidence history</p>
-            <div className="text-[11px] text-[#71717a] inline-flex items-center gap-1.5"><LineChart className="h-3.5 w-3.5 text-[#00ff7f]" /> Internal trend</div>
+        <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-4">
+          <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[11px] text-[#52525b] uppercase tracking-widest">Confidence history</p>
+              <div className="text-[11px] text-[#71717a] inline-flex items-center gap-1.5"><LineChart className="h-3.5 w-3.5 text-[#00ff7f]" /> Internal trend</div>
+            </div>
+            <Sparkline values={history} />
           </div>
-          <Sparkline values={history} />
+
+          <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[11px] text-[#52525b] uppercase tracking-widest">Market confidence</p>
+              <div className="text-[11px] text-[#71717a] inline-flex items-center gap-1.5"><Activity className="h-3.5 w-3.5 text-[#00ff7f]" /> Monitoring view</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {Object.entries(marketConfidence).map(([key, value]: any) => (
+                <div key={key} className="rounded-xl border border-[#141417] bg-[#09090b] p-3">
+                  <p className="text-[10px] text-[#52525b] uppercase tracking-widest mb-1">{marketLabel(key)}</p>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-[15px] font-semibold text-white">{value?.credible ? `${value.pct}%` : '—'}</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-md border border-[#1e1e24] text-[#71717a] uppercase">{value?.tier || 'quiet'}</span>
+                  </div>
+                  <p className="text-[11px] text-[#e4e4e7] mb-1">{value?.lean || 'No credible lean yet'}</p>
+                  <p className="text-[11px] text-[#71717a] leading-relaxed">{value?.reason || 'Waiting for a stronger market-specific edge.'}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
