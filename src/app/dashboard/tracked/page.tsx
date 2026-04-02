@@ -43,8 +43,12 @@ function Section({ title, icon: Icon, items }: { title: string; icon: any; items
               <span className="text-[#52525b]">{bucketFor(item) === "active" ? "Monitoring" : bucketFor(item) === "quiet" ? "Quiet" : "Completed"}</span>
               <span className="text-[#27272a]">•</span>
               <span className="text-[#00ff7f] font-mono">{item.signals_count} signals</span>
-              <span className="text-[#27272a]">•</span>
-              <span className="text-[#71717a]">{item.confidence?.pct}%</span>
+              {item.market_confidence?.ml?.credible && (
+                <>
+                  <span className="text-[#27272a]">•</span>
+                  <span className="text-[#71717a]">ML {item.market_confidence.ml.pct}%</span>
+                </>
+              )}
               <span className="text-[#27272a]">•</span>
               <span className="text-[#3f3f46] uppercase">{coverageLabel(item)}</span>
             </div>

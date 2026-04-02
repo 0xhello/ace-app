@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Bell, Filter, LineChart, Lock, Database } from "lucide-react";
+import { ArrowLeft, Bell, Filter, LineChart, Lock, Database, TrendingUp, Activity } from "lucide-react";
 import { fetchGameIntel } from "@/lib/intel-data";
 import { ConfidencePill } from "@/components/ConfidenceBadge";
 import { SignalChip } from "@/components/SignalBadge";
@@ -42,6 +42,31 @@ function sourceStatusLabel(status: any, fallback: string) {
   return fallback;
 }
 
+function marketLabel(key: string) {
+  if (key === "ml") return "Moneyline";
+  if (key === "spread") return "Spread";
+  if (key === "total") return "Total";
+  return key;
+}
+
+function changeSummary(confidence: any, signals: any[]) {
+  const delta = confidence?.delta;
+  const top = signals?.[0];
+  if (delta == null || delta === 0) {
+    return top?.summary || "No material change surfaced yet.";
+  }
+  if (delta > 0) {
+    return `Confidence improved ${delta} points — ${top?.summary || "supporting context strengthened"}`;
+  }
+  return `Confidence fell ${Math.abs(delta)} points — ${top?.summary || "new uncertainty entered the read"}`;
+}
+
+function impactSummary(signals: any[]) {
+  const benefits = Array.from(new Set(signals.flatMap((s: any) => s.benefits || []))).filter(Boolean);
+  const harms = Array.from(new Set(signals.flatMap((s: any) => s.harms || []))).filter(Boolean);
+  return { benefits, harms };
+}
+
 export default async function TrackedGamePage({ params }: { params: Promise<{ gameId: string }> }) {
   const { gameId } = await params;
   const intel = await fetchGameIntel(gameId);
@@ -57,6 +82,9 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
   const scoreboard = intel.scoreboard;
   const sourceStatus = intel.source_status || {};
   const coverage = intel.coverage || {};
+  const marketConfidence = intel.market_confidence || {};
+  const impact = impactSummary(signals);
+  const trackedSummary = changeSummary(confidence, signals);
   const deltaLabel = confidence?.delta == null ? "Flat" : confidence.delta > 0 ? `+${confidence.delta}` : `${confidence.delta}`;
 
   return (
@@ -97,14 +125,14 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
 
         <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-4">
           <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
-            <p className="text-[11px] text-[#52525b] uppercase tracking-widest mb-3">Current AI read</p>
+            <p className="text-[11px] text-[#52525b] uppercase tracking-widest mb-3">Current tracked read</p>
             <div className="flex items-center gap-3 mb-3 flex-wrap">
               <ConfidencePill confidence={confidence} />
               <span className="text-[11px] px-2 py-1 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">{confidence?.status}</span>
               <span className="text-[11px] px-2 py-1 rounded-md border border-[#1e1e24] text-[#71717a] uppercase tracking-wider">Δ {deltaLabel}</span>
             </div>
             <p className="text-[18px] font-semibold text-white mb-2">{confidence?.label}</p>
-            <p className="text-[12px] text-[#a1a1aa] leading-relaxed">{confidence?.explanation}</p>
+            <p className="text-[12px] text-[#a1a1aa] leading-relaxed">{trackedSummary}</p>
           </div>
 
           <div className="rounded-2xl border border-[#141417] bg-[#0c0c0e] p-5">
