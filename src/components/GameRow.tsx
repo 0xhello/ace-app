@@ -77,6 +77,7 @@ function OddsCell({
   recommendationReason,
   recommendationConfidence,
   movement,
+  marketConfidence,
 }: {
   leg: SlipLeg | null;
   selected: boolean;
@@ -87,6 +88,13 @@ function OddsCell({
   recommendationReason?: string;
   recommendationConfidence?: number;
   movement?: "up" | "down" | null;
+  marketConfidence?: {
+    pct?: number;
+    lean?: string | null;
+    reason?: string;
+    supporting_signals?: string[];
+    status?: string;
+  } | null;
 }) {
   if (!leg) {
     return (
@@ -148,13 +156,28 @@ function OddsCell({
         )}
       </button>
 
-      {recommended && recommendationReason && (
+      {(marketConfidence || (recommended && recommendationReason)) && (
         <div className="pointer-events-none absolute left-1/2 bottom-[calc(100%+12px)] -translate-x-1/2 w-[210px] rounded-xl border border-[#2a2a35] bg-[#121216]/95 px-3 py-2.5 shadow-2xl opacity-0 group-hover/rec:opacity-100 transition-opacity z-30">
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <Sparkles className="h-3 w-3 text-[#00ff7f] shrink-0" />
-            <span className="text-[11px] font-bold text-white">{recommendationConfidence ?? 78}% Confidence</span>
-          </div>
-          <p className="text-[10px] text-[#a1a1aa] leading-relaxed">{recommendationReason}</p>
+          {marketConfidence ? (
+            <>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Sparkles className="h-3 w-3 text-[#00ff7f] shrink-0" />
+                <span className="text-[11px] font-bold text-white">{marketConfidence.pct ?? 0}% · {marketConfidence.lean || "No clear lean"}</span>
+              </div>
+              <p className="text-[10px] text-[#a1a1aa] leading-relaxed">{marketConfidence.reason || "No credible market-specific read yet."}</p>
+              {marketConfidence.supporting_signals?.[0] && (
+                <p className="mt-1.5 text-[10px] text-[#71717a] leading-relaxed">{marketConfidence.supporting_signals[0]}</p>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Sparkles className="h-3 w-3 text-[#00ff7f] shrink-0" />
+                <span className="text-[11px] font-bold text-white">{recommendationConfidence ?? 78}% Confidence</span>
+              </div>
+              <p className="text-[10px] text-[#a1a1aa] leading-relaxed">{recommendationReason}</p>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -237,6 +260,7 @@ export default function GameRow({
   const isHighSeverity = boardIntel?.has_high_severity ?? hasHighSeveritySignal(game.id, home, away);
   const aiRecommendation = boardIntel?.recommendation ?? getAIRecommendation(game.id);
   const marketMovement = boardIntel?.market_movement ?? {};
+  const marketConfidence = boardIntel?.market_confidence ?? {};
   const scoreboard = boardIntel?.scoreboard;
   const awayScore = scoreboard?.away_score;
   const homeScore = scoreboard?.home_score;
@@ -315,8 +339,6 @@ export default function GameRow({
 
               <div className="flex items-center gap-2 mt-1.5 pl-[26px] flex-wrap">
                 <span className="text-[9px] text-[#3f3f46] uppercase tracking-wider">{game.sport_title}</span>
-                <span className="text-[9px] text-[#1e1e24]">·</span>
-                <ConfidencePill confidence={confidence} compact />
                 {topSignal && (
                   <>
                     <span className="text-[9px] text-[#1e1e24]">·</span>
@@ -347,8 +369,8 @@ export default function GameRow({
         </div>
 
         <div className="flex flex-col gap-[4px]">
-          <OddsCell leg={awayMLLeg} selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false} onToggle={onToggleLeg} bookKey={awayML?.book} recommended={aiRecommendation?.market === "ml-away"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={hasBackendIntel ? marketMovement["ml-away"] : getMovementDirection(game.id, marketKeyFor("ml-away"))} />
-          <OddsCell leg={homeMLLeg} selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false} onToggle={onToggleLeg} bookKey={homeML?.book} recommended={aiRecommendation?.market === "ml-home"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={hasBackendIntel ? marketMovement["ml-home"] : getMovementDirection(game.id, marketKeyFor("ml-home"))} />
+          <OddsCell leg={awayMLLeg} selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false} onToggle={onToggleLeg} bookKey={awayML?.book} recommended={aiRecommendation?.market === "ml-away"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={hasBackendIntel ? marketMovement["ml-away"] : getMovementDirection(game.id, marketKeyFor("ml-away"))} marketConfidence={marketConfidence?.ml} />
+          <OddsCell leg={homeMLLeg} selected={homeMLLeg ? selectedIds.includes(homeMLLeg.id) : false} onToggle={onToggleLeg} bookKey={homeML?.book} recommended={aiRecommendation?.market === "ml-home"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} movement={hasBackendIntel ? marketMovement["ml-home"] : getMovementDirection(game.id, marketKeyFor("ml-home"))} marketConfidence={marketConfidence?.ml} />
         </div>
 
         <div className="flex flex-col gap-[4px]">
