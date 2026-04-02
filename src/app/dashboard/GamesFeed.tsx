@@ -15,11 +15,29 @@ async function getGames(): Promise<{ games: Game[]; errors: any[]; dataStatus: s
   };
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } catch {
+    return fallback;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export default async function GamesFeed() {
-  const [{ games, errors, dataStatus, fetchedAt }, boardIntel, topPicks] = await Promise.all([
-    getGames(),
-    fetchBoardIntel(100),
-    fetchTopPicks(4),
+  const gamesResult = await getGames();
+  const { games, errors, dataStatus, fetchedAt } = gamesResult;
+
+  const [boardIntel, topPicks] = await Promise.all([
+    withTimeout(fetchBoardIntel(40), 4500, { count: 0, items: [], updated_at: null }),
+    withTimeout(fetchTopPicks(4), 2000, { count: 0, items: [], updated_at: null }),
   ]);
 
   if (games.length === 0) {
