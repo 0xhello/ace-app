@@ -167,6 +167,27 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
             </div>
           </div>
 
+          <div className="rounded-xl border border-[#141417] bg-[#09090b] p-4 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[11px] text-[#52525b] uppercase tracking-widest">Impact summary</p>
+              <div className="text-[11px] text-[#71717a] inline-flex items-center gap-1.5"><TrendingUp className="h-3.5 w-3.5 text-[#00ff7f]" /> What changed</div>
+            </div>
+            <div className="space-y-3 text-[12px]">
+              <div>
+                <p className="text-[#52525b] uppercase tracking-widest text-[10px] mb-1">Who benefits</p>
+                <p className="text-white">{impact.benefits.length ? impact.benefits.join(', ') : 'No clear beneficiary surfaced yet.'}</p>
+              </div>
+              <div>
+                <p className="text-[#52525b] uppercase tracking-widest text-[10px] mb-1">Who is impacted</p>
+                <p className="text-white">{impact.harms.length ? impact.harms.join(', ') : 'No clear negative impact surfaced yet.'}</p>
+              </div>
+              <div>
+                <p className="text-[#52525b] uppercase tracking-widest text-[10px] mb-1">What changed</p>
+                <p className="text-white">{trackedSummary}</p>
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-3">
             {signals.length === 0 ? (
               <div className="rounded-xl border border-[#141417] bg-[#09090b] p-4 text-[12px] text-[#71717a] inline-flex items-center gap-2">

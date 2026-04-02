@@ -54,6 +54,12 @@ function Section({ title, icon: Icon, items }: { title: string; icon: any; items
             </div>
 
             <p className="text-[11px] text-[#a1a1aa] leading-relaxed">{item.summary}</p>
+            {item.market_confidence?.ml?.credible && (
+              <p className="mt-1.5 text-[10px] text-[#71717a] uppercase tracking-wider">{item.market_confidence.ml.lean} · {item.market_confidence.ml.pct}%</p>
+            )}
+            {!item.market_confidence?.ml?.credible && (
+              <p className="mt-1.5 text-[10px] text-[#3f3f46] uppercase tracking-wider">No credible ML edge yet</p>
+            )}
           </Link>
         ))}
       </div>
