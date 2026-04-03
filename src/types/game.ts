@@ -39,4 +39,13 @@ export interface Game {
   bookmakers: BookOdds[];
   num_books: number;
   fetched_at: string;
+  scoreboard?: {
+    state?: string;
+    away_score?: string | number;
+    home_score?: string | number;
+    away_probables?: any[];
+    home_probables?: any[];
+    clock?: string | null;
+    period?: number | null;
+  };
 }

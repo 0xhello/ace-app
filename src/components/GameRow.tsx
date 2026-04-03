@@ -260,7 +260,7 @@ export default function GameRow({
   const aiRecommendation = boardIntel?.recommendation ?? getAIRecommendation(game.id);
   const marketMovement = boardIntel?.market_movement ?? {};
   const marketConfidence = boardIntel?.market_confidence ?? {};
-  const scoreboard = boardIntel?.scoreboard;
+  const scoreboard = boardIntel?.scoreboard || game.scoreboard;
   const awayScore = scoreboard?.away_score;
   const homeScore = scoreboard?.home_score;
   const awayRecord = scoreboard?.away_record;
