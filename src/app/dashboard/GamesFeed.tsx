@@ -1,6 +1,6 @@
 import { Game } from "@/types/game";
 import DashboardShell from "@/components/dashboard/DashboardShell";
-import { fetchBoardIntel, fetchTopPicks } from "@/lib/intel-data";
+import { fetchBoardIntel, fetchLiveBoardIntel, fetchTopPicks } from "@/lib/intel-data";
 
 async function getGames(): Promise<{ games: Game[]; errors: any[]; dataStatus: string; fetchedAt: string | null }> {
   const url = `${process.env.ODDS_API_URL || "http://localhost:8000"}/games`;
@@ -36,14 +36,13 @@ export default async function GamesFeed() {
   const { games, errors, dataStatus, fetchedAt } = gamesResult;
 
   const liveGameCount = games.filter((g) => g.status === "live").length;
-  const boardLimit = liveGameCount > 0 ? games.length : 24;
+  const boardLimit = 24;
 
-  const boardIntelPromise = liveGameCount > 0
-    ? fetchBoardIntel(boardLimit).catch(() => ({ count: 0, items: [], updated_at: null }))
-    : withTimeout(fetchBoardIntel(boardLimit), 9000, { count: 0, items: [], updated_at: null });
-
-  const [boardIntel, topPicks] = await Promise.all([
-    boardIntelPromise,
+  const [liveBoardIntel, boardIntel, topPicks] = await Promise.all([
+    liveGameCount > 0
+      ? withTimeout(fetchLiveBoardIntel(liveGameCount + 4), 5000, { count: 0, items: [], updated_at: null })
+      : Promise.resolve({ count: 0, items: [], updated_at: null }),
+    withTimeout(fetchBoardIntel(boardLimit), 4000, { count: 0, items: [], updated_at: null }),
     withTimeout(fetchTopPicks(4), 1200, { count: 0, items: [], updated_at: null }),
   ]);
 
@@ -68,7 +67,15 @@ export default async function GamesFeed() {
     );
   }
 
-  const intelMap = Object.fromEntries((boardIntel.items || []).map((item: any) => [item.game_id, item]));
+  const mergedItems = [...(boardIntel.items || [])];
+  for (const liveItem of liveBoardIntel.items || []) {
+    const idx = mergedItems.findIndex((item: any) => item.game_id === liveItem.game_id);
+    if (idx >= 0) mergedItems[idx] = { ...mergedItems[idx], ...liveItem };
+    else mergedItems.push(liveItem);
+  }
 
-  return <DashboardShell games={games} intelMap={intelMap} boardUpdatedAt={boardIntel.updated_at} topPicks={topPicks.items || []} />;
+  const intelMap = Object.fromEntries(mergedItems.map((item: any) => [item.game_id, item]));
+  const boardUpdatedAt = liveBoardIntel.updated_at || boardIntel.updated_at;
+
+  return <DashboardShell games={games} intelMap={intelMap} boardUpdatedAt={boardUpdatedAt} topPicks={topPicks.items || []} />;
 }
