@@ -35,8 +35,11 @@ export default async function GamesFeed() {
   const gamesResult = await getGames();
   const { games, errors, dataStatus, fetchedAt } = gamesResult;
 
+  const liveGameCount = games.filter((g) => g.status === "live").length;
+  const boardLimit = Math.max(24, liveGameCount + 24);
+
   const [boardIntel, topPicks] = await Promise.all([
-    withTimeout(fetchBoardIntel(24), 9000, { count: 0, items: [], updated_at: null }),
+    withTimeout(fetchBoardIntel(boardLimit), 9000, { count: 0, items: [], updated_at: null }),
     withTimeout(fetchTopPicks(4), 1200, { count: 0, items: [], updated_at: null }),
   ]);
 
