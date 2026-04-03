@@ -38,8 +38,12 @@ export default async function GamesFeed() {
   const liveGameCount = games.filter((g) => g.status === "live").length;
   const boardLimit = liveGameCount > 0 ? games.length : 24;
 
+  const boardIntelPromise = liveGameCount > 0
+    ? fetchBoardIntel(boardLimit).catch(() => ({ count: 0, items: [], updated_at: null }))
+    : withTimeout(fetchBoardIntel(boardLimit), 9000, { count: 0, items: [], updated_at: null });
+
   const [boardIntel, topPicks] = await Promise.all([
-    withTimeout(fetchBoardIntel(boardLimit), 9000, { count: 0, items: [], updated_at: null }),
+    boardIntelPromise,
     withTimeout(fetchTopPicks(4), 1200, { count: 0, items: [], updated_at: null }),
   ]);
 
