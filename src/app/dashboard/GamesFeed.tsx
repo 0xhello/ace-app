@@ -36,8 +36,8 @@ export default async function GamesFeed() {
   const { games, errors, dataStatus, fetchedAt } = gamesResult;
 
   const [boardIntel, topPicks] = await Promise.all([
-    withTimeout(fetchBoardIntel(40), 4500, { count: 0, items: [], updated_at: null }),
-    withTimeout(fetchTopPicks(4), 2000, { count: 0, items: [], updated_at: null }),
+    withTimeout(fetchBoardIntel(24), 9000, { count: 0, items: [], updated_at: null }),
+    withTimeout(fetchTopPicks(4), 1200, { count: 0, items: [], updated_at: null }),
   ]);
 
   if (games.length === 0) {
