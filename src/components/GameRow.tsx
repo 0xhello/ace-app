@@ -319,7 +319,7 @@ export default function GameRow({
             )}
           </div>
 
-          <div className="min-w-0 flex-1 grid grid-cols-[minmax(0,1fr)_40px] gap-4 items-center">
+          <div className="min-w-0 flex-1 grid grid-cols-[minmax(0,1fr)_74px] gap-4 items-center">
             <div className="min-w-0">
               <div className="flex items-center gap-2.5 mb-[3px] min-w-0">
                 <TeamIcon team={away} sport={game.sport} />
