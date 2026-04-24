@@ -1,24 +1,15 @@
 import { NextResponse } from "next/server";
+import { fetchAllGames } from "@/lib/odds-api";
 import * as cache from "@/lib/server-cache";
 
-const BACKEND = process.env.ODDS_API_URL || "http://localhost:8000";
 const CACHE_KEY = "board-games";
-
-async function fetchFromBackend() {
-  const res = await fetch(`${BACKEND}/games`, {
-    cache: "no-store",
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`Backend ${res.status}`);
-  return res.json();
-}
 
 export async function GET() {
   const entry = cache.get(CACHE_KEY);
-  const games = entry?.data?.games ?? [];
+  const cachedGames = entry?.data?.games ?? [];
 
   // Serve from cache if still fresh
-  if (!cache.isStale(CACHE_KEY, games)) {
+  if (!cache.isStale(CACHE_KEY, cachedGames)) {
     return NextResponse.json({
       ...entry!.data,
       cached: true,
@@ -26,13 +17,19 @@ export async function GET() {
     });
   }
 
-  // Fetch fresh data
+  // Fetch fresh from Odds API
   try {
-    const data = await fetchFromBackend();
-    cache.set(CACHE_KEY, data);
-    return NextResponse.json({ ...data, cached: false, cacheAge: 0 });
-  } catch {
-    // Return stale cache rather than an error — never flash the board empty
+    const result = await fetchAllGames();
+    const payload = {
+      games: result.games,
+      errors: result.errors,
+      fetchedAt: result.fetchedAt,
+      data_status: result.errors.length ? "degraded" : "ok",
+    };
+    cache.set(CACHE_KEY, payload);
+    return NextResponse.json({ ...payload, cached: false, cacheAge: 0 });
+  } catch (e: any) {
+    // Return stale cache over an error — never flash the board empty
     if (entry) {
       return NextResponse.json({
         ...entry.data,
@@ -41,6 +38,9 @@ export async function GET() {
         cacheAge: Math.round(cache.age(CACHE_KEY) / 1000),
       });
     }
-    return NextResponse.json({ games: [], fetchedAt: null }, { status: 503 });
+    return NextResponse.json(
+      { games: [], errors: [e.message], fetchedAt: null, data_status: "error" },
+      { status: 503 }
+    );
   }
 }

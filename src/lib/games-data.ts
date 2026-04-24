@@ -1,11 +1,9 @@
 import { Game } from "@/types/game";
+import { fetchAllGames } from "@/lib/odds-api";
 
 export async function fetchGames(): Promise<Game[]> {
-  const url = `${process.env.ODDS_API_URL || "http://localhost:8000"}/games`;
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.games || [];
+  const result = await fetchAllGames();
+  return result.games;
 }
 
 export async function fetchGameById(gameId: string): Promise<Game | null> {
