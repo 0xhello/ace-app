@@ -13,7 +13,7 @@ export function generateNotifications(games: Game[]): NotificationItem[] {
 
   for (const game of games.slice(0, 12)) {
     const h = hash(game.id);
-    const confidence = getConfidenceForGame(game.id);
+    const confidence = getConfidenceForGame(game.id, game.home_team, game.away_team);
     const signals = getSignalsForGame(game.id, game.home_team, game.away_team);
     const top = signals[0];
     const href = `/dashboard/tracked/${game.id}`;

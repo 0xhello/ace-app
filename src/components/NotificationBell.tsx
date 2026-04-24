@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Bell, AlertTriangle, Info, ChevronRight } from "lucide-react";
 import type { Game } from "@/types/game";
+import type { NotificationItem } from "@/types/notification";
 import { generateNotifications } from "@/lib/notifications";
+import { loadAlerts } from "@/lib/alerts";
+import type { PriceAlert } from "@/lib/alerts";
 import { cn } from "@/lib/utils";
 
 function timeAgo(iso: string) {
@@ -15,7 +18,30 @@ function timeAgo(iso: string) {
 
 export default function NotificationBell({ games }: { games: Game[] }) {
   const [open, setOpen] = useState(false);
-  const notifications = useMemo(() => generateNotifications(games), [games]);
+  const [triggeredAlerts, setTriggeredAlerts] = useState<PriceAlert[]>([]);
+
+  useEffect(() => {
+    setTriggeredAlerts(loadAlerts().filter((a) => a.status === "triggered"));
+  }, [open]); // refresh when bell is opened
+
+  const signalNotifs = useMemo(() => generateNotifications(games), [games]);
+
+  const alertNotifs: NotificationItem[] = triggeredAlerts.map((a) => ({
+    id: `price-${a.id}`,
+    gameId: a.gameId,
+    title: "Price alert triggered",
+    body: `${a.team} ${a.market.toUpperCase()} ${a.condition === "rises_above" ? "↑" : "↓"} ${a.threshold > 0 ? "+" : ""}${a.threshold}${a.triggeredOdds !== undefined ? ` (now ${a.triggeredOdds > 0 ? "+" : ""}${a.triggeredOdds})` : ""}`,
+    kind: "market-shock" as const,
+    severity: "warning" as const,
+    forced: true,
+    createdAt: a.triggeredAt ?? a.createdAt,
+    href: "/dashboard/alerts",
+  }));
+
+  const notifications = [...alertNotifs, ...signalNotifs]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 10);
+
   const unread = notifications.length;
 
   return (
@@ -33,7 +59,7 @@ export default function NotificationBell({ games }: { games: Game[] }) {
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#141417]">
             <div>
               <p className="text-[12px] font-semibold text-white">Notifications</p>
-              <p className="text-[10px] text-[#52525b]">Tracked games only</p>
+              <p className="text-[10px] text-[#52525b]">Alerts + signals</p>
             </div>
             <span className="text-[10px] font-mono text-[#ef4444]">{unread}</span>
           </div>

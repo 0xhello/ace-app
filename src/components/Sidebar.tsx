@@ -6,8 +6,6 @@ import { cn } from "@/lib/utils";
 import {
   LayoutGrid,
   Sparkles,
-  Star,
-  Layers,
   Bell,
   Settings,
   Crown,
@@ -17,8 +15,6 @@ import {
 const NAV = [
   { href: "/dashboard", label: "Board", icon: LayoutGrid },
   { href: "/dashboard/tracked", label: "Tracked", icon: Sparkles },
-  { href: "/dashboard/watchlist", label: "Watchlist", icon: Star },
-  { href: "/dashboard/parlay", label: "Builder", icon: Layers },
   { href: "/dashboard/alerts", label: "Alerts", icon: Bell },
 ];
 

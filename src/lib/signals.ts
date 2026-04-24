@@ -25,32 +25,87 @@ function pick<T>(arr: T[], seed: number): T {
 
 export type MarketRec = "ml-away" | "ml-home" | "sp-away" | "sp-home" | "ov" | "un";
 
+function signalScore(sig: Signal): number {
+  let score = 0;
+  if (sig.severity === "high") score += 6;
+  else if (sig.severity === "medium") score += 3;
+  else score += 1;
+  if (sig.certainty === "confirmed") score += 4;
+  else if (sig.certainty === "likely") score += 2;
+  if (sig.direction !== "uncertain") score += 2;
+  return score;
+}
+
+function signalToMarket(signal: Signal, tiebreakSeed: number): MarketRec | null {
+  if (signal.direction === "uncertain") return null;
+
+  if (signal.type === "weather") {
+    const b = signal.benefits.join(" ").toLowerCase();
+    if (b.includes("under")) return "un";
+    if (b.includes("over")) return "ov";
+    return null;
+  }
+
+  if (signal.type === "market") {
+    const b = signal.benefits.join(" ").toLowerCase();
+    if (b.includes("under")) return "un";
+    if (b.includes("over")) return "ov";
+    if (b.includes("home")) return tiebreakSeed % 2 === 0 ? "sp-home" : "ml-home";
+    if (b.includes("away")) return tiebreakSeed % 2 === 0 ? "sp-away" : "ml-away";
+    return null;
+  }
+
+  if (signal.type === "injury" || signal.type === "news") {
+    if (signal.direction === "negative") {
+      if (signal.affectedTeam === "home") return tiebreakSeed % 2 === 0 ? "ml-away" : "sp-away";
+      if (signal.affectedTeam === "away") return tiebreakSeed % 2 === 0 ? "ml-home" : "sp-home";
+    }
+    if (signal.direction === "positive") {
+      if (signal.affectedTeam === "home") return tiebreakSeed % 2 === 0 ? "ml-home" : "sp-home";
+      if (signal.affectedTeam === "away") return tiebreakSeed % 2 === 0 ? "ml-away" : "sp-away";
+    }
+  }
+
+  return null;
+}
+
 /**
- * For a given game, returns which specific market(s) the AI recommends.
- * Returns null if no strong recommendation exists for this game.
+ * For a given game, returns which specific market the AI recommends.
+ * Only returns a recommendation when signals are strong enough and clearly aligned.
+ * Returns null if no high-conviction edge exists.
  */
-export function getAIRecommendation(gameId: string): { market: MarketRec; confidence: number; reason: string } | null {
+export function getAIRecommendation(gameId: string, homeTeam: string, awayTeam: string): { market: MarketRec; confidence: number; reason: string } | null {
+  const signals = generateSignalsForGame(gameId, homeTeam, awayTeam);
+  if (signals.length === 0) return null;
+
   const h = hash(gameId);
-  // ~40% of games get an AI recommendation
-  if (h % 10 < 6) return null;
 
-  const markets: MarketRec[] = ["ml-away", "ml-home", "sp-away", "sp-home", "ov", "un"];
-  const market = pick(markets, h + 3);
-  const confidence = 65 + (h % 30); // 65-94
+  const actionable = signals
+    .filter((s) => s.direction !== "uncertain" && s.certainty !== "speculative")
+    .sort((a, b) => signalScore(b) - signalScore(a));
 
-  const reasons: Record<string, string[]> = {
-    "ml-away": ["Road team showing stronger recent form", "Historical dominance in this matchup"],
-    "ml-home": ["Home court advantage amplified by fatigue", "Strong home record this season"],
-    "sp-away": ["Spread value detected for road team", "Line shifted from sharp action"],
-    "sp-home": ["Home team undervalued at current spread", "Reverse line movement favoring home"],
-    "ov": ["Pace mismatch favors higher scoring", "Both teams top-5 in tempo"],
-    "un": ["Defensive matchup suppresses scoring", "Weather/conditions favor under"],
+  if (actionable.length === 0) return null;
+
+  const top = actionable[0];
+  if (signalScore(top) < 8) return null;
+
+  const market = signalToMarket(top, h);
+  if (!market) return null;
+
+  const confidence = generateConfidence(gameId, homeTeam, awayTeam);
+  if (confidence.pct < 65) return null;
+
+  const reasons: Partial<Record<MarketRec, string[]>> = {
+    "ml-home": ["Home side has structural advantage; away carrying injury risk", "Line value on home side after sharp movement"],
+    "ml-away": ["Away team better positioned; home side weakened by signal stack", "Road team showing edge at current price"],
+    "sp-home": ["Home spread showing value after reverse line movement", "Home team undervalued at current number"],
+    "sp-away": ["Away spread holds value; sharp money disagrees with public", "Road team well-positioned against the spread"],
+    "ov": ["Pace and scoring conditions favor the over", "Defensive limitations create over value"],
+    "un": ["Conditions strongly suppress scoring; defensive edge confirmed", "Key offensive factors limited"],
   };
 
-  const reasonList = reasons[market] || ["Model detects edge at current price"];
-  const reason = pick(reasonList, h + 7);
-
-  return { market, confidence, reason };
+  const reasonList = reasons[market] ?? ["Signal alignment detected at current price"];
+  return { market, confidence: confidence.pct, reason: pick(reasonList, h + 7) };
 }
 
 /**
@@ -246,35 +301,71 @@ function generateSignalsForGame(gameId: string, homeTeam: string, awayTeam: stri
   return signals;
 }
 
-function generateConfidence(gameId: string): ConfidenceRead {
+function generateConfidence(gameId: string, homeTeam: string, awayTeam: string): ConfidenceRead {
+  const signals = generateSignalsForGame(gameId, homeTeam, awayTeam);
   const h = hash(gameId);
-  const pct = 55 + (h % 40);
 
-  if (pct >= 85) {
+  if (signals.length === 0) {
+    const base = 52 + (h % 13);
     return {
-      tier: "high",
-      pct,
-      label: `High (${pct}%) — Stable`,
-      explanation: "Signals aligned, no major risks detected",
+      tier: "low",
+      pct: base,
+      label: `Low (${base}%) — Insufficient data`,
+      explanation: "No significant signals detected for this game",
       status: "stable",
     };
   }
-  if (pct >= 70) {
-    const statuses = ["stable", "volatile"] as const;
-    const status = pick([...statuses], h + 1);
+
+  let score = 60;
+  const directions = signals.map((s) => s.direction);
+  const hasPositive = directions.includes("positive");
+  const hasNegative = directions.includes("negative");
+  let hasConflict = hasPositive && hasNegative;
+
+  for (const sig of signals) {
+    if (sig.direction === "uncertain") {
+      score -= 6;
+      hasConflict = true;
+      continue;
+    }
+    if (sig.severity === "high" && sig.certainty === "confirmed") score += 14;
+    else if (sig.severity === "high" && sig.certainty === "likely") score += 9;
+    else if (sig.severity === "high") score += 5;
+    else if (sig.severity === "medium" && sig.certainty === "confirmed") score += 6;
+    else if (sig.severity === "medium") score += 3;
+    else score += 2;
+  }
+
+  if (hasConflict) score -= 8;
+
+  const noise = (h % 11) - 5;
+  score = Math.max(52, Math.min(94, Math.round(score + noise)));
+
+  const status: "stable" | "volatile" | "degraded" = hasConflict ? "degraded" : "stable";
+
+  if (score >= 80) {
+    return {
+      tier: "high",
+      pct: score,
+      label: `High (${score}%) — ${status === "stable" ? "Stable" : "Conflicted"}`,
+      explanation: hasConflict ? "Strong signals with minor divergence" : "Signals aligned with strong conviction",
+      status,
+    };
+  }
+  if (score >= 65) {
     return {
       tier: "medium",
-      pct,
-      label: `Medium (${pct}%) — ${status === "stable" ? "Slight uncertainty" : "Volatile"}`,
-      explanation: status === "stable" ? "Minor injury uncertainty" : "Market signals diverging from model",
+      pct: score,
+      label: `Medium (${score}%) — ${status === "stable" ? "Moderate confidence" : "Conflicting signals"}`,
+      explanation: hasConflict ? "Mixed signals reduce conviction" : "Moderate signal alignment",
       status,
     };
   }
   return {
     tier: "low",
-    pct,
-    label: `Low (${pct}%) — Signals conflicting`,
-    explanation: "Multiple conflicting signals, exercise caution",
+    pct: score,
+    label: `Low (${score}%) — ${hasConflict ? "Signals conflicting" : "Weak signals"}`,
+    explanation: hasConflict ? "Conflicting signals, exercise caution" : "Insufficient signal clarity",
     status: "degraded",
   };
 }
@@ -285,8 +376,8 @@ export function getSignalsForGame(gameId: string, homeTeam: string, awayTeam: st
   return generateSignalsForGame(gameId, homeTeam, awayTeam);
 }
 
-export function getConfidenceForGame(gameId: string): ConfidenceRead {
-  return generateConfidence(gameId);
+export function getConfidenceForGame(gameId: string, homeTeam: string, awayTeam: string): ConfidenceRead {
+  return generateConfidence(gameId, homeTeam, awayTeam);
 }
 
 export function getTopSignalForGame(gameId: string, homeTeam: string, awayTeam: string): Signal | null {
@@ -301,62 +392,25 @@ export function hasHighSeveritySignal(gameId: string, homeTeam: string, awayTeam
 }
 
 export function generateAIPicks(): AIPick[] {
-  return [
-    {
-      id: "ai-1",
-      gameId: "gsw-phx",
-      type: "TOTAL",
-      pick: "O 228.5",
-      game: "GSW @ PHX",
-      odds: -105,
-      market: "Total",
-      confidence: { tier: "high", pct: 91, label: "High (91%) — Stable", explanation: "Signals aligned, no major risks", status: "stable" },
-      reasoning: "Pace mismatch + both teams top-5 tempo. No injury impact on scoring.",
-      tag: "stable",
-      edge: "+4.2%",
-      signals: [],
-    },
-    {
-      id: "ai-2",
-      gameId: "bos-lal",
-      type: "ML",
-      pick: "LAL ML",
-      game: "BOS @ LAL",
-      odds: -145,
-      market: "Moneyline",
-      confidence: { tier: "high", pct: 87, label: "High (87%) — Stable", explanation: "Home advantage + fatigue signal", status: "stable" },
-      reasoning: "Back-to-back fatigue for Boston. Home court edge amplified.",
-      tag: "stable",
-      edge: "+3.1%",
-      signals: [],
-    },
-    {
-      id: "ai-3",
-      gameId: "gsw-phx",
-      type: "PROP",
-      pick: "Curry O 28.5",
-      game: "GSW @ PHX",
-      odds: -115,
-      market: "Player Prop",
-      confidence: { tier: "medium", pct: 78, label: "Medium (78%) — Slight uncertainty", explanation: "Matchup strong but minutes unclear", status: "stable" },
-      reasoning: "PHX perimeter defense weakened by injury. Usage rate projected up.",
-      tag: "watch",
-      edge: "+2.8%",
-      signals: [],
-    },
-    {
-      id: "ai-4",
-      gameId: "mil-cle",
-      type: "SPREAD",
-      pick: "MIL -4.5",
-      game: "MIL @ CLE",
-      odds: -108,
-      market: "Spread",
-      confidence: { tier: "medium", pct: 74, label: "Medium (74%) — Volatile", explanation: "Market diverging from model slightly", status: "volatile" },
-      reasoning: "Reverse line movement suggests sharp action. Model holds conviction.",
-      tag: "volatile",
-      edge: "+1.9%",
-      signals: [],
-    },
+  const seeds = [
+    { id: "ai-1", gameId: "gsw-phx", home: "PHX", away: "GSW", type: "TOTAL", pick: "O 228.5", game: "GSW @ PHX", odds: -105, market: "Total", reasoning: "Pace mismatch + both teams top-5 tempo. No injury impact on scoring.", tag: "stable" as PickTag, edge: "+4.2%" },
+    { id: "ai-2", gameId: "bos-lal", home: "LAL", away: "BOS", type: "ML", pick: "LAL ML", game: "BOS @ LAL", odds: -145, market: "Moneyline", reasoning: "Back-to-back fatigue for Boston. Home court edge amplified.", tag: "stable" as PickTag, edge: "+3.1%" },
+    { id: "ai-3", gameId: "gsw-phx-prop", home: "PHX", away: "GSW", type: "PROP", pick: "Curry O 28.5", game: "GSW @ PHX", odds: -115, market: "Player Prop", reasoning: "PHX perimeter defense weakened by injury. Usage rate projected up.", tag: "watch" as PickTag, edge: "+2.8%" },
+    { id: "ai-4", gameId: "mil-cle", home: "CLE", away: "MIL", type: "SPREAD", pick: "MIL -4.5", game: "MIL @ CLE", odds: -108, market: "Spread", reasoning: "Reverse line movement suggests sharp action. Model holds conviction.", tag: "volatile" as PickTag, edge: "+1.9%" },
   ];
+
+  return seeds.map((s) => ({
+    id: s.id,
+    gameId: s.gameId,
+    type: s.type,
+    pick: s.pick,
+    game: s.game,
+    odds: s.odds,
+    market: s.market,
+    confidence: generateConfidence(s.gameId, s.home, s.away),
+    reasoning: s.reasoning,
+    tag: s.tag,
+    edge: s.edge,
+    signals: generateSignalsForGame(s.gameId, s.home, s.away),
+  }));
 }

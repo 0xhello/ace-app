@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Game } from "@/types/game";
 import GameRow from "@/components/GameRow";
 import TopAIPicks from "@/components/TopAIPicks";
 import BetSlip from "@/components/BetSlip";
+import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
-import { Activity, Search, Sparkles, Star, Zap, AlertTriangle, Clock } from "lucide-react";
+import { Search, Sparkles, Star, AlertTriangle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSignalsForGame, hasHighSeveritySignal } from "@/lib/signals";
+import { checkAlerts, fireNotification } from "@/lib/alerts";
 
 type SportFilter = "ALL" | "NBA" | "NFL" | "MLB" | "NHL" | "NCAAB";
 type TimeFilter = "ALL" | "LIVE" | "TODAY";
@@ -34,16 +36,86 @@ const SPORT_LABELS: Record<string, { emoji: string; label: string }> = {
 
 const SPORTS: SportFilter[] = ["ALL", "NBA", "NFL", "MLB", "NHL", "NCAAB"];
 
-export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt, topPicks = [] }: { games: Game[]; intelMap?: Record<string, any>; boardUpdatedAt?: string | null; topPicks?: any[] }) {
+function extractBestOdds(game: Game): Record<string, number | null> {
+  const bk = game.bookmakers;
+  const best = (arr: number[]) => (arr.length ? Math.max(...arr) : null);
+  return {
+    "ml-away": best(bk.flatMap((b) => (b.markets.h2h || []).filter((o) => o.name === game.away_team).map((o) => o.price))),
+    "ml-home": best(bk.flatMap((b) => (b.markets.h2h || []).filter((o) => o.name === game.home_team).map((o) => o.price))),
+    "sp-away": best(bk.flatMap((b) => (b.markets.spreads || []).filter((o) => o.name === game.away_team).map((o) => o.price))),
+    "sp-home": best(bk.flatMap((b) => (b.markets.spreads || []).filter((o) => o.name === game.home_team).map((o) => o.price))),
+    "ov":      best(bk.flatMap((b) => (b.markets.totals || []).filter((o) => o.name === "Over").map((o) => o.price))),
+    "un":      best(bk.flatMap((b) => (b.markets.totals || []).filter((o) => o.name === "Under").map((o) => o.price))),
+  };
+}
+
+function computeMovementMap(prev: Game[], next: Game[]): Record<string, Record<string, "up" | "down">> {
+  const result: Record<string, Record<string, "up" | "down">> = {};
+  for (const ng of next) {
+    const pg = prev.find((g) => g.id === ng.id);
+    if (!pg) continue;
+    const po = extractBestOdds(pg);
+    const no = extractBestOdds(ng);
+    const mv: Record<string, "up" | "down"> = {};
+    for (const k of Object.keys(po)) {
+      const p = po[k], n = no[k];
+      if (p !== null && n !== null && p !== n) mv[k] = n > p ? "up" : "down";
+    }
+    if (Object.keys(mv).length) result[ng.id] = mv;
+  }
+  return result;
+}
+
+export default function DashboardShell({ games: initialGames, intelMap = {}, boardUpdatedAt: initialUpdatedAt, topPicks = [] }: { games: Game[]; intelMap?: Record<string, any>; boardUpdatedAt?: string | null; topPicks?: any[] }) {
+  const [games, setGames] = useState<Game[]>(initialGames);
+  const [boardUpdatedAt, setBoardUpdatedAt] = useState(initialUpdatedAt ?? null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastPoll, setLastPoll] = useState<Date>(new Date());
+
   const [sport, setSport] = useState<SportFilter>("ALL");
   const [time, setTime] = useState<TimeFilter>("ALL");
   const [query, setQuery] = useState("");
   const [slip, setSlip] = useState<SlipLeg[]>([]);
   const [watchlist, setWatchlist] = useState<Set<string>>(new Set());
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [watchlistOnly, setWatchlistOnly] = useState(false);
   const [signalFilter, setSignalFilter] = useState<"none" | "high" | "volatile" | "new">("none");
+  const [movementMap, setMovementMap] = useState<Record<string, Record<string, "up" | "down">>>({});
+
+  const prevGamesRef = useRef<Game[]>(initialGames);
 
   const liveCount = games.filter((g) => g.status === "live").length;
+
+  const poll = useCallback(async (silent = true) => {
+    if (!silent) setRefreshing(true);
+    try {
+      const res = await fetch("/api/board");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.games?.length) {
+        const triggered = checkAlerts(data.games);
+        triggered.forEach(fireNotification);
+
+        const realMovement = computeMovementMap(prevGamesRef.current, data.games);
+        prevGamesRef.current = data.games;
+        setGames(data.games);
+        setMovementMap(realMovement);
+        setLastPoll(new Date());
+        if (data.fetchedAt) setBoardUpdatedAt(data.fetchedAt);
+      }
+    } catch {
+      // Silently fail — keep showing existing data
+    } finally {
+      if (!silent) setRefreshing(false);
+    }
+  }, []);
+
+  // Adaptive polling: 30s when live games, 5 min otherwise
+  useEffect(() => {
+    const interval = liveCount > 0 ? 30_000 : 5 * 60_000;
+    const timer = setInterval(() => poll(true), interval);
+    return () => clearInterval(timer);
+  }, [liveCount, poll]);
 
   const highImpactCount = useMemo(() => {
     return games.filter((g) => intelMap[g.id]?.has_high_severity ?? hasHighSeveritySignal(g.id, g.home_team, g.away_team)).length;
@@ -97,6 +169,17 @@ export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt, t
   const liveGames = filtered.filter((g) => g.status === "live");
   const upcomingGames = filtered.filter((g) => g.status !== "live");
 
+  const upcomingBySport = useMemo(() => {
+    const sports = Array.from(new Set(upcomingGames.map((g) => g.sport_title)));
+    if (sports.length <= 1) return null;
+    const groups: Record<string, Game[]> = {};
+    for (const g of upcomingGames) {
+      if (!groups[g.sport_title]) groups[g.sport_title] = [];
+      groups[g.sport_title].push(g);
+    }
+    return groups;
+  }, [upcomingGames]);
+
   function toggleLeg(leg: SlipLeg) {
     setSlip((prev) => prev.some((x) => x.id === leg.id) ? prev.filter((x) => x.id !== leg.id) : [...prev, leg]);
   }
@@ -129,26 +212,26 @@ export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt, t
           </div>
 
           <div className="flex items-center gap-3 ml-auto">
-            <div className="flex items-center gap-1.5 text-[10px]">
-              <Activity className="h-3 w-3 text-[#00ff7f]" />
-              <span className="text-[#52525b]">{games.length} games</span>
-            </div>
-            {liveCount > 0 && (
-              <div className="flex items-center gap-1.5 text-[10px]">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
-                <span className="text-[#ef4444]">{liveCount} live</span>
-              </div>
-            )}
             {signalGameCount > 0 && (
               <div className="flex items-center gap-1.5 text-[10px]">
                 <Sparkles className="h-3 w-3 text-[#00ff7f]/50" />
                 <span className="text-[#3f3f46]">{signalGameCount} signals</span>
               </div>
             )}
-            {boardUpdateLabel && (
-              <div className="text-[10px] text-[#3f3f46]">Updated {boardUpdateLabel}</div>
-            )}
-
+            <div className="flex items-center gap-1.5 text-[10px] text-[#3f3f46]">
+              <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", liveCount > 0 ? "bg-[#00ff7f] animate-pulse" : "bg-[#27272a]")} />
+              <span>
+                {boardUpdateLabel ? `Updated ${boardUpdateLabel}` : `Polled ${lastPoll.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}
+              </span>
+            </div>
+            <button
+              onClick={() => poll(false)}
+              disabled={refreshing}
+              title="Refresh odds"
+              className={cn("text-[#27272a] hover:text-[#52525b] transition-colors", refreshing && "animate-spin")}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
             <NotificationBell games={games} />
           </div>
         </div>
@@ -220,34 +303,6 @@ export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt, t
           </button>
 
           <button
-            onClick={() => setSignalFilter(signalFilter === "volatile" ? "none" : "volatile")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all",
-              signalFilter === "volatile"
-                ? "text-[#f59e0b] bg-[#f59e0b]/8 border-[#f59e0b]/20"
-                : "text-[#52525b] hover:text-[#a1a1aa] border-transparent hover:bg-white/[0.02]"
-            )}
-          >
-            <Zap className="h-3 w-3" />
-            Volatile
-          </button>
-
-          <button
-            onClick={() => setSignalFilter(signalFilter === "new" ? "none" : "new")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all",
-              signalFilter === "new"
-                ? "text-[#3b82f6] bg-[#3b82f6]/8 border-[#3b82f6]/20"
-                : "text-[#52525b] hover:text-[#a1a1aa] border-transparent hover:bg-white/[0.02]"
-            )}
-          >
-            <Clock className="h-3 w-3" />
-            New Signals
-          </button>
-
-          <div className="h-4 w-px bg-[#1e1e24] mx-1" />
-
-          <button
             onClick={() => setWatchlistOnly(!watchlistOnly)}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all",
@@ -288,7 +343,7 @@ export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt, t
                 <span className="text-[9px] text-[#ef4444]/40 font-mono">{liveGames.length}</span>
               </div>
               {liveGames.map((g) => (
-                <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} />
+                <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} onSelectGame={setSelectedGame} realMovement={movementMap[g.id]} />
               ))}
             </>
           )}
@@ -301,9 +356,23 @@ export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt, t
                   <span className="text-[9px] text-[#27272a] font-mono">{upcomingGames.length}</span>
                 </div>
               )}
-              {upcomingGames.map((g) => (
-                <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} />
-              ))}
+              {upcomingBySport
+                ? Object.entries(upcomingBySport).map(([sportTitle, sportGames]) => (
+                    <div key={sportTitle}>
+                      <div className="sticky top-0 z-10 flex items-center gap-2 px-5 py-1.5 border-b border-[#141417] bg-[#09090b]/95 backdrop-blur-sm">
+                        <span className="text-[9px] font-bold text-[#3f3f46] uppercase tracking-widest">
+                          {SPORT_LABELS[SPORTS.find((s) => s !== "ALL" && sportTitle.toUpperCase().includes(s)) ?? "ALL"]?.emoji}{" "}{sportTitle}
+                        </span>
+                        <span className="text-[9px] text-[#27272a] font-mono">{sportGames.length}</span>
+                      </div>
+                      {sportGames.map((g) => (
+                        <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} onSelectGame={setSelectedGame} realMovement={movementMap[g.id]} />
+                      ))}
+                    </div>
+                  ))
+                : upcomingGames.map((g) => (
+                    <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} onSelectGame={setSelectedGame} realMovement={movementMap[g.id]} />
+                  ))}
             </>
           )}
 
@@ -316,8 +385,20 @@ export default function DashboardShell({ games, intelMap = {}, boardUpdatedAt, t
         </div>
       </div>
 
-      <div className="w-[280px] xl:w-[320px] shrink-0 border-l border-[#141417] overflow-hidden">
-        <BetSlip slip={slip} onRemove={removeLeg} onClear={() => setSlip([])} />
+      <div className={cn(
+        "shrink-0 border-l border-[#141417] overflow-hidden transition-all duration-200",
+        selectedGame ? "w-[480px] xl:w-[520px]" : "w-[280px] xl:w-[320px]"
+      )}>
+        {selectedGame ? (
+          <GameDetailPanel
+            game={selectedGame}
+            onClose={() => setSelectedGame(null)}
+            onToggleLeg={toggleLeg}
+            selectedIds={selectedIds}
+          />
+        ) : (
+          <BetSlip slip={slip} onRemove={removeLeg} onClear={() => setSlip([])} games={games} />
+        )}
       </div>
     </div>
   );

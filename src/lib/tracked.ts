@@ -34,8 +34,8 @@ export function getTrackingSince(gameId: string): string {
   return `${mins}m ago`;
 }
 
-export function getConfidenceHistory(gameId: string) {
-  const base = getConfidenceForGame(gameId).pct;
+export function getConfidenceHistory(gameId: string, homeTeam = "", awayTeam = "") {
+  const base = getConfidenceForGame(gameId, homeTeam, awayTeam).pct;
   const h = hash(gameId);
   return Array.from({ length: 12 }).map((_, i) => {
     const drift = ((h + i * 17) % 9) - 4;
@@ -45,7 +45,7 @@ export function getConfidenceHistory(gameId: string) {
 }
 
 export function getPrimaryLean(game: Game): string {
-  const conf = getConfidenceForGame(game.id);
+  const conf = getConfidenceForGame(game.id, game.home_team, game.away_team);
   const signals = getSignalsForGame(game.id, game.home_team, game.away_team);
   const first = signals[0];
   if (!first) return "No actionable lean";
