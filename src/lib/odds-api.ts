@@ -49,17 +49,7 @@ async function apiFetch(path: string, extra?: Record<string, string>): Promise<a
 // ── Per-sport fetchers ─────────────────────────────────────────────────────────
 
 export async function fetchOddsForSport(sportKey: string): Promise<any[]> {
-  try {
-    return await apiFetch(`/sports/${sportKey}/odds`, {
-      regions: "us",
-      markets: MARKETS,
-      oddsFormat: "american",
-      bookmakers: BOOKS,
-    });
-  } catch (e: any) {
-    console.error(`[odds-api] odds fetch failed for ${sportKey}:`, e.message);
-    return [];
-  }
+  return (await fetchOddsForSportSafe(sportKey)).data;
 }
 
 export async function fetchScoresForSport(sportKey: string): Promise<any[]> {
@@ -143,6 +133,22 @@ export function transformGame(raw: any, scoreMap: Map<string, any>): Game {
 
 // ── Main export ────────────────────────────────────────────────────────────────
 
+// Returns { data, error } — error is null on success
+async function fetchOddsForSportSafe(sportKey: string): Promise<{ data: any[]; error: string | null }> {
+  try {
+    const data = await apiFetch(`/sports/${sportKey}/odds`, {
+      regions: "us",
+      markets: MARKETS,
+      oddsFormat: "american",
+      bookmakers: BOOKS,
+    });
+    return { data, error: null };
+  } catch (e: any) {
+    console.error(`[odds-api] odds fetch failed for ${sportKey}:`, e.message);
+    return { data: [], error: e.message };
+  }
+}
+
 export async function fetchAllGames(): Promise<{
   games: Game[];
   errors: string[];
@@ -152,7 +158,7 @@ export async function fetchAllGames(): Promise<{
 
   // Fetch odds + scores for all sports in parallel
   const [oddsResults, scoreResults] = await Promise.all([
-    Promise.all(sports.map((s) => fetchOddsForSport(s))),
+    Promise.all(sports.map((s) => fetchOddsForSportSafe(s))),
     Promise.all(sports.map((s) => fetchScoresForSport(s))),
   ]);
 
@@ -165,8 +171,14 @@ export async function fetchAllGames(): Promise<{
   // Transform + collect
   const games: Game[] = [];
   const errors: string[] = [];
-  for (const batch of oddsResults) {
-    for (const raw of batch) {
+
+  // Surface any fetch-level errors (quota, auth, network)
+  for (const result of oddsResults) {
+    if (result.error) errors.push(result.error);
+  }
+
+  for (const result of oddsResults) {
+    for (const raw of result.data) {
       try {
         games.push(transformGame(raw, scoreMap));
       } catch (e: any) {
