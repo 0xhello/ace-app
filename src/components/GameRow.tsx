@@ -6,10 +6,9 @@ import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
 import { Star, Sparkles, TrendingUp, TrendingDown } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
-import { getTopSignalForGame, getConfidenceForGame, hasHighSeveritySignal, getAIRecommendation } from "@/lib/signals";
+import { getTopSignalForGame, hasHighSeveritySignal, getAIRecommendation } from "@/lib/signals";
 import { impliedProbability, edgePct } from "@/lib/edge";
 import { SignalChip, SignalSummaryLine } from "@/components/SignalBadge";
-import { ConfidencePill } from "@/components/ConfidenceBadge";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getTeamStyle } from "@/lib/team-style";
 import { saveAlert } from "@/lib/alerts";
@@ -184,7 +183,7 @@ function OddsCell({
             <img
               src={bookLogoUrl(bookKey)}
               alt={bm?.name ?? bookKey}
-              className="h-[10px] w-[10px] rounded-sm opacity-30 group-hover/btn:opacity-70 transition-opacity"
+              className="h-[10px] w-[10px] rounded-sm opacity-45 group-hover/btn:opacity-80 transition-opacity"
             />
           </div>
         )}
@@ -276,6 +275,25 @@ function ScoreTag({ team, score, leading }: { team: string; score: string | numb
   );
 }
 
+function formatUpcomingStart(commenceTime: string) {
+  const now = new Date();
+  const game = new Date(commenceTime);
+  const isToday = now.toDateString() === game.toDateString();
+  const primary = game.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+  if (isToday) {
+    return {
+      primary,
+      secondary: `in ${timeUntilGame(commenceTime)}`,
+    };
+  }
+
+  return {
+    primary,
+    secondary: game.toLocaleDateString("en-US", { weekday: "short" }),
+  };
+}
+
 function formatLiveState(game: Game, scoreboard: any) {
   if (!scoreboard) return { label: null, meta: null };
   const state = scoreboard?.state;
@@ -344,6 +362,8 @@ export default function GameRow({
   const awayLeading = scoreboard?.away_winner ?? (showScores && Number(awayScore) > Number(homeScore));
   const homeLeading = scoreboard?.home_winner ?? (showScores && Number(homeScore) > Number(awayScore));
 
+  const startDisplay = formatUpcomingStart(game.commence_time);
+
   const awayML = bestH2H(game, away);
   const homeML = bestH2H(game, home);
   const awaySpread = bestSpread(game, away);
@@ -375,15 +395,14 @@ export default function GameRow({
 
   return (
     <div className={cn(
-      "relative group/row transition-colors",
-      isHighSeverity && "bg-[#ef4444]/[0.015]",
-      isLive ? "bg-[#ef4444]/[0.02] hover:bg-[#ef4444]/[0.04]" : "hover:bg-white/[0.015]"
+      "relative group/row transition-colors border-b border-transparent",
+      isLive ? "bg-[#ef4444]/[0.02] hover:bg-[#ef4444]/[0.04]" : "hover:bg-white/[0.02]"
     )}>
       {isLive && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[#ef4444]" />}
       {!isLive && isHighSeverity && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[#f59e0b]/50" />}
 
       <div
-        className="grid items-center gap-2 px-5 py-2.5"
+        className="grid items-center gap-2 px-5 py-3"
         style={{ gridTemplateColumns: "minmax(220px,1fr) repeat(3, 84px) 28px" }}
       >
         <button
@@ -392,22 +411,30 @@ export default function GameRow({
         >
           <div className="w-[56px] shrink-0 text-center">
             {isLive ? (
-              <div className="inline-flex min-h-[40px] min-w-[44px] flex-col items-center justify-center rounded-md border border-[#1e2b1e] bg-[#0d0e0c] px-1.5 py-1">
-                <span className={cn(
-                  "text-[9px] font-bold uppercase tracking-widest",
-                  liveState.label === "Final" ? "text-[#d4d7d0]" : "text-[#ef4444]"
-                )}>{liveState.label || "Live"}</span>
+              <div className="flex min-w-[52px] flex-col items-start justify-center leading-none">
+                <div className="inline-flex items-center gap-1.5">
+                  <span className={cn("h-1.5 w-1.5 rounded-full", liveState.label === "Final" ? "bg-[#6b7068]" : "bg-[#ef4444] animate-pulse")} />
+                  <span className={cn(
+                    "text-[10px] font-bold uppercase tracking-[0.14em]",
+                    liveState.label === "Final" ? "text-[#d4d7d0]" : "text-[#ef6666]"
+                  )}>{liveState.label || "Live"}</span>
+                </div>
                 {liveState.meta && (
                   <span className={cn(
-                    "mt-0.5 text-[8px] font-mono text-center leading-tight",
+                    "mt-1 text-[9px] font-mono leading-none",
                     liveState.label === "Final" ? "text-[#9ca39a]" : "text-[#ef4444]/70"
                   )}>{liveState.meta}</span>
                 )}
               </div>
             ) : (
-              <span className="text-[10px] text-[#6b7068] font-medium leading-tight block">
-                {timeUntilGame(game.commence_time)}
-              </span>
+              <div className="flex min-w-[52px] flex-col items-start justify-center leading-none">
+                <span className="text-[11px] font-medium text-[#d7dbd4] tabular-nums">
+                  {startDisplay.primary}
+                </span>
+                <span className="mt-1 text-[9px] text-[#6b7068] uppercase tracking-[0.08em]">
+                  {startDisplay.secondary}
+                </span>
+              </div>
             )}
           </div>
 
@@ -439,8 +466,11 @@ export default function GameRow({
               </div>
 
               {topSignal && (
-                <div className="pl-[26px] mt-0.5">
+                <div className="pl-[26px] mt-0.5 space-y-1">
                   <SignalSummaryLine signal={topSignal} />
+                  {aiRecommendation?.reason && (
+                    <p className="text-[10px] text-[#8b9388] line-clamp-1">{aiRecommendation.reason}</p>
+                  )}
                 </div>
               )}
             </div>

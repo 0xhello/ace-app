@@ -48,6 +48,19 @@ function getBookOddsForLeg(game: Game, legId: string, bookKey: string): number |
   return null;
 }
 
+function findBestBookForLeg(leg: SlipLeg, games: Game[]): { bookKey: string; price: number } | null {
+  const game = games.find((g) => g.id === leg.gameId);
+  if (!game) return null;
+
+  const prices = game.bookmakers.flatMap((b) => {
+    const price = getBookOddsForLeg(game, leg.id, b.sportsbook);
+    return price === null ? [] : [{ bookKey: b.sportsbook, price }];
+  });
+
+  if (!prices.length) return null;
+  return prices.reduce((best, cur) => (cur.price > best.price ? cur : best));
+}
+
 function findBestBook(legs: SlipLeg[], games: Game[]): string | null {
   if (!legs.length || !games.length) return null;
   const allBooks = Array.from(new Set(games.flatMap((g) => g.bookmakers.map((b) => b.sportsbook))));
@@ -142,23 +155,28 @@ export default function BetSlip({
   const impliedProb = slip.length ? (100 / dec).toFixed(1) : null;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[#0a0b0a]">
+    <div className="flex flex-col h-full overflow-hidden bg-[linear-gradient(180deg,rgba(10,11,10,1),rgba(8,9,8,1))]">
 
       {/* Header */}
-      <div className="shrink-0 h-12 border-b border-[#22251f] flex items-center justify-between px-4">
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] font-bold text-white">Betslip</span>
+      <div className="shrink-0 border-b border-[#1d221c] px-4 py-3.5">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[14px] font-bold text-white">Betslip</span>
+              {slip.length > 0 && (
+                <span className="text-[10px] font-mono text-[#3ee68a] bg-[#3ee68a]/8 px-1.5 py-0.5 rounded">
+                  {slip.length === 1 ? "1 leg" : `${slip.length}-leg parlay`}
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-[10px] text-[#717970]">Build the ticket, compare book pricing, then move with intent.</p>
+          </div>
           {slip.length > 0 && (
-            <span className="text-[10px] font-mono text-[#3ee68a] bg-[#3ee68a]/8 px-1.5 py-0.5 rounded">
-              {slip.length === 1 ? "1 leg" : `${slip.length}-leg parlay`}
-            </span>
+            <button onClick={onClear} className="text-[10px] text-[#6b7068] hover:text-[#9ca39a] transition-colors">
+              Clear
+            </button>
           )}
         </div>
-        {slip.length > 0 && (
-          <button onClick={onClear} className="text-[10px] text-[#6b7068] hover:text-[#9ca39a] transition-colors">
-            Clear
-          </button>
-        )}
       </div>
 
       {/* Legs */}
@@ -176,11 +194,12 @@ export default function BetSlip({
             </div>
           </div>
         ) : (
-          <div className="p-2 space-y-1">
+          <div className="p-2.5 space-y-1.5">
             {slip.map((leg) => {
               const conf = confidenceForLeg(leg);
+              const bestForLeg = findBestBookForLeg(leg, games);
               return (
-                <div key={leg.id} className="rounded-lg border border-[#22251f] bg-[#121412] p-2.5 group/leg hover:border-[#2e332a] transition-colors">
+                <div key={leg.id} className="rounded-xl border border-[#20251f] bg-[linear-gradient(180deg,rgba(18,20,18,0.98),rgba(14,16,14,0.98))] p-3 group/leg hover:border-[#2e332a] transition-colors shadow-[0_10px_24px_rgba(0,0,0,0.18)]">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="text-[11px] font-semibold text-white truncate leading-tight">{leg.label}</p>
@@ -198,7 +217,7 @@ export default function BetSlip({
                       </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 mt-1.5">
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <span className="text-[8px] font-bold text-[#6b7068] uppercase tracking-widest bg-[#161a16] px-1.5 py-[2px] rounded">
                       {leg.market}
                     </span>
@@ -208,6 +227,14 @@ export default function BetSlip({
                     >
                       {TIER_LABEL[conf.tier]}
                     </span>
+                    {bestForLeg && (
+                      <span className="inline-flex items-center gap-1 rounded bg-[#151815] px-1.5 py-[2px] text-[8px] font-medium text-[#9ca39a]">
+                        <span className="text-[#6b7068]">Best</span>
+                        <img src={bookLogoUrl(bestForLeg.bookKey)} alt={bookMeta(bestForLeg.bookKey).name} className="h-2.5 w-2.5 rounded-sm opacity-80" />
+                        <span>{bookMeta(bestForLeg.bookKey).short}</span>
+                        <span className="font-mono text-[#d4d7d0]">{formatAmericanOdds(bestForLeg.price)}</span>
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -268,7 +295,7 @@ export default function BetSlip({
           </div>
 
           {/* Stake + returns */}
-          <div className="px-3 pb-3 space-y-2 border-t border-[#22251f] pt-3">
+          <div className="px-3 pb-3 space-y-2.5 border-t border-[#1d221c] pt-3">
             <div className="flex items-center gap-1.5">
               {STAKE_PRESETS.map((p) => (
                 <button
@@ -301,10 +328,10 @@ export default function BetSlip({
               </div>
             </div>
 
-            <div className="rounded-xl bg-gradient-to-br from-[#21b56b]/[0.06] to-[#21b56b]/[0.02] border border-[#21b56b]/15 p-3">
+            <div className="rounded-2xl bg-gradient-to-br from-[#21b56b]/[0.08] to-[#21b56b]/[0.02] border border-[#21b56b]/15 p-3.5 shadow-[0_18px_40px_rgba(0,0,0,0.16)]">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-0.5">Potential return</p>
+                  <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.18em] mb-0.5">Potential return</p>
                   <p className="text-[10px] text-[#6b7068]">
                     ${stake} → <span className="text-white font-mono font-medium">${payout.toFixed(2)}</span> profit
                   </p>

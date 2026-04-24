@@ -8,7 +8,7 @@ import BetSlip from "@/components/BetSlip";
 import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
 import AskAce from "@/components/AskAce";
-import { Search, Sparkles, Star, AlertTriangle, RefreshCw } from "lucide-react";
+import { Search, Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSignalsForGame, hasHighSeveritySignal } from "@/lib/signals";
 import { checkAlerts, fireNotification } from "@/lib/alerts";
@@ -196,57 +196,58 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
   const selectedIds = slip.map((x) => x.id);
   const boardUpdateLabel = boardUpdatedAt ? new Date(boardUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
+  const activeFilterCount = [sport !== "ALL", time !== "ALL", signalFilter !== "none", watchlistOnly, query.trim().length > 0].filter(Boolean).length;
 
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <div className="flex flex-col flex-1 overflow-hidden bg-[#0a0b0a]">
-        <div className="shrink-0 border-b border-[#22251f] bg-[#0a0b0a] flex items-center gap-3 px-5 h-11">
-          <div className="flex-1 max-w-[400px]">
-            <div className="flex items-center gap-2 bg-[#121412] border border-[#22251f] rounded-lg px-3 py-1.5">
-              <Search className="h-3.5 w-3.5 text-[#6b7068] shrink-0" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search teams, matchups, or markets..."
-                className="bg-transparent outline-none text-[11px] text-white placeholder:text-[#6b7068] w-full"
-              />
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 ml-auto">
-            <button
-              onClick={() => setShowAskAce(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#3ee68a]/8 border border-[#3ee68a]/15 text-[10px] font-bold text-[#3ee68a] hover:bg-[#3ee68a]/15 transition-all"
-            >
-              <Sparkles className="h-3 w-3" />
-              Ask ACE
-            </button>
-            {signalGameCount > 0 && (
-              <div className="flex items-center gap-1.5 text-[10px]">
-                <Sparkles className="h-3 w-3 text-[#3ee68a]/50" />
-                <span className="text-[#6b7068]">{signalGameCount} signals</span>
+    <div className="flex flex-1 overflow-hidden bg-[#090a09]">
+      <div className="flex flex-col flex-1 overflow-hidden bg-transparent">
+        <div className="shrink-0 border-b border-[#1b201a] bg-[linear-gradient(180deg,rgba(11,13,11,0.98),rgba(10,11,10,0.96))] px-5 py-2.5">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 max-w-[460px]">
+              <div className="flex items-center gap-2 rounded-xl border border-[#22271f] bg-[#121512]/95 px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+                <Search className="h-3.5 w-3.5 text-[#6b7068] shrink-0" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search teams, markets, signals..."
+                  className="bg-transparent outline-none text-[11px] text-white placeholder:text-[#5f665d] w-full"
+                />
               </div>
-            )}
-            <div className="flex items-center gap-1.5 text-[10px] text-[#6b7068]">
-              <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", liveCount > 0 ? "bg-[#3ee68a] animate-pulse" : "bg-[#3a4033]")} />
-              <span>
-                {boardUpdateLabel ? `Updated ${boardUpdateLabel}` : `Polled ${lastPoll.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}
-              </span>
             </div>
-            <button
-              onClick={() => poll(false)}
-              disabled={refreshing}
-              title="Refresh odds"
-              className={cn("text-[#3a4033] hover:text-[#6b7068] transition-colors", refreshing && "animate-spin")}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </button>
-            <NotificationBell games={games} />
+
+            <div className="hidden xl:flex items-center gap-3 text-[10px] text-[#7f867c] whitespace-nowrap">
+              <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]" />{games.length} games</span>
+              <span className="inline-flex items-center gap-1.5 text-[#ef6666]"><span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />{liveCount} live</span>
+              <span className="inline-flex items-center gap-1.5 text-[#87d7aa]"><Sparkles className="h-3 w-3" />{signalGameCount} signals today</span>
+              <span>{boardUpdateLabel ? `Updated ${boardUpdateLabel}` : `Polled ${lastPoll.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}</span>
+              {activeFilterCount > 0 && <span>{activeFilterCount} filters</span>}
+            </div>
+
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={() => setShowAskAce(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#3ee68a]/10 border border-[#3ee68a]/20 text-[10px] font-bold text-[#3ee68a] hover:bg-[#3ee68a]/16 transition-all shadow-[0_0_20px_rgba(62,230,138,0.05)]"
+              >
+                <Sparkles className="h-3 w-3" />
+                Ask ACE
+              </button>
+              <button
+                onClick={() => poll(false)}
+                disabled={refreshing}
+                title="Refresh odds"
+                className={cn("flex h-8 w-8 items-center justify-center rounded-lg border border-[#22271f] bg-[#111310] text-[#5e645b] hover:text-[#9ca39a] hover:border-[#2b3128] transition-colors", refreshing && "animate-spin")}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+              <div className="flex h-8 items-center rounded-lg border border-[#22271f] bg-[#111310] px-2">
+                <NotificationBell games={games} />
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="shrink-0 border-b border-[#22251f] bg-[#0a0b0a] px-5 py-1.5">
-          <div className="flex items-center gap-1">
+        <div className="shrink-0 border-b border-[#1b201a] bg-[#0d0f0d] px-5 py-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {SPORTS.map((s) => {
               const info = SPORT_LABELS[s];
               const count = sportCounts[s];
@@ -255,7 +256,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
                   key={s}
                   onClick={() => setSport(s)}
                   className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all",
+                    "flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition-all",
                     sport === s
                       ? "bg-[#22251f] text-white border border-[#2e332a]"
                       : "text-[#6b7068] hover:text-[#d4d7d0] hover:bg-white/[0.02] border border-transparent"
@@ -271,69 +272,43 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
                 </button>
               );
             })}
-          </div>
-        </div>
 
-        <div className="shrink-0 border-b border-[#22251f] bg-[#0d0e0c] px-5 py-1.5 flex items-center gap-2">
-          {(["ALL", "LIVE", "TODAY"] as TimeFilter[]).map((t) => (
+            <div className="h-3.5 w-px bg-[#2e332a] mx-0.5" />
+
             <button
-              key={t}
-              onClick={() => setTime(t)}
+              onClick={() => setSignalFilter(signalFilter === "high" ? "none" : "high")}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-all",
-                time === t
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium border transition-all",
+                signalFilter === "high"
+                  ? "text-[#87d7aa] bg-[#3ee68a]/8 border-[#3ee68a]/20"
+                  : "text-[#6b7068] hover:text-[#d4d7d0] border-transparent hover:bg-white/[0.02]"
+              )}
+            >
+              <Sparkles className="h-3 w-3" />
+              High impact only
+              {highImpactCount > 0 && (
+                <span className={cn("text-[9px] font-mono", signalFilter === "high" ? "text-[#87d7aa]" : "text-[#6b7068]")}>
+                  {highImpactCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setTime(time === "TODAY" ? "ALL" : "TODAY")}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold border transition-all",
+                time === "TODAY"
                   ? "bg-[#22251f] text-white border-[#2e332a]"
                   : "text-[#6b7068] hover:text-[#d4d7d0] border-transparent hover:bg-white/[0.02]"
               )}
             >
-              {t === "LIVE" && <span className={cn("h-1.5 w-1.5 rounded-full", liveCount > 0 ? "bg-[#ef4444] animate-pulse" : "bg-[#6b7068]")} />}
-              {t === "ALL" ? "All Games" : t === "LIVE" ? `Live (${liveCount})` : "Today"}
+              Today
             </button>
-          ))}
-
-          <div className="h-4 w-px bg-[#2e332a] mx-1" />
-
-          <button
-            onClick={() => setSignalFilter(signalFilter === "high" ? "none" : "high")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all",
-              signalFilter === "high"
-                ? "text-[#ef4444] bg-[#ef4444]/8 border-[#ef4444]/20"
-                : "text-[#6b7068] hover:text-[#d4d7d0] border-transparent hover:bg-white/[0.02]"
-            )}
-          >
-            <AlertTriangle className="h-3 w-3" />
-            High Impact
-            {highImpactCount > 0 && (
-              <span className={cn("text-[9px] font-mono", signalFilter === "high" ? "text-[#ef4444]" : "text-[#6b7068]")}>
-                {highImpactCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setWatchlistOnly(!watchlistOnly)}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all",
-              watchlistOnly
-                ? "text-[#3ee68a] bg-[#3ee68a]/8 border-[#3ee68a]/20"
-                : "text-[#6b7068] hover:text-[#d4d7d0] border-transparent hover:bg-white/[0.02]"
-            )}
-          >
-            <Star className={cn("h-3 w-3", watchlistOnly && "fill-current")} />
-            Watchlist
-            {watchlist.size > 0 && (
-              <span className={cn("text-[9px] font-mono", watchlistOnly ? "text-[#3ee68a]" : "text-[#6b7068]")}>
-                {watchlist.size}
-              </span>
-            )}
-          </button>
+          </div>
         </div>
 
-        <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
-
         <div
-          className="shrink-0 px-5 py-1.5 grid items-center gap-2 border-b border-[#22251f] bg-[#0a0b0a]"
+          className="shrink-0 px-5 py-2 grid items-center gap-2 border-b border-[#1b201a] bg-[#0a0b0a]"
           style={{ gridTemplateColumns: "minmax(200px,1fr) repeat(3, 80px) 28px" }}
         >
           <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest">Matchup</span>
@@ -344,6 +319,8 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
         </div>
 
         <div className="flex-1 overflow-y-auto scrollbar-hide">
+          <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
+
           {liveGames.length > 0 && (
             <>
               <div className="flex items-center gap-2 px-5 py-1.5 bg-[#ef4444]/[0.03] border-b border-[#ef4444]/10">
@@ -395,8 +372,8 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
       </div>
 
       <div className={cn(
-        "shrink-0 border-l border-[#22251f] overflow-hidden transition-all duration-200",
-        selectedGame ? "w-[480px] xl:w-[520px]" : "w-[280px] xl:w-[320px]"
+        "shrink-0 border-l border-[#1b201a] overflow-hidden transition-all duration-200 bg-[#090a09]",
+        selectedGame ? "w-[500px] xl:w-[540px]" : "w-[300px] xl:w-[340px]"
       )}>
         {selectedGame ? (
           <GameDetailPanel

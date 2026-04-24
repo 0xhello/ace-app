@@ -68,9 +68,45 @@ const TEAM_ABBR: Record<string, string> = {
   "Winnipeg Jets": "wpg",
 };
 
+const TEAM_ABBR_ALIASES: Record<string, { league: string; abbr: string }> = {
+  // NBA common short forms
+  GSW: { league: "nba", abbr: "gs" },
+  PHX: { league: "nba", abbr: "phx" },
+  BOS: { league: "nba", abbr: "bos" },
+  LAL: { league: "nba", abbr: "lal" },
+  MIL: { league: "nba", abbr: "mil" },
+  CLE: { league: "nba", abbr: "cle" },
+  NYK: { league: "nba", abbr: "ny" },
+  BKN: { league: "nba", abbr: "bkn" },
+  NOP: { league: "nba", abbr: "no" },
+  SAS: { league: "nba", abbr: "sa" },
+  WAS: { league: "nba", abbr: "wsh" },
+  UTA: { league: "nba", abbr: "utah" },
+  OKC: { league: "nba", abbr: "okc" },
+  CHA: { league: "nba", abbr: "cha" },
+  ORL: { league: "nba", abbr: "orl" },
+  TOR: { league: "nba", abbr: "tor" },
+  MIA: { league: "nba", abbr: "mia" },
+  ATL: { league: "nba", abbr: "atl" },
+  IND: { league: "nba", abbr: "ind" },
+  DET: { league: "nba", abbr: "det" },
+  CHI: { league: "nba", abbr: "chi" },
+  MEM: { league: "nba", abbr: "mem" },
+  DEN: { league: "nba", abbr: "den" },
+  DAL: { league: "nba", abbr: "dal" },
+  MIN: { league: "nba", abbr: "min" },
+  SAC: { league: "nba", abbr: "sac" },
+  POR: { league: "nba", abbr: "por" },
+  HOU: { league: "nba", abbr: "hou" },
+  LAC: { league: "nba", abbr: "lac" },
+  PHI: { league: "nba", abbr: "phi" },
+};
+
 export function getTeamLogoUrl(teamName: string, sportKey: string): string | null {
-  const league = SPORT_TO_LEAGUE[sportKey];
-  const abbr = TEAM_ABBR[teamName];
+  const normalized = teamName.trim();
+  const alias = TEAM_ABBR_ALIASES[normalized.toUpperCase()];
+  const league = SPORT_TO_LEAGUE[sportKey] || alias?.league;
+  const abbr = TEAM_ABBR[normalized] || alias?.abbr;
   if (!league || !abbr) return null;
   return `https://a.espncdn.com/i/teamlogos/${league}/500-dark/${abbr}.png`;
 }

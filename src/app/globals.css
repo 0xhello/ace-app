@@ -4,11 +4,39 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+:root {
+  color-scheme: dark;
+}
+
 body {
-  background-color: #0a0b0a;
+  background:
+    radial-gradient(circle at top, rgba(62, 230, 138, 0.06), transparent 26%),
+    linear-gradient(180deg, #0b0d0b 0%, #090a09 100%);
   color: #f2f3ef;
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .ace-panel {
+    @apply rounded-2xl border border-[#1f241e] bg-[#101210]/90 shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-sm;
+  }
+
+  .ace-panel-muted {
+    @apply rounded-xl border border-[#1b201a] bg-[#0d0f0d]/85;
+  }
+
+  .ace-kpi {
+    @apply rounded-xl border border-[#20251e] bg-[linear-gradient(180deg,rgba(18,20,18,0.95),rgba(13,15,13,0.95))] px-3 py-3;
+  }
+
+  .ace-label {
+    @apply text-[9px] font-semibold uppercase tracking-[0.22em] text-[#667066];
+  }
+
+  .ace-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-[#2a3027] bg-[#121512] px-2.5 py-1 text-[10px] font-medium text-[#a2a89f];
+  }
 }
 
 ::-webkit-scrollbar {
