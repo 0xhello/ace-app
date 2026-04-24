@@ -5,8 +5,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 body {
-  background-color: #09090b;
-  color: #fafafa;
+  background-color: #0a0b0a;
+  color: #f2f3ef;
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -16,7 +16,8 @@ body {
   height: 4px;
 }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: #22251f; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #2e332a; }
 
 @keyframes ace-ticker {
   from { transform: translateX(0); }

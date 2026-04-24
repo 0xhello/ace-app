@@ -78,7 +78,7 @@ const TIER_LABEL: Record<string, string> = {
   low: "Low Confidence",
 };
 const TIER_COLOR: Record<string, string> = {
-  high: "#4ade80",
+  high: "#3ee68a",
   medium: "#f59e0b",
   low: "#ef4444",
 };
@@ -142,20 +142,20 @@ export default function BetSlip({
   const impliedProb = slip.length ? (100 / dec).toFixed(1) : null;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[#08080a]">
+    <div className="flex flex-col h-full overflow-hidden bg-[#0a0b0a]">
 
       {/* Header */}
-      <div className="shrink-0 h-12 border-b border-[#141417] flex items-center justify-between px-4">
+      <div className="shrink-0 h-12 border-b border-[#22251f] flex items-center justify-between px-4">
         <div className="flex items-center gap-2">
           <span className="text-[13px] font-bold text-white">Betslip</span>
           {slip.length > 0 && (
-            <span className="text-[10px] font-mono text-[#4ade80] bg-[#4ade80]/8 px-1.5 py-0.5 rounded">
-              {slip.length}
+            <span className="text-[10px] font-mono text-[#3ee68a] bg-[#3ee68a]/8 px-1.5 py-0.5 rounded">
+              {slip.length === 1 ? "1 leg" : `${slip.length}-leg parlay`}
             </span>
           )}
         </div>
         {slip.length > 0 && (
-          <button onClick={onClear} className="text-[10px] text-[#3f3f46] hover:text-[#71717a] transition-colors">
+          <button onClick={onClear} className="text-[10px] text-[#6b7068] hover:text-[#9ca39a] transition-colors">
             Clear
           </button>
         )}
@@ -165,12 +165,12 @@ export default function BetSlip({
       <div className="flex-1 overflow-y-auto min-h-0">
         {slip.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-6 gap-3 text-center">
-            <div className="h-10 w-10 rounded-xl border border-dashed border-[#1e1e24] bg-[#0c0c0e] flex items-center justify-center">
-              <Plus className="h-4 w-4 text-[#1e1e24]" />
+            <div className="h-10 w-10 rounded-xl border border-dashed border-[#2e332a] bg-[#121412] flex items-center justify-center">
+              <Plus className="h-4 w-4 text-[#2e332a]" />
             </div>
             <div>
-              <p className="text-[13px] font-semibold text-[#71717a] mb-0.5">Build your slip</p>
-              <p className="text-[10px] text-[#3f3f46] leading-relaxed">
+              <p className="text-[13px] font-semibold text-[#9ca39a] mb-0.5">Build your slip</p>
+              <p className="text-[10px] text-[#6b7068] leading-relaxed">
                 Click odds on the board to add legs.
               </p>
             </div>
@@ -180,26 +180,26 @@ export default function BetSlip({
             {slip.map((leg) => {
               const conf = confidenceForLeg(leg);
               return (
-                <div key={leg.id} className="rounded-lg border border-[#141417] bg-[#0c0c0e] p-2.5 group/leg hover:border-[#1e1e24] transition-colors">
+                <div key={leg.id} className="rounded-lg border border-[#22251f] bg-[#121412] p-2.5 group/leg hover:border-[#2e332a] transition-colors">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="text-[11px] font-semibold text-white truncate leading-tight">{leg.label}</p>
-                      <p className="text-[9px] text-[#3f3f46] mt-0.5 truncate">{leg.matchup}</p>
+                      <p className="text-[9px] text-[#6b7068] mt-0.5 truncate">{leg.matchup}</p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className={cn("text-[12px] font-mono font-bold", leg.odds > 0 ? "text-[#4ade80]" : "text-white")}>
+                      <span className={cn("text-[12px] font-mono font-bold", leg.odds > 0 ? "text-[#3ee68a]" : "text-white")}>
                         {formatAmericanOdds(leg.odds)}
                       </span>
                       <button
                         onClick={() => onRemove(leg.id)}
-                        className="text-[#1e1e24] hover:text-[#52525b] transition-colors opacity-0 group-hover/leg:opacity-100"
+                        className="text-[#2e332a] hover:text-[#6b7068] transition-colors opacity-0 group-hover/leg:opacity-100"
                       >
                         <X className="h-3 w-3" />
                       </button>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 mt-1.5">
-                    <span className="text-[8px] font-bold text-[#3f3f46] uppercase tracking-widest bg-[#111113] px-1.5 py-[2px] rounded">
+                    <span className="text-[8px] font-bold text-[#6b7068] uppercase tracking-widest bg-[#161a16] px-1.5 py-[2px] rounded">
                       {leg.market}
                     </span>
                     <span
@@ -218,18 +218,18 @@ export default function BetSlip({
 
       {/* Bottom — only shown when slip has legs */}
       {slip.length > 0 && (
-        <div className="shrink-0 border-t border-[#141417]">
+        <div className="shrink-0 border-t border-[#22251f]">
 
           {/* Book selector */}
           <div className="px-3 pt-3 pb-2">
             {bestBook && bestBook !== selectedBook && (
               <div className="flex items-center gap-1.5 mb-2">
-                <span className="text-[9px] text-[#52525b]">Best price</span>
+                <span className="text-[9px] text-[#6b7068]">Best price</span>
                 <img src={bookLogoUrl(bestBook)} alt={bookMeta(bestBook).name} className="h-3 w-3 rounded-sm opacity-70" />
-                <span className="text-[9px] font-medium text-[#a1a1aa]">{bookMeta(bestBook).name}</span>
+                <span className="text-[9px] font-medium text-[#d4d7d0]">{bookMeta(bestBook).name}</span>
                 <button
                   onClick={() => setSelectedBook(null)}
-                  className="ml-auto text-[9px] text-[#4ade80] font-semibold hover:text-white transition-colors"
+                  className="ml-auto text-[9px] text-[#3ee68a] font-semibold hover:text-white transition-colors"
                 >
                   Use best
                 </button>
@@ -249,7 +249,7 @@ export default function BetSlip({
                       "relative flex items-center justify-center h-7 w-7 rounded-md border transition-all",
                       isActive
                         ? "border-white/15 bg-white/5"
-                        : "border-transparent hover:border-[#1e1e24] hover:bg-[#0f0f11]"
+                        : "border-transparent hover:border-[#2e332a] hover:bg-[#161a16]"
                     )}
                   >
                     <img
@@ -258,17 +258,17 @@ export default function BetSlip({
                       className={cn("h-4 w-4 rounded-sm transition-all", isActive ? "opacity-100" : "opacity-30 hover:opacity-60")}
                     />
                     {isBest && (
-                      <span className="absolute -top-[3px] -right-[3px] h-2 w-2 rounded-full bg-[#4ade80] border border-[#08080a]" />
+                      <span className="absolute -top-[3px] -right-[3px] h-2 w-2 rounded-full bg-[#3ee68a] border border-[#0a0b0a]" />
                     )}
                   </button>
                 );
               })}
-              <span className="ml-1.5 text-[10px] text-[#52525b] font-medium">{bm.name}</span>
+              <span className="ml-1.5 text-[10px] text-[#6b7068] font-medium">{bm.name}</span>
             </div>
           </div>
 
           {/* Stake + returns */}
-          <div className="px-3 pb-3 space-y-2 border-t border-[#141417] pt-3">
+          <div className="px-3 pb-3 space-y-2 border-t border-[#22251f] pt-3">
             <div className="flex items-center gap-1.5">
               {STAKE_PRESETS.map((p) => (
                 <button
@@ -277,8 +277,8 @@ export default function BetSlip({
                   className={cn(
                     "flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all",
                     stake === p
-                      ? "bg-[#22c55e]/10 text-[#4ade80] border border-[#22c55e]/20"
-                      : "bg-[#0c0c0e] text-[#3f3f46] border border-[#141417] hover:text-[#71717a]"
+                      ? "bg-[#21b56b]/10 text-[#3ee68a] border border-[#21b56b]/20"
+                      : "bg-[#121412] text-[#6b7068] border border-[#22251f] hover:text-[#9ca39a]"
                   )}
                 >
                   ${p}
@@ -286,30 +286,30 @@ export default function BetSlip({
               ))}
             </div>
 
-            <div className="flex items-center bg-[#0c0c0e] border border-[#141417] rounded-lg overflow-hidden focus-within:border-[#1e1e24]">
-              <span className="pl-3 text-[#3f3f46] text-[11px] font-mono">$</span>
+            <div className="flex items-center bg-[#121412] border border-[#22251f] rounded-lg overflow-hidden focus-within:border-[#2e332a]">
+              <span className="pl-3 text-[#6b7068] text-[11px] font-mono">$</span>
               <input
                 type="number"
                 value={stake}
                 onChange={(e) => setStake(Math.max(1, Number(e.target.value)))}
                 className="flex-1 bg-transparent outline-none text-white text-[11px] font-mono py-2 px-1.5"
               />
-              <div className="pr-3 flex items-center gap-2 text-[10px] text-[#3f3f46] font-mono">
+              <div className="pr-3 flex items-center gap-2 text-[10px] text-[#6b7068] font-mono">
                 <span>{combinedAmerican !== null ? formatAmericanOdds(combinedAmerican) : "—"}</span>
                 <span>·</span>
                 <span>{impliedProb}%</span>
               </div>
             </div>
 
-            <div className="rounded-xl bg-gradient-to-br from-[#22c55e]/[0.06] to-[#22c55e]/[0.02] border border-[#22c55e]/15 p-3">
+            <div className="rounded-xl bg-gradient-to-br from-[#21b56b]/[0.06] to-[#21b56b]/[0.02] border border-[#21b56b]/15 p-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-0.5">Potential return</p>
-                  <p className="text-[10px] text-[#52525b]">
+                  <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-0.5">Potential return</p>
+                  <p className="text-[10px] text-[#6b7068]">
                     ${stake} → <span className="text-white font-mono font-medium">${payout.toFixed(2)}</span> profit
                   </p>
                 </div>
-                <p className="text-[24px] font-black font-mono text-[#4ade80] leading-none tracking-tight">
+                <p className="text-[24px] font-black font-mono text-[#3ee68a] leading-none tracking-tight">
                   ${(stake + payout).toFixed(2)}
                 </p>
               </div>
@@ -319,7 +319,7 @@ export default function BetSlip({
               onClick={handleOpenInBook}
               className={cn(
                 "w-full py-3 rounded-xl text-white text-[12px] font-extrabold transition-all flex items-center justify-center gap-2",
-                placed ? "bg-[#166534]" : "bg-[#16a34a] hover:bg-[#15803d] active:bg-[#166534]"
+                placed ? "bg-[#1a8a55]" : "bg-[#21b56b] hover:bg-[#21b56b] active:bg-[#1a8a55]"
               )}
             >
               {placed ? (
@@ -330,10 +330,10 @@ export default function BetSlip({
             </button>
 
             <div className="flex gap-1.5">
-              <button className="flex-1 py-1.5 rounded-md border border-[#141417] text-[9px] text-[#3f3f46] hover:text-[#71717a] flex items-center justify-center gap-1 transition-colors">
+              <button className="flex-1 py-1.5 rounded-md border border-[#22251f] text-[9px] text-[#6b7068] hover:text-[#9ca39a] flex items-center justify-center gap-1 transition-colors">
                 <Copy className="h-2.5 w-2.5" /> Copy
               </button>
-              <button className="flex-1 py-1.5 rounded-md border border-[#141417] text-[9px] text-[#3f3f46] hover:text-[#71717a] flex items-center justify-center gap-1 transition-colors">
+              <button className="flex-1 py-1.5 rounded-md border border-[#22251f] text-[9px] text-[#6b7068] hover:text-[#9ca39a] flex items-center justify-center gap-1 transition-colors">
                 <Share2 className="h-2.5 w-2.5" /> Share
               </button>
             </div>

@@ -7,6 +7,7 @@ import TopAIPicks from "@/components/TopAIPicks";
 import BetSlip from "@/components/BetSlip";
 import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
+import AskAce from "@/components/AskAce";
 import { Search, Sparkles, Star, AlertTriangle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSignalsForGame, hasHighSeveritySignal } from "@/lib/signals";
@@ -81,6 +82,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   const [watchlistOnly, setWatchlistOnly] = useState(false);
   const [signalFilter, setSignalFilter] = useState<"none" | "high" | "volatile" | "new">("none");
   const [movementMap, setMovementMap] = useState<Record<string, Record<string, "up" | "down">>>({});
+  const [showAskAce, setShowAskAce] = useState(false);
 
   const prevGamesRef = useRef<Game[]>(initialGames);
 
@@ -197,29 +199,36 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      <div className="flex flex-col flex-1 overflow-hidden bg-[#09090b]">
-        <div className="shrink-0 border-b border-[#141417] bg-[#08080a] flex items-center gap-3 px-5 h-11">
+      <div className="flex flex-col flex-1 overflow-hidden bg-[#0a0b0a]">
+        <div className="shrink-0 border-b border-[#22251f] bg-[#0a0b0a] flex items-center gap-3 px-5 h-11">
           <div className="flex-1 max-w-[400px]">
-            <div className="flex items-center gap-2 bg-[#0c0c0e] border border-[#141417] rounded-lg px-3 py-1.5">
-              <Search className="h-3.5 w-3.5 text-[#3f3f46] shrink-0" />
+            <div className="flex items-center gap-2 bg-[#121412] border border-[#22251f] rounded-lg px-3 py-1.5">
+              <Search className="h-3.5 w-3.5 text-[#6b7068] shrink-0" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search teams, matchups, or markets..."
-                className="bg-transparent outline-none text-[11px] text-white placeholder:text-[#3f3f46] w-full"
+                className="bg-transparent outline-none text-[11px] text-white placeholder:text-[#6b7068] w-full"
               />
             </div>
           </div>
 
           <div className="flex items-center gap-3 ml-auto">
+            <button
+              onClick={() => setShowAskAce(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#3ee68a]/8 border border-[#3ee68a]/15 text-[10px] font-bold text-[#3ee68a] hover:bg-[#3ee68a]/15 transition-all"
+            >
+              <Sparkles className="h-3 w-3" />
+              Ask ACE
+            </button>
             {signalGameCount > 0 && (
               <div className="flex items-center gap-1.5 text-[10px]">
-                <Sparkles className="h-3 w-3 text-[#00ff7f]/50" />
-                <span className="text-[#3f3f46]">{signalGameCount} signals</span>
+                <Sparkles className="h-3 w-3 text-[#3ee68a]/50" />
+                <span className="text-[#6b7068]">{signalGameCount} signals</span>
               </div>
             )}
-            <div className="flex items-center gap-1.5 text-[10px] text-[#3f3f46]">
-              <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", liveCount > 0 ? "bg-[#00ff7f] animate-pulse" : "bg-[#27272a]")} />
+            <div className="flex items-center gap-1.5 text-[10px] text-[#6b7068]">
+              <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", liveCount > 0 ? "bg-[#3ee68a] animate-pulse" : "bg-[#3a4033]")} />
               <span>
                 {boardUpdateLabel ? `Updated ${boardUpdateLabel}` : `Polled ${lastPoll.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}
               </span>
@@ -228,7 +237,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
               onClick={() => poll(false)}
               disabled={refreshing}
               title="Refresh odds"
-              className={cn("text-[#27272a] hover:text-[#52525b] transition-colors", refreshing && "animate-spin")}
+              className={cn("text-[#3a4033] hover:text-[#6b7068] transition-colors", refreshing && "animate-spin")}
             >
               <RefreshCw className="h-3.5 w-3.5" />
             </button>
@@ -236,7 +245,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
           </div>
         </div>
 
-        <div className="shrink-0 border-b border-[#141417] bg-[#08080a] px-5 py-1.5">
+        <div className="shrink-0 border-b border-[#22251f] bg-[#0a0b0a] px-5 py-1.5">
           <div className="flex items-center gap-1">
             {SPORTS.map((s) => {
               const info = SPORT_LABELS[s];
@@ -248,14 +257,14 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all",
                     sport === s
-                      ? "bg-[#141417] text-white border border-[#1e1e24]"
-                      : "text-[#52525b] hover:text-[#a1a1aa] hover:bg-white/[0.02] border border-transparent"
+                      ? "bg-[#22251f] text-white border border-[#2e332a]"
+                      : "text-[#6b7068] hover:text-[#d4d7d0] hover:bg-white/[0.02] border border-transparent"
                   )}
                 >
                   <span>{info.emoji}</span>
                   <span>{info.label}</span>
                   {count !== undefined && count > 0 && (
-                    <span className={cn("text-[9px] font-mono ml-0.5", sport === s ? "text-[#00ff7f]" : "text-[#3f3f46]")}>
+                    <span className={cn("text-[9px] font-mono ml-0.5", sport === s ? "text-[#3ee68a]" : "text-[#6b7068]")}>
                       {count}
                     </span>
                   )}
@@ -265,7 +274,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
           </div>
         </div>
 
-        <div className="shrink-0 border-b border-[#141417] bg-[#0a0a0c] px-5 py-1.5 flex items-center gap-2">
+        <div className="shrink-0 border-b border-[#22251f] bg-[#0d0e0c] px-5 py-1.5 flex items-center gap-2">
           {(["ALL", "LIVE", "TODAY"] as TimeFilter[]).map((t) => (
             <button
               key={t}
@@ -273,16 +282,16 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
               className={cn(
                 "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold border transition-all",
                 time === t
-                  ? "bg-[#141417] text-white border-[#1e1e24]"
-                  : "text-[#52525b] hover:text-[#a1a1aa] border-transparent hover:bg-white/[0.02]"
+                  ? "bg-[#22251f] text-white border-[#2e332a]"
+                  : "text-[#6b7068] hover:text-[#d4d7d0] border-transparent hover:bg-white/[0.02]"
               )}
             >
-              {t === "LIVE" && <span className={cn("h-1.5 w-1.5 rounded-full", liveCount > 0 ? "bg-[#ef4444] animate-pulse" : "bg-[#3f3f46]")} />}
+              {t === "LIVE" && <span className={cn("h-1.5 w-1.5 rounded-full", liveCount > 0 ? "bg-[#ef4444] animate-pulse" : "bg-[#6b7068]")} />}
               {t === "ALL" ? "All Games" : t === "LIVE" ? `Live (${liveCount})` : "Today"}
             </button>
           ))}
 
-          <div className="h-4 w-px bg-[#1e1e24] mx-1" />
+          <div className="h-4 w-px bg-[#2e332a] mx-1" />
 
           <button
             onClick={() => setSignalFilter(signalFilter === "high" ? "none" : "high")}
@@ -290,13 +299,13 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all",
               signalFilter === "high"
                 ? "text-[#ef4444] bg-[#ef4444]/8 border-[#ef4444]/20"
-                : "text-[#52525b] hover:text-[#a1a1aa] border-transparent hover:bg-white/[0.02]"
+                : "text-[#6b7068] hover:text-[#d4d7d0] border-transparent hover:bg-white/[0.02]"
             )}
           >
             <AlertTriangle className="h-3 w-3" />
             High Impact
             {highImpactCount > 0 && (
-              <span className={cn("text-[9px] font-mono", signalFilter === "high" ? "text-[#ef4444]" : "text-[#3f3f46]")}>
+              <span className={cn("text-[9px] font-mono", signalFilter === "high" ? "text-[#ef4444]" : "text-[#6b7068]")}>
                 {highImpactCount}
               </span>
             )}
@@ -307,14 +316,14 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all",
               watchlistOnly
-                ? "text-[#00ff7f] bg-[#00ff7f]/8 border-[#00ff7f]/20"
-                : "text-[#52525b] hover:text-[#a1a1aa] border-transparent hover:bg-white/[0.02]"
+                ? "text-[#3ee68a] bg-[#3ee68a]/8 border-[#3ee68a]/20"
+                : "text-[#6b7068] hover:text-[#d4d7d0] border-transparent hover:bg-white/[0.02]"
             )}
           >
             <Star className={cn("h-3 w-3", watchlistOnly && "fill-current")} />
             Watchlist
             {watchlist.size > 0 && (
-              <span className={cn("text-[9px] font-mono", watchlistOnly ? "text-[#00ff7f]" : "text-[#3f3f46]")}>
+              <span className={cn("text-[9px] font-mono", watchlistOnly ? "text-[#3ee68a]" : "text-[#6b7068]")}>
                 {watchlist.size}
               </span>
             )}
@@ -324,13 +333,13 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
         <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
 
         <div
-          className="shrink-0 px-5 py-1.5 grid items-center gap-2 border-b border-[#141417] bg-[#08080a]"
+          className="shrink-0 px-5 py-1.5 grid items-center gap-2 border-b border-[#22251f] bg-[#0a0b0a]"
           style={{ gridTemplateColumns: "minmax(200px,1fr) repeat(3, 80px) 28px" }}
         >
-          <span className="text-[9px] text-[#3f3f46] font-semibold uppercase tracking-widest">Matchup</span>
-          <span className="text-[9px] text-[#3f3f46] font-semibold uppercase tracking-widest text-center">ML</span>
-          <span className="text-[9px] text-[#3f3f46] font-semibold uppercase tracking-widest text-center">Spread</span>
-          <span className="text-[9px] text-[#3f3f46] font-semibold uppercase tracking-widest text-center">Total</span>
+          <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest">Matchup</span>
+          <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest text-center">ML</span>
+          <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest text-center">Spread</span>
+          <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest text-center">Total</span>
           <span />
         </div>
 
@@ -351,19 +360,19 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
           {upcomingGames.length > 0 && (
             <>
               {liveGames.length > 0 && (
-                <div className="flex items-center gap-2 px-5 py-1.5 border-b border-[#141417] bg-[#08080a]">
-                  <span className="text-[9px] font-bold text-[#3f3f46] uppercase tracking-widest">Upcoming</span>
-                  <span className="text-[9px] text-[#27272a] font-mono">{upcomingGames.length}</span>
+                <div className="flex items-center gap-2 px-5 py-1.5 border-b border-[#22251f] bg-[#0a0b0a]">
+                  <span className="text-[9px] font-bold text-[#6b7068] uppercase tracking-widest">Upcoming</span>
+                  <span className="text-[9px] text-[#3a4033] font-mono">{upcomingGames.length}</span>
                 </div>
               )}
               {upcomingBySport
                 ? Object.entries(upcomingBySport).map(([sportTitle, sportGames]) => (
                     <div key={sportTitle}>
-                      <div className="sticky top-0 z-10 flex items-center gap-2 px-5 py-1.5 border-b border-[#141417] bg-[#09090b]/95 backdrop-blur-sm">
-                        <span className="text-[9px] font-bold text-[#3f3f46] uppercase tracking-widest">
+                      <div className="sticky top-0 z-10 flex items-center gap-2 px-5 py-1.5 border-b border-[#22251f] bg-[#0a0b0a]/95 backdrop-blur-sm">
+                        <span className="text-[9px] font-bold text-[#6b7068] uppercase tracking-widest">
                           {SPORT_LABELS[SPORTS.find((s) => s !== "ALL" && sportTitle.toUpperCase().includes(s)) ?? "ALL"]?.emoji}{" "}{sportTitle}
                         </span>
-                        <span className="text-[9px] text-[#27272a] font-mono">{sportGames.length}</span>
+                        <span className="text-[9px] text-[#3a4033] font-mono">{sportGames.length}</span>
                       </div>
                       {sportGames.map((g) => (
                         <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} onSelectGame={setSelectedGame} realMovement={movementMap[g.id]} />
@@ -378,15 +387,15 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
           {filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 gap-2 text-center">
-              <p className="text-[13px] text-[#52525b] font-medium">No games match your filters</p>
-              <p className="text-[11px] text-[#3f3f46]">Try adjusting sport or time filters</p>
+              <p className="text-[13px] text-[#6b7068] font-medium">No games match your filters</p>
+              <p className="text-[11px] text-[#6b7068]">Try adjusting sport or time filters</p>
             </div>
           )}
         </div>
       </div>
 
       <div className={cn(
-        "shrink-0 border-l border-[#141417] overflow-hidden transition-all duration-200",
+        "shrink-0 border-l border-[#22251f] overflow-hidden transition-all duration-200",
         selectedGame ? "w-[480px] xl:w-[520px]" : "w-[280px] xl:w-[320px]"
       )}>
         {selectedGame ? (
@@ -400,6 +409,8 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
           <BetSlip slip={slip} onRemove={removeLeg} onClear={() => setSlip([])} games={games} />
         )}
       </div>
+
+      {showAskAce && <AskAce onClose={() => setShowAskAce(false)} />}
     </div>
   );
 }

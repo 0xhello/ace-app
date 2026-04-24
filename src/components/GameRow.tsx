@@ -28,7 +28,7 @@ function TeamIcon({ team, sport }: { team: string; sport: string }) {
     );
   }
   return (
-    <div className="h-[18px] w-[18px] rounded bg-[#111113] border border-[#1a1a1f] flex items-center justify-center text-[7px] font-bold text-[#52525b] shrink-0">
+    <div className="h-[18px] w-[18px] rounded bg-[#161a16] border border-[#1e2b1e] flex items-center justify-center text-[7px] font-bold text-[#6b7068] shrink-0">
       {teamAbbr(team)}
     </div>
   );
@@ -144,7 +144,7 @@ function OddsCell({
   if (!leg) {
     return (
       <div className="h-[40px] flex items-center justify-center rounded-md border border-transparent">
-        <span className="text-[11px] text-[#1e1e24]">—</span>
+        <span className="text-[11px] text-[#2e332a]">—</span>
       </div>
     );
   }
@@ -159,22 +159,22 @@ function OddsCell({
         className={cn(
           "relative h-[40px] w-full rounded-md border flex flex-col items-center justify-center transition-all duration-100 select-none group/btn overflow-visible",
           selected
-            ? "border-[#00ff7f]/35 bg-[#00ff7f]/10"
-            : "border-[#141417] bg-[#0a0a0c] hover:border-[#1e1e24] hover:bg-[#0f0f11]",
-          recommended && "border-[#00ff7f]/40 shadow-[0_0_0_1px_rgba(0,255,127,0.08),0_0_18px_rgba(0,255,127,0.08)]"
+            ? "border-[#3ee68a]/35 bg-[#3ee68a]/10"
+            : "border-[#22251f] bg-[#0d0e0c] hover:border-[#2e332a] hover:bg-[#161a16]",
+          recommended && "border-[#3ee68a]/40 shadow-[0_0_0_1px_rgba(0,255,127,0.08),0_0_18px_rgba(0,255,127,0.08)]"
         )}
       >
-        {recommended && <div className="absolute inset-y-0 left-0 w-[2px] bg-[#00ff7f] rounded-l-md" />}
+        {recommended && <div className="absolute inset-y-0 left-0 w-[2px] bg-[#3ee68a] rounded-l-md" />}
 
         {(pointLabel !== undefined || point !== undefined) && (
-          <span className="text-[9px] font-medium text-[#52525b] leading-none mb-[2px]">
+          <span className="text-[9px] font-medium text-[#6b7068] leading-none mb-[2px]">
             {pointLabel ?? (point! > 0 ? `+${point}` : point)}
           </span>
         )}
 
         <span className={cn(
           "font-mono text-[12px] font-bold leading-none",
-          selected || recommended ? "text-[#00ff7f]" : leg.odds > 0 ? "text-[#00ff7f]" : "text-[#e4e4e7]"
+          selected || recommended ? "text-[#3ee68a]" : leg.odds > 0 ? "text-[#3ee68a]" : "text-[#d4d7d0]"
         )}>
           {formatAmericanOdds(leg.odds)}
         </span>
@@ -190,22 +190,22 @@ function OddsCell({
         )}
 
         {alertDone && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0c0c0e]/90 rounded-md z-10">
-            <span className="text-[9px] font-bold text-[#4ade80]">Alert ✓</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-[#121412]/90 rounded-md z-10">
+            <span className="text-[9px] font-bold text-[#3ee68a]">Alert ✓</span>
           </div>
         )}
 
         {movement && (
           <span className={cn(
             "absolute bottom-[3px] left-[3px] opacity-60",
-            movement === "up" ? "text-[#00ff7f]" : "text-[#ef4444]"
+            movement === "up" ? "text-[#3ee68a]" : "text-[#ef4444]"
           )}>
             {movement === "up" ? <TrendingUp className="h-2 w-2" /> : <TrendingDown className="h-2 w-2" />}
           </span>
         )}
 
         {recommended && (
-          <span className="absolute -top-[7px] left-1/2 -translate-x-1/2 z-20 h-3.5 w-3.5 rounded-full bg-[#0c0c0e] border border-[#00ff7f]/30 flex items-center justify-center text-[#00ff7f]">
+          <span className="absolute -top-[7px] left-1/2 -translate-x-1/2 z-20 h-3.5 w-3.5 rounded-full bg-[#121412] border border-[#3ee68a]/30 flex items-center justify-center text-[#3ee68a]">
             <Sparkles className="h-2 w-2" />
           </span>
         )}
@@ -214,15 +214,15 @@ function OddsCell({
       {alertMenu && alertMeta && leg && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setAlertMenu(false)} />
-          <div className="absolute bottom-full left-0 mb-1 z-50 w-[168px] rounded-xl border border-[#2a2a35] bg-[#0e0e11] p-2.5 shadow-2xl">
-            <p className="text-[8px] text-[#52525b] uppercase tracking-wider mb-1">Set alert at</p>
+          <div className="absolute bottom-full left-0 mb-1 z-50 w-[168px] rounded-xl border border-[#2e332a] bg-[#121412] p-2.5 shadow-2xl">
+            <p className="text-[8px] text-[#6b7068] uppercase tracking-wider mb-1">Set alert at</p>
             <p className="text-[11px] font-mono font-bold text-white mb-2">{leg.odds > 0 ? "+" : ""}{leg.odds}</p>
             <div className="flex flex-col gap-0.5">
-              <button onClick={() => createAlert("drops_below")} className="flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-white/[0.04] text-[10px] text-[#a1a1aa] transition-colors text-left w-full">
+              <button onClick={() => createAlert("drops_below")} className="flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-white/[0.04] text-[10px] text-[#d4d7d0] transition-colors text-left w-full">
                 <TrendingDown className="h-3 w-3 text-[#ef4444] shrink-0" /> Drops below
               </button>
-              <button onClick={() => createAlert("rises_above")} className="flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-white/[0.04] text-[10px] text-[#a1a1aa] transition-colors text-left w-full">
-                <TrendingUp className="h-3 w-3 text-[#4ade80] shrink-0" /> Rises above
+              <button onClick={() => createAlert("rises_above")} className="flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-white/[0.04] text-[10px] text-[#d4d7d0] transition-colors text-left w-full">
+                <TrendingUp className="h-3 w-3 text-[#3ee68a] shrink-0" /> Rises above
               </button>
             </div>
           </div>
@@ -230,25 +230,25 @@ function OddsCell({
       )}
 
       {(marketConfidence || (recommended && recommendationReason)) && (
-        <div className="pointer-events-none absolute left-1/2 bottom-[calc(100%+12px)] -translate-x-1/2 w-[210px] rounded-xl border border-[#2a2a35] bg-[#121216]/95 px-3 py-2.5 shadow-2xl opacity-0 group-hover/rec:opacity-100 transition-opacity z-30">
+        <div className="pointer-events-none absolute left-1/2 bottom-[calc(100%+12px)] -translate-x-1/2 w-[210px] rounded-xl border border-[#2e332a] bg-[#161a16]/95 px-3 py-2.5 shadow-2xl opacity-0 group-hover/rec:opacity-100 transition-opacity z-30">
           {marketConfidence ? (
             <>
               <div className="flex items-center gap-1.5 mb-1.5">
-                <Sparkles className="h-3 w-3 text-[#00ff7f] shrink-0" />
+                <Sparkles className="h-3 w-3 text-[#3ee68a] shrink-0" />
                 <span className="text-[11px] font-bold text-white">{marketConfidence.pct ?? 0}% · {marketConfidence.lean || "No clear lean"}</span>
               </div>
-              <p className="text-[10px] text-[#a1a1aa] leading-relaxed">{marketConfidence.reason || "No credible market-specific read yet."}</p>
+              <p className="text-[10px] text-[#d4d7d0] leading-relaxed">{marketConfidence.reason || "No credible market-specific read yet."}</p>
               {marketConfidence.supporting_signals?.[0] && (
-                <p className="mt-1.5 text-[10px] text-[#71717a] leading-relaxed">{marketConfidence.supporting_signals[0]}</p>
+                <p className="mt-1.5 text-[10px] text-[#9ca39a] leading-relaxed">{marketConfidence.supporting_signals[0]}</p>
               )}
             </>
           ) : (
             <>
               <div className="flex items-center gap-1.5 mb-1.5">
-                <Sparkles className="h-3 w-3 text-[#00ff7f] shrink-0" />
+                <Sparkles className="h-3 w-3 text-[#3ee68a] shrink-0" />
                 <span className="text-[11px] font-bold text-white">{recommendationConfidence ?? 78}% Confidence</span>
               </div>
-              <p className="text-[10px] text-[#a1a1aa] leading-relaxed">{recommendationReason}</p>
+              <p className="text-[10px] text-[#d4d7d0] leading-relaxed">{recommendationReason}</p>
             </>
           )}
         </div>
@@ -261,7 +261,7 @@ function OddsCell({
 function ScoreTag({ team, score, leading }: { team: string; score: string | number; leading?: boolean }) {
   const style = getTeamStyle(team);
   const abbr = style?.abbr || teamAbbr(team);
-  const color = style?.color || "#a1a1aa";
+  const color = style?.color || "#d4d7d0";
   return (
     <div className={cn(
       "h-[23px] flex items-center justify-center gap-1.5 rounded-sm px-1.5 transition-colors",
@@ -270,7 +270,7 @@ function ScoreTag({ team, score, leading }: { team: string; score: string | numb
       <span className="text-[9px] font-bold tracking-wide uppercase" style={{ color, opacity: leading ? 1 : 0.82 }}>{abbr}</span>
       <span className={cn(
         "text-[14px] font-mono font-bold tabular-nums",
-        leading ? "text-white" : "text-[#777780]"
+        leading ? "text-white" : "text-[#9ca39a]"
       )}>{score}</span>
     </div>
   );
@@ -392,20 +392,20 @@ export default function GameRow({
         >
           <div className="w-[56px] shrink-0 text-center">
             {isLive ? (
-              <div className="inline-flex min-h-[40px] min-w-[44px] flex-col items-center justify-center rounded-md border border-[#1c1c22] bg-[#0d0d10] px-1.5 py-1">
+              <div className="inline-flex min-h-[40px] min-w-[44px] flex-col items-center justify-center rounded-md border border-[#1e2b1e] bg-[#0d0e0c] px-1.5 py-1">
                 <span className={cn(
                   "text-[9px] font-bold uppercase tracking-widest",
-                  liveState.label === "Final" ? "text-[#a1a1aa]" : "text-[#ef4444]"
+                  liveState.label === "Final" ? "text-[#d4d7d0]" : "text-[#ef4444]"
                 )}>{liveState.label || "Live"}</span>
                 {liveState.meta && (
                   <span className={cn(
                     "mt-0.5 text-[8px] font-mono text-center leading-tight",
-                    liveState.label === "Final" ? "text-[#71717a]" : "text-[#ef4444]/70"
+                    liveState.label === "Final" ? "text-[#9ca39a]" : "text-[#ef4444]/70"
                   )}>{liveState.meta}</span>
                 )}
               </div>
             ) : (
-              <span className="text-[10px] text-[#52525b] font-medium leading-tight block">
+              <span className="text-[10px] text-[#6b7068] font-medium leading-tight block">
                 {timeUntilGame(game.commence_time)}
               </span>
             )}
@@ -415,24 +415,24 @@ export default function GameRow({
             <div className="min-w-0">
               <div className="flex items-center gap-2.5 mb-[3px] min-w-0">
                 <TeamIcon team={away} sport={game.sport} />
-                <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{away}</span>
+                <span className="text-[12px] font-medium text-[#d4d7d0] truncate">{away}</span>
                 {awayRecord && (
-                  <span className="text-[10px] text-[#71717a]/60 font-mono tracking-tight shrink-0">{awayRecord}</span>
+                  <span className="text-[10px] text-[#9ca39a]/60 font-mono tracking-tight shrink-0">{awayRecord}</span>
                 )}
               </div>
               <div className="flex items-center gap-2">
                 <TeamIcon team={home} sport={game.sport} />
-                <span className="text-[12px] font-medium text-[#e4e4e7] truncate">{home}</span>
+                <span className="text-[12px] font-medium text-[#d4d7d0] truncate">{home}</span>
                 {homeRecord && (
-                  <span className="text-[10px] text-[#71717a]/60 font-mono tracking-tight shrink-0">{homeRecord}</span>
+                  <span className="text-[10px] text-[#9ca39a]/60 font-mono tracking-tight shrink-0">{homeRecord}</span>
                 )}
               </div>
 
               <div className="flex items-center gap-2 mt-1.5 pl-[26px] flex-wrap">
-                <span className="text-[9px] text-[#3f3f46] uppercase tracking-wider">{game.sport_title}</span>
+                <span className="text-[9px] text-[#6b7068] uppercase tracking-wider">{game.sport_title}</span>
                 {topSignal && (
                   <>
-                    <span className="text-[9px] text-[#1e1e24]">·</span>
+                    <span className="text-[9px] text-[#2e332a]">·</span>
                     <SignalChip signal={topSignal} compact />
                   </>
                 )}
@@ -479,15 +479,15 @@ export default function GameRow({
           className={cn(
             "flex items-center justify-center self-center p-1 rounded transition-all",
             watchlisted
-              ? "text-[#00ff7f] drop-shadow-[0_0_3px_rgba(0,255,127,0.3)]"
-              : "text-[#1e1e24] group-hover/row:text-[#3f3f46]"
+              ? "text-[#3ee68a] drop-shadow-[0_0_3px_rgba(0,255,127,0.3)]"
+              : "text-[#2e332a] group-hover/row:text-[#6b7068]"
           )}
         >
           <Star className={cn("h-3.5 w-3.5", watchlisted && "fill-current")} />
         </button>
       </div>
 
-      <div className="mx-5 h-px bg-[#111113]" />
+      <div className="mx-5 h-px bg-[#161a16]" />
     </div>
   );
 }

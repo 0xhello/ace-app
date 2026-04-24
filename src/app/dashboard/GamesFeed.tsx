@@ -110,7 +110,7 @@ export default async function GamesFeed() {
             : "Check back when games are scheduled."}
         </p>
         {dataStatus === "degraded" && errors.length > 0 && (
-          <div className="mt-4 inline-flex flex-col items-start gap-1 rounded-lg border border-[#1e1e24] bg-[#0c0c0e] px-4 py-3 text-left">
+          <div className="mt-4 inline-flex flex-col items-start gap-1 rounded-lg border border-[#2e332a] bg-[#121412] px-4 py-3 text-left">
             <span className="text-[11px] uppercase tracking-wider text-[#52525b]">Data status</span>
             <span className="text-[12px] text-white">{errors[0]?.detail || "Source degraded"}</span>
             {fetchedAt && (

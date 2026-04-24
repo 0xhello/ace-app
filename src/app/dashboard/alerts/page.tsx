@@ -22,22 +22,22 @@ function AlertCard({ alert, onDelete, onDismiss }: { alert: PriceAlert; onDelete
   const isTriggered = alert.status === "triggered";
   return (
     <div className={cn(
-      "rounded-xl border bg-[#0c0c0e] p-4 transition-all",
-      isTriggered ? "border-[#4ade80]/25 bg-[#4ade80]/[0.03]" : "border-[#141417]"
+      "rounded-xl border bg-[#121412] p-4 transition-all",
+      isTriggered ? "border-[#3ee68a]/25 bg-[#3ee68a]/[0.03]" : "border-[#22251f]"
     )}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-[12px] font-semibold text-white truncate">{alert.matchup}</p>
-          <p className="text-[10px] text-[#52525b] mt-0.5">
-            <span className="text-[#71717a]">{alert.team}</span>
+          <p className="text-[10px] text-[#6b7068] mt-0.5">
+            <span className="text-[#9ca39a]">{alert.team}</span>
             {" · "}{MARKET_LABELS[alert.market]}
             {" · odds "}{CONDITION_LABELS[alert.condition]}
-            {" "}<span className="font-mono text-[#a1a1aa]">{alert.threshold > 0 ? "+" : ""}{alert.threshold}</span>
+            {" "}<span className="font-mono text-[#d4d7d0]">{alert.threshold > 0 ? "+" : ""}{alert.threshold}</span>
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {isTriggered && (
-            <button onClick={onDismiss} className="text-[9px] text-[#4ade80] hover:text-white transition-colors font-medium">
+            <button onClick={onDismiss} className="text-[9px] text-[#3ee68a] hover:text-white transition-colors font-medium">
               Dismiss
             </button>
           )}
@@ -49,19 +49,19 @@ function AlertCard({ alert, onDelete, onDismiss }: { alert: PriceAlert; onDelete
 
       <div className="flex items-center gap-2 mt-3">
         {isTriggered ? (
-          <span className="flex items-center gap-1 text-[9px] font-bold text-[#4ade80] uppercase tracking-wide">
+          <span className="flex items-center gap-1 text-[9px] font-bold text-[#3ee68a] uppercase tracking-wide">
             <CheckCircle2 className="h-3 w-3" /> Triggered {alert.triggeredAt ? timeAgo(alert.triggeredAt) : ""}
             {alert.triggeredOdds !== undefined && (
               <span className="ml-1 font-mono">(hit {alert.triggeredOdds > 0 ? "+" : ""}{alert.triggeredOdds})</span>
             )}
           </span>
         ) : (
-          <span className="flex items-center gap-1 text-[9px] text-[#52525b] uppercase tracking-wide">
+          <span className="flex items-center gap-1 text-[9px] text-[#6b7068] uppercase tracking-wide">
             <Clock className="h-3 w-3" /> Watching · set {timeAgo(alert.createdAt)}
           </span>
         )}
         {alert.book !== "any" && (
-          <span className="ml-auto text-[9px] text-[#3f3f46]">{alert.book}</span>
+          <span className="ml-auto text-[9px] text-[#6b7068]">{alert.book}</span>
         )}
       </div>
     </div>
@@ -115,18 +115,18 @@ export default function AlertsPage() {
   const dismissed = alerts.filter((a) => a.status === "dismissed");
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#09090b]">
+    <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
       <div className="max-w-3xl mx-auto px-6 py-6">
 
         {/* Header */}
         <div className="flex items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-[20px] font-bold text-white">Alerts</h1>
-            <p className="text-[12px] text-[#52525b] mt-1">Get notified when odds hit your target price.</p>
+            <p className="text-[12px] text-[#6b7068] mt-1">Get notified when odds hit your target price.</p>
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#00ff7f]/10 border border-[#00ff7f]/20 text-[#00ff7f] text-[11px] font-bold hover:bg-[#00ff7f]/15 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#3ee68a]/10 border border-[#3ee68a]/20 text-[#3ee68a] text-[11px] font-bold hover:bg-[#3ee68a]/15 transition-colors"
           >
             <Plus className="h-3.5 w-3.5" /> New Alert
           </button>
@@ -138,7 +138,7 @@ export default function AlertsPage() {
             <BellOff className="h-4 w-4 text-[#f59e0b] shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-[11px] font-semibold text-white">Browser notifications are off</p>
-              <p className="text-[10px] text-[#71717a] mt-0.5">Enable them to get alerted even when the tab is in the background.</p>
+              <p className="text-[10px] text-[#9ca39a] mt-0.5">Enable them to get alerted even when the tab is in the background.</p>
             </div>
             {notifPermission !== "denied" && (
               <button
@@ -153,42 +153,42 @@ export default function AlertsPage() {
 
         {/* New alert form */}
         {showForm && (
-          <div className="rounded-xl border border-[#1e1e24] bg-[#0c0c0e] p-4 mb-5">
+          <div className="rounded-xl border border-[#2e332a] bg-[#121412] p-4 mb-5">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[12px] font-bold text-white">New price alert</p>
-              <button onClick={() => setShowForm(false)} className="text-[#3f3f46] hover:text-[#71717a]">
+              <button onClick={() => setShowForm(false)} className="text-[#6b7068] hover:text-[#9ca39a]">
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
-                <label className="text-[9px] text-[#52525b] uppercase tracking-wider block mb-1">Matchup</label>
+                <label className="text-[9px] text-[#6b7068] uppercase tracking-wider block mb-1">Matchup</label>
                 <input
                   value={form.matchup}
                   onChange={(e) => setForm({ ...form, matchup: e.target.value })}
                   placeholder="e.g. Lakers @ Celtics"
-                  className="w-full bg-[#111113] border border-[#1e1e24] rounded-lg px-3 py-2 text-[11px] text-white placeholder:text-[#3f3f46] outline-none focus:border-[#2a2a35]"
+                  className="w-full bg-[#111113] border border-[#2e332a] rounded-lg px-3 py-2 text-[11px] text-white placeholder:text-[#6b7068] outline-none focus:border-[#2a2a35]"
                 />
               </div>
               <div>
-                <label className="text-[9px] text-[#52525b] uppercase tracking-wider block mb-1">Team / Side</label>
+                <label className="text-[9px] text-[#6b7068] uppercase tracking-wider block mb-1">Team / Side</label>
                 <input
                   value={form.team}
                   onChange={(e) => setForm({ ...form, team: e.target.value })}
                   placeholder="e.g. LA Lakers"
-                  className="w-full bg-[#111113] border border-[#1e1e24] rounded-lg px-3 py-2 text-[11px] text-white placeholder:text-[#3f3f46] outline-none focus:border-[#2a2a35]"
+                  className="w-full bg-[#111113] border border-[#2e332a] rounded-lg px-3 py-2 text-[11px] text-white placeholder:text-[#6b7068] outline-none focus:border-[#2a2a35]"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div>
-                <label className="text-[9px] text-[#52525b] uppercase tracking-wider block mb-1">Market</label>
+                <label className="text-[9px] text-[#6b7068] uppercase tracking-wider block mb-1">Market</label>
                 <select
                   value={form.market}
                   onChange={(e) => setForm({ ...form, market: e.target.value as any })}
-                  className="w-full bg-[#111113] border border-[#1e1e24] rounded-lg px-3 py-2 text-[11px] text-white outline-none"
+                  className="w-full bg-[#111113] border border-[#2e332a] rounded-lg px-3 py-2 text-[11px] text-white outline-none"
                 >
                   <option value="ml">Moneyline</option>
                   <option value="spread">Spread</option>
@@ -196,23 +196,23 @@ export default function AlertsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-[9px] text-[#52525b] uppercase tracking-wider block mb-1">Condition</label>
+                <label className="text-[9px] text-[#6b7068] uppercase tracking-wider block mb-1">Condition</label>
                 <select
                   value={form.condition}
                   onChange={(e) => setForm({ ...form, condition: e.target.value as any })}
-                  className="w-full bg-[#111113] border border-[#1e1e24] rounded-lg px-3 py-2 text-[11px] text-white outline-none"
+                  className="w-full bg-[#111113] border border-[#2e332a] rounded-lg px-3 py-2 text-[11px] text-white outline-none"
                 >
                   <option value="drops_below">Drops below</option>
                   <option value="rises_above">Rises above</option>
                 </select>
               </div>
               <div>
-                <label className="text-[9px] text-[#52525b] uppercase tracking-wider block mb-1">Target odds</label>
+                <label className="text-[9px] text-[#6b7068] uppercase tracking-wider block mb-1">Target odds</label>
                 <input
                   type="number"
                   value={form.threshold}
                   onChange={(e) => setForm({ ...form, threshold: Number(e.target.value) })}
-                  className="w-full bg-[#111113] border border-[#1e1e24] rounded-lg px-3 py-2 text-[11px] font-mono text-white outline-none focus:border-[#2a2a35]"
+                  className="w-full bg-[#111113] border border-[#2e332a] rounded-lg px-3 py-2 text-[11px] font-mono text-white outline-none focus:border-[#2a2a35]"
                 />
               </div>
             </div>
@@ -221,11 +221,11 @@ export default function AlertsPage() {
               <button
                 onClick={handleCreate}
                 disabled={!form.matchup.trim() || !form.team.trim()}
-                className="flex-1 py-2 rounded-lg bg-[#00ff7f]/10 border border-[#00ff7f]/20 text-[#00ff7f] text-[11px] font-bold hover:bg-[#00ff7f]/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex-1 py-2 rounded-lg bg-[#3ee68a]/10 border border-[#3ee68a]/20 text-[#3ee68a] text-[11px] font-bold hover:bg-[#3ee68a]/15 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Create Alert
               </button>
-              <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg border border-[#1e1e24] text-[#52525b] text-[11px] hover:text-[#a1a1aa] transition-colors">
+              <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg border border-[#2e332a] text-[#6b7068] text-[11px] hover:text-[#d4d7d0] transition-colors">
                 Cancel
               </button>
             </div>
@@ -235,7 +235,7 @@ export default function AlertsPage() {
         {/* Triggered */}
         {triggered.length > 0 && (
           <div className="mb-5">
-            <p className="text-[10px] text-[#4ade80] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <p className="text-[10px] text-[#3ee68a] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <CheckCircle2 className="h-3 w-3" /> Triggered ({triggered.length})
             </p>
             <div className="space-y-2">
@@ -251,14 +251,14 @@ export default function AlertsPage() {
 
         {/* Active */}
         <div className="mb-5">
-          <p className="text-[10px] text-[#52525b] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+          <p className="text-[10px] text-[#6b7068] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
             <Bell className="h-3 w-3" /> Watching ({active.length})
           </p>
           {active.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-[#1e1e24] py-10 text-center">
+            <div className="rounded-xl border border-dashed border-[#2e332a] py-10 text-center">
               <Bell className="h-5 w-5 text-[#27272a] mx-auto mb-2" />
-              <p className="text-[12px] text-[#52525b] font-medium">No active alerts</p>
-              <p className="text-[10px] text-[#3f3f46] mt-1">Hit "New Alert" to watch a price.</p>
+              <p className="text-[12px] text-[#6b7068] font-medium">No active alerts</p>
+              <p className="text-[10px] text-[#6b7068] mt-1">Hit "New Alert" to watch a price.</p>
             </div>
           ) : (
             <div className="space-y-2">

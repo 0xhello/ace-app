@@ -24,11 +24,11 @@ const SIGNAL_ICON: Record<string, any> = {
 const SEVERITY_COLOR: Record<string, string> = {
   high: "#ef4444",
   medium: "#f59e0b",
-  low: "#52525b",
+  low: "#6b7068",
 };
 
 const TIER_COLOR: Record<string, string> = {
-  high: "#4ade80",
+  high: "#3ee68a",
   medium: "#f59e0b",
   low: "#ef4444",
 };
@@ -67,10 +67,10 @@ function buildLeg(id: string, game: Game, market: string, label: string, odds: n
 
 function StatBox({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
-    <div className="flex-1 rounded-lg bg-[#0c0c0e] border border-[#141417] p-3 text-center">
-      <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-1">{label}</p>
-      <p className="text-[18px] font-black font-mono leading-none" style={{ color: color ?? "#e4e4e7" }}>{value}</p>
-      {sub && <p className="text-[9px] text-[#3f3f46] mt-1">{sub}</p>}
+    <div className="flex-1 rounded-lg bg-[#121412] border border-[#22251f] p-3 text-center">
+      <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-1">{label}</p>
+      <p className="text-[18px] font-black font-mono leading-none" style={{ color: color ?? "#d4d7d0" }}>{value}</p>
+      {sub && <p className="text-[9px] text-[#6b7068] mt-1">{sub}</p>}
     </div>
   );
 }
@@ -91,7 +91,7 @@ function TableCell({
   isSelected?: boolean;
 }) {
   if (price === null) {
-    return <td className="px-2 py-2 text-center text-[10px] text-[#27272a]">—</td>;
+    return <td className="px-2 py-2 text-center text-[10px] text-[#3a4033]">—</td>;
   }
   return (
     <td className="px-1 py-1.5 text-center">
@@ -100,18 +100,18 @@ function TableCell({
         className={cn(
           "inline-flex flex-col items-center justify-center rounded-md px-2 py-1 min-w-[52px] border transition-all",
           isSelected
-            ? "border-[#00ff7f]/40 bg-[#00ff7f]/10"
+            ? "border-[#3ee68a]/40 bg-[#3ee68a]/10"
             : isBest
-            ? "border-[#00ff7f]/20 bg-[#00ff7f]/[0.04] hover:bg-[#00ff7f]/[0.08]"
-            : "border-transparent hover:border-[#1e1e24] hover:bg-[#0f0f11]"
+            ? "border-[#3ee68a]/20 bg-[#3ee68a]/[0.04] hover:bg-[#3ee68a]/[0.08]"
+            : "border-transparent hover:border-[#2e332a] hover:bg-[#161a16]"
         )}
       >
         {point !== undefined && (
-          <span className="text-[8px] text-[#52525b] leading-none mb-[1px]">
+          <span className="text-[8px] text-[#6b7068] leading-none mb-[1px]">
             {point > 0 ? `+${point}` : point}
           </span>
         )}
-        <span className={cn("text-[11px] font-bold font-mono leading-none", isBest ? "text-[#4ade80]" : "text-[#a1a1aa]")}>
+        <span className={cn("text-[11px] font-bold font-mono leading-none", isBest ? "text-[#3ee68a]" : "text-[#d4d7d0]")}>
           {formatAmericanOdds(price)}
         </span>
       </button>
@@ -244,16 +244,16 @@ export default function GameDetailPanel({
   ] as const;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-[#08080a]">
+    <div className="flex flex-col h-full overflow-hidden bg-[#0a0b0a]">
       {/* Header */}
-      <div className="shrink-0 border-b border-[#141417] px-4 py-3">
+      <div className="shrink-0 border-b border-[#22251f] px-4 py-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-[13px] font-bold text-white leading-snug truncate">{away} <span className="text-[#3f3f46]">@</span> {home}</p>
+            <p className="text-[13px] font-bold text-white leading-snug truncate">{away} <span className="text-[#6b7068]">@</span> {home}</p>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[9px] text-[#3f3f46] uppercase tracking-wider">{game.sport_title}</span>
-              <span className="text-[9px] text-[#27272a]">·</span>
-              <span className="text-[9px] text-[#52525b]">{timeUntilGame(game.commence_time)}</span>
+              <span className="text-[9px] text-[#6b7068] uppercase tracking-wider">{game.sport_title}</span>
+              <span className="text-[9px] text-[#3a4033]">·</span>
+              <span className="text-[9px] text-[#6b7068]">{timeUntilGame(game.commence_time)}</span>
               {game.status === "live" && (
                 <span className="flex items-center gap-1 text-[9px] text-[#ef4444] font-bold uppercase">
                   <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" /> Live
@@ -261,7 +261,7 @@ export default function GameDetailPanel({
               )}
             </div>
           </div>
-          <button onClick={onClose} className="text-[#3f3f46] hover:text-[#71717a] transition-colors shrink-0 mt-0.5">
+          <button onClick={onClose} className="text-[#6b7068] hover:text-[#9ca39a] transition-colors shrink-0 mt-0.5">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -275,8 +275,8 @@ export default function GameDetailPanel({
               className={cn(
                 "px-3 py-1 rounded-md text-[10px] font-semibold transition-all border",
                 activeTab === tab.key
-                  ? "bg-[#141417] text-white border-[#1e1e24]"
-                  : "text-[#52525b] border-transparent hover:text-[#a1a1aa]"
+                  ? "bg-[#22251f] text-white border-[#2e332a]"
+                  : "text-[#6b7068] border-transparent hover:text-[#d4d7d0]"
               )}
             >
               {tab.label}
@@ -296,46 +296,46 @@ export default function GameDetailPanel({
             {aiRec && edge !== null && implied !== null ? (
               <div className={cn(
                 "rounded-xl border p-4",
-                edge > 5 ? "border-[#00ff7f]/20 bg-[#00ff7f]/[0.04]" : "border-[#141417] bg-[#0c0c0e]"
+                edge > 5 ? "border-[#3ee68a]/20 bg-[#3ee68a]/[0.04]" : "border-[#22251f] bg-[#121412]"
               )}>
                 <div className="flex items-center gap-2 mb-3">
-                  <Sparkles className="h-3.5 w-3.5 text-[#00ff7f]" />
+                  <Sparkles className="h-3.5 w-3.5 text-[#3ee68a]" />
                   <span className="text-[11px] font-bold text-white">ACE Edge</span>
-                  <span className="ml-auto text-[9px] text-[#52525b] uppercase tracking-wider">{recMarketLabel[aiRec.market]}</span>
+                  <span className="ml-auto text-[9px] text-[#6b7068] uppercase tracking-wider">{recMarketLabel[aiRec.market]}</span>
                 </div>
 
                 <div className="flex items-end gap-3 mb-3">
                   <div>
-                    <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-0.5">Our model</p>
+                    <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-0.5">Our model</p>
                     <p className="text-[22px] font-black font-mono text-white leading-none">{aiRec.confidence.toFixed(0)}%</p>
                   </div>
-                  <div className="pb-0.5 text-[#3f3f46]">
+                  <div className="pb-0.5 text-[#6b7068]">
                     <ChevronRight className="h-4 w-4" />
                   </div>
                   <div>
-                    <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-0.5">Market implied</p>
-                    <p className="text-[22px] font-black font-mono text-[#71717a] leading-none">{implied.toFixed(1)}%</p>
+                    <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-0.5">Market implied</p>
+                    <p className="text-[22px] font-black font-mono text-[#9ca39a] leading-none">{implied.toFixed(1)}%</p>
                   </div>
                   <div className="ml-auto text-right">
-                    <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-0.5">Edge</p>
+                    <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-0.5">Edge</p>
                     <p className={cn(
                       "text-[28px] font-black font-mono leading-none",
-                      edge > 8 ? "text-[#4ade80]" : edge > 3 ? "text-[#86efac]" : edge > 0 ? "text-[#a1a1aa]" : "text-[#ef4444]"
+                      edge > 8 ? "text-[#3ee68a]" : edge > 3 ? "text-[#7af0aa]" : edge > 0 ? "text-[#d4d7d0]" : "text-[#ef4444]"
                     )}>
                       {edge > 0 ? "+" : ""}{edge.toFixed(1)}%
                     </p>
                   </div>
                 </div>
 
-                <p className="text-[10px] text-[#71717a] leading-relaxed">{aiRec.reason}</p>
+                <p className="text-[10px] text-[#9ca39a] leading-relaxed">{aiRec.reason}</p>
               </div>
             ) : (
-              <div className="rounded-xl border border-[#141417] bg-[#0c0c0e] p-4">
+              <div className="rounded-xl border border-[#22251f] bg-[#121412] p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <Sparkles className="h-3.5 w-3.5 text-[#3f3f46]" />
-                  <span className="text-[11px] font-bold text-[#52525b]">ACE Edge</span>
+                  <Sparkles className="h-3.5 w-3.5 text-[#6b7068]" />
+                  <span className="text-[11px] font-bold text-[#6b7068]">ACE Edge</span>
                 </div>
-                <p className="text-[10px] text-[#3f3f46] leading-relaxed">
+                <p className="text-[10px] text-[#6b7068] leading-relaxed">
                   Signal stack not strong enough to identify a clear edge on this game yet.
                 </p>
               </div>
@@ -343,17 +343,17 @@ export default function GameDetailPanel({
 
             {/* True probability (no-vig) */}
             {trueAway !== null && trueHome !== null && (
-              <div className="rounded-xl border border-[#141417] bg-[#0c0c0e] p-4">
-                <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-3">No-vig true probability</p>
+              <div className="rounded-xl border border-[#22251f] bg-[#121412] p-4">
+                <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-3">No-vig true probability</p>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-[#71717a] truncate min-w-0 flex-1 text-right">{away}</span>
+                  <span className="text-[10px] text-[#9ca39a] truncate min-w-0 flex-1 text-right">{away}</span>
                   <span className="text-[14px] font-black font-mono text-white">{trueAway.toFixed(1)}%</span>
-                  <span className="text-[9px] text-[#3f3f46]">vs</span>
+                  <span className="text-[9px] text-[#6b7068]">vs</span>
                   <span className="text-[14px] font-black font-mono text-white">{trueHome.toFixed(1)}%</span>
-                  <span className="text-[10px] text-[#71717a] truncate min-w-0 flex-1">{home}</span>
+                  <span className="text-[10px] text-[#9ca39a] truncate min-w-0 flex-1">{home}</span>
                 </div>
-                <div className="mt-2 rounded-full h-1.5 bg-[#141417] overflow-hidden">
-                  <div className="h-full bg-[#00ff7f] transition-all" style={{ width: `${trueAway}%` }} />
+                <div className="mt-2 rounded-full h-1.5 bg-[#22251f] overflow-hidden">
+                  <div className="h-full bg-[#3ee68a] transition-all" style={{ width: `${trueAway}%` }} />
                 </div>
               </div>
             )}
@@ -381,22 +381,22 @@ export default function GameDetailPanel({
             {/* Top signals (preview) */}
             {signals.length > 0 && (
               <div>
-                <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-2">Top signals</p>
+                <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-2">Top signals</p>
                 <div className="space-y-2">
                   {signals.slice(0, 3).map((sig) => {
                     const Icon = SIGNAL_ICON[sig.type] ?? Zap;
                     return (
-                      <div key={sig.id} className="flex items-start gap-2.5 rounded-lg border border-[#141417] bg-[#0c0c0e] p-2.5">
+                      <div key={sig.id} className="flex items-start gap-2.5 rounded-lg border border-[#22251f] bg-[#121412] p-2.5">
                         <Icon className="h-3 w-3 mt-0.5 shrink-0" style={{ color: SEVERITY_COLOR[sig.severity] }} />
                         <div className="min-w-0">
                           <p className="text-[11px] font-semibold text-white leading-snug">{sig.summary}</p>
-                          <p className="text-[9px] text-[#52525b] mt-0.5 leading-relaxed line-clamp-2">{sig.details}</p>
+                          <p className="text-[9px] text-[#6b7068] mt-0.5 leading-relaxed line-clamp-2">{sig.details}</p>
                         </div>
                       </div>
                     );
                   })}
                   {signals.length > 3 && (
-                    <button onClick={() => setActiveTab("signals")} className="text-[10px] text-[#4ade80] hover:text-white transition-colors">
+                    <button onClick={() => setActiveTab("signals")} className="text-[10px] text-[#3ee68a] hover:text-white transition-colors">
                       View all {signals.length} signals →
                     </button>
                   )}
@@ -405,9 +405,9 @@ export default function GameDetailPanel({
             )}
 
             {/* Props placeholder */}
-            <div className="rounded-xl border border-dashed border-[#1e1e24] p-4 text-center">
-              <p className="text-[11px] font-semibold text-[#3f3f46]">Player Props</p>
-              <p className="text-[9px] text-[#27272a] mt-1 leading-relaxed">
+            <div className="rounded-xl border border-dashed border-[#2e332a] p-4 text-center">
+              <p className="text-[11px] font-semibold text-[#6b7068]">Player Props</p>
+              <p className="text-[9px] text-[#3a4033] mt-1 leading-relaxed">
                 Props markets will populate once the data pipeline includes player-level markets from the API.
               </p>
             </div>
@@ -420,14 +420,14 @@ export default function GameDetailPanel({
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-[#141417]">
-                    <th className="pb-2 pr-3 text-[9px] text-[#3f3f46] font-semibold uppercase tracking-wider">Book</th>
-                    <th className="pb-2 px-1 text-[9px] text-[#3f3f46] font-semibold uppercase tracking-wider text-center">{away.split(" ").pop()}</th>
-                    <th className="pb-2 px-1 text-[9px] text-[#3f3f46] font-semibold uppercase tracking-wider text-center">{home.split(" ").pop()}</th>
-                    <th className="pb-2 px-1 text-[9px] text-[#3f3f46] font-semibold uppercase tracking-wider text-center">Sprd ↓</th>
-                    <th className="pb-2 px-1 text-[9px] text-[#3f3f46] font-semibold uppercase tracking-wider text-center">Sprd ↑</th>
-                    <th className="pb-2 px-1 text-[9px] text-[#3f3f46] font-semibold uppercase tracking-wider text-center">O</th>
-                    <th className="pb-2 px-1 text-[9px] text-[#3f3f46] font-semibold uppercase tracking-wider text-center">U</th>
+                  <tr className="border-b border-[#22251f]">
+                    <th className="pb-2 pr-3 text-[9px] text-[#6b7068] font-semibold uppercase tracking-wider">Book</th>
+                    <th className="pb-2 px-1 text-[9px] text-[#6b7068] font-semibold uppercase tracking-wider text-center">{away.split(" ").pop()}</th>
+                    <th className="pb-2 px-1 text-[9px] text-[#6b7068] font-semibold uppercase tracking-wider text-center">{home.split(" ").pop()}</th>
+                    <th className="pb-2 px-1 text-[9px] text-[#6b7068] font-semibold uppercase tracking-wider text-center">Sprd ↓</th>
+                    <th className="pb-2 px-1 text-[9px] text-[#6b7068] font-semibold uppercase tracking-wider text-center">Sprd ↑</th>
+                    <th className="pb-2 px-1 text-[9px] text-[#6b7068] font-semibold uppercase tracking-wider text-center">O</th>
+                    <th className="pb-2 px-1 text-[9px] text-[#6b7068] font-semibold uppercase tracking-wider text-center">U</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -448,11 +448,11 @@ export default function GameDetailPanel({
                     const underLeg = under ? buildLeg(`${game.id}-un`, game, "Total", `U ${under.point}`, under.price, bk) : null;
 
                     return (
-                      <tr key={bk} className="border-b border-[#0f0f11] hover:bg-white/[0.01] transition-colors">
+                      <tr key={bk} className="border-b border-[#161a16] hover:bg-white/[0.01] transition-colors">
                         <td className="py-2 pr-3">
                           <div className="flex items-center gap-2">
                             <img src={bookLogoUrl(bk)} alt={m.name} className="h-4 w-4 rounded-sm opacity-70" />
-                            <span className="text-[10px] text-[#71717a] font-medium">{m.name}</span>
+                            <span className="text-[10px] text-[#9ca39a] font-medium">{m.name}</span>
                           </div>
                         </td>
                         <TableCell price={awayML} isBest={awayML === colBest.awayML} onClick={awayMLLeg ? () => onToggleLeg(awayMLLeg) : undefined} isSelected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false} />
@@ -467,7 +467,7 @@ export default function GameDetailPanel({
                 </tbody>
               </table>
             </div>
-            <p className="mt-3 text-[9px] text-[#27272a] text-center">Green = best available price · Click any cell to add to betslip</p>
+            <p className="mt-3 text-[9px] text-[#3a4033] text-center">Green = best available price · Click any cell to add to betslip</p>
           </div>
         )}
 
@@ -476,13 +476,13 @@ export default function GameDetailPanel({
           <div className="p-4 space-y-2">
             {signals.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-[12px] text-[#52525b]">No signals for this game</p>
-                <p className="text-[10px] text-[#3f3f46] mt-1">Check back closer to game time</p>
+                <p className="text-[12px] text-[#6b7068]">No signals for this game</p>
+                <p className="text-[10px] text-[#6b7068] mt-1">Check back closer to game time</p>
               </div>
             ) : signals.map((sig) => {
               const Icon = SIGNAL_ICON[sig.type] ?? Zap;
               return (
-                <div key={sig.id} className="rounded-xl border border-[#141417] bg-[#0c0c0e] p-3">
+                <div key={sig.id} className="rounded-xl border border-[#22251f] bg-[#121412] p-3">
                   <div className="flex items-start gap-2.5">
                     <Icon className="h-3.5 w-3.5 mt-0.5 shrink-0" style={{ color: SEVERITY_COLOR[sig.severity] }} />
                     <div className="min-w-0 flex-1">
@@ -494,15 +494,15 @@ export default function GameDetailPanel({
                         >
                           {sig.severity}
                         </span>
-                        <span className="shrink-0 text-[7px] text-[#3f3f46] uppercase tracking-widest border border-[#1e1e24] px-1 py-[1px] rounded">
+                        <span className="shrink-0 text-[7px] text-[#6b7068] uppercase tracking-widest border border-[#2e332a] px-1 py-[1px] rounded">
                           {sig.certainty}
                         </span>
                       </div>
-                      <p className="text-[10px] text-[#71717a] leading-relaxed">{sig.details}</p>
+                      <p className="text-[10px] text-[#9ca39a] leading-relaxed">{sig.details}</p>
                       {sig.benefits.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {sig.benefits.map((b, i) => (
-                            <span key={i} className="text-[8px] text-[#4ade80] bg-[#4ade80]/8 border border-[#4ade80]/15 px-1.5 py-0.5 rounded-full">
+                            <span key={i} className="text-[8px] text-[#3ee68a] bg-[#3ee68a]/8 border border-[#3ee68a]/15 px-1.5 py-0.5 rounded-full">
                               ↑ {b}
                             </span>
                           ))}
@@ -524,12 +524,12 @@ export default function GameDetailPanel({
         {activeTab === "alert" && (
           <div className="p-4 space-y-4">
             <div>
-              <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-2">Market</p>
+              <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-2">Market</p>
               <div className="flex gap-1.5">
                 {(["ml", "spread", "total"] as const).map((m) => (
                   <button key={m} onClick={() => updateAlertMarket(m)}
                     className={cn("flex-1 py-2 rounded-lg border text-[10px] font-semibold transition-all",
-                      alertForm.market === m ? "border-[#00ff7f]/30 bg-[#00ff7f]/8 text-[#00ff7f]" : "border-[#141417] text-[#52525b] hover:text-[#a1a1aa]")}>
+                      alertForm.market === m ? "border-[#3ee68a]/30 bg-[#3ee68a]/8 text-[#3ee68a]" : "border-[#22251f] text-[#6b7068] hover:text-[#d4d7d0]")}>
                     {m === "ml" ? "Moneyline" : m === "spread" ? "Spread" : "Total"}
                   </button>
                 ))}
@@ -537,14 +537,14 @@ export default function GameDetailPanel({
             </div>
 
             <div>
-              <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-2">Side</p>
+              <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-2">Side</p>
               <div className="flex gap-1.5">
                 {alertForm.market === "total" ? (
                   <>
                     {(["over", "under"] as const).map((s) => (
                       <button key={s} onClick={() => updateAlertSide(s)}
                         className={cn("flex-1 py-2 rounded-lg border text-[10px] font-semibold transition-all",
-                          alertForm.side === s ? "border-[#00ff7f]/30 bg-[#00ff7f]/8 text-[#00ff7f]" : "border-[#141417] text-[#52525b] hover:text-[#a1a1aa]")}>
+                          alertForm.side === s ? "border-[#3ee68a]/30 bg-[#3ee68a]/8 text-[#3ee68a]" : "border-[#22251f] text-[#6b7068] hover:text-[#d4d7d0]")}>
                         {s === "over" ? "Over" : "Under"}
                       </button>
                     ))}
@@ -554,7 +554,7 @@ export default function GameDetailPanel({
                     {(["away", "home"] as const).map((s) => (
                       <button key={s} onClick={() => updateAlertSide(s)}
                         className={cn("flex-1 py-2 rounded-lg border text-[10px] font-semibold transition-all truncate",
-                          alertForm.side === s ? "border-[#00ff7f]/30 bg-[#00ff7f]/8 text-[#00ff7f]" : "border-[#141417] text-[#52525b] hover:text-[#a1a1aa]")}>
+                          alertForm.side === s ? "border-[#3ee68a]/30 bg-[#3ee68a]/8 text-[#3ee68a]" : "border-[#22251f] text-[#6b7068] hover:text-[#d4d7d0]")}>
                         {s === "away" ? away.split(" ").pop() : home.split(" ").pop()}
                       </button>
                     ))}
@@ -564,40 +564,40 @@ export default function GameDetailPanel({
             </div>
 
             <div>
-              <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-2">Condition</p>
+              <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-2">Condition</p>
               <div className="flex gap-1.5">
                 <button onClick={() => setAlertForm((f) => ({ ...f, condition: "drops_below" }))}
                   className={cn("flex-1 py-2 rounded-lg border text-[10px] font-semibold flex items-center justify-center gap-1.5 transition-all",
-                    alertForm.condition === "drops_below" ? "border-[#ef4444]/30 bg-[#ef4444]/8 text-[#ef4444]" : "border-[#141417] text-[#52525b] hover:text-[#a1a1aa]")}>
+                    alertForm.condition === "drops_below" ? "border-[#ef4444]/30 bg-[#ef4444]/8 text-[#ef4444]" : "border-[#22251f] text-[#6b7068] hover:text-[#d4d7d0]")}>
                   <TrendingDown className="h-3 w-3" /> Drops below
                 </button>
                 <button onClick={() => setAlertForm((f) => ({ ...f, condition: "rises_above" }))}
                   className={cn("flex-1 py-2 rounded-lg border text-[10px] font-semibold flex items-center justify-center gap-1.5 transition-all",
-                    alertForm.condition === "rises_above" ? "border-[#4ade80]/30 bg-[#4ade80]/8 text-[#4ade80]" : "border-[#141417] text-[#52525b] hover:text-[#a1a1aa]")}>
+                    alertForm.condition === "rises_above" ? "border-[#3ee68a]/30 bg-[#3ee68a]/8 text-[#3ee68a]" : "border-[#22251f] text-[#6b7068] hover:text-[#d4d7d0]")}>
                   <TrendingUp className="h-3 w-3" /> Rises above
                 </button>
               </div>
             </div>
 
             <div>
-              <p className="text-[9px] text-[#52525b] uppercase tracking-wider mb-2">Target odds</p>
+              <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-2">Target odds</p>
               <input
                 type="number"
                 value={alertForm.threshold}
                 onChange={(e) => setAlertForm((f) => ({ ...f, threshold: Number(e.target.value) }))}
-                className="w-full bg-[#0c0c0e] border border-[#1e1e24] rounded-lg px-3 py-2.5 text-[12px] font-mono text-white outline-none focus:border-[#2a2a35]"
+                className="w-full bg-[#121412] border border-[#2e332a] rounded-lg px-3 py-2.5 text-[12px] font-mono text-white outline-none focus:border-[#2e332a]"
               />
             </div>
 
             <button onClick={handleCreateAlert}
               className={cn("w-full py-3 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-2",
-                alertSaved ? "bg-[#166534] text-[#4ade80]" : "bg-[#00ff7f]/10 border border-[#00ff7f]/20 text-[#00ff7f] hover:bg-[#00ff7f]/15")}>
+                alertSaved ? "bg-[#1a8a55] text-[#3ee68a]" : "bg-[#3ee68a]/10 border border-[#3ee68a]/20 text-[#3ee68a] hover:bg-[#3ee68a]/15")}>
               {alertSaved ? <><Check className="h-3.5 w-3.5" /> Alert Created</> : "Create Alert"}
             </button>
 
-            <p className="text-[9px] text-[#3f3f46] text-center leading-relaxed">
+            <p className="text-[9px] text-[#6b7068] text-center leading-relaxed">
               Watching{" "}
-              <span className="text-[#a1a1aa] font-medium">
+              <span className="text-[#d4d7d0] font-medium">
                 {alertForm.side === "away" ? away : alertForm.side === "home" ? home : alertForm.side === "over" ? "Over" : "Under"}
               </span>
               {" · "}{alertForm.market.toUpperCase()}
@@ -611,7 +611,7 @@ export default function GameDetailPanel({
 
       {/* Footer — quick open in book */}
       {game.bookmakers.length > 0 && (
-        <div className="shrink-0 border-t border-[#141417] p-3">
+        <div className="shrink-0 border-t border-[#22251f] p-3">
           <div className="flex items-center gap-1.5 overflow-x-auto">
             {game.bookmakers.slice(0, 5).map((bk) => {
               const m = bookMeta(bk.sportsbook);
@@ -624,10 +624,10 @@ export default function GameDetailPanel({
                   target="_blank"
                   rel="noopener noreferrer"
                   title={`Open ${m.name}`}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#141417] hover:border-[#1e1e24] bg-[#0c0c0e] hover:bg-[#0f0f11] transition-all shrink-0"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#22251f] hover:border-[#2e332a] bg-[#121412] hover:bg-[#161a16] transition-all shrink-0"
                 >
                   <img src={bookLogoUrl(bk.sportsbook)} alt={m.name} className="h-3.5 w-3.5 rounded-sm" />
-                  <span className="text-[9px] text-[#71717a] font-medium">{m.name}</span>
+                  <span className="text-[9px] text-[#9ca39a] font-medium">{m.name}</span>
                 </a>
               );
             })}
