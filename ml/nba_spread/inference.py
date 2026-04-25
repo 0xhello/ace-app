@@ -72,12 +72,22 @@ def _coerce_game(game: Dict[str, Any]) -> Dict[str, Any]:
     raise ValueError("api_data must contain normalized game dictionaries with bookmakers, home_team, away_team, and commence_time")
 
 
+def _get_market_entries(bookmaker: Dict[str, Any], market_key: str) -> List[Dict[str, Any]]:
+    """Handle both raw Odds API format (markets as list) and normalized format (markets as dict)."""
+    markets = bookmaker.get("markets", {})
+    if isinstance(markets, dict):
+        return markets.get(market_key, [])
+    # Raw Odds API: markets is a list of {key, outcomes: [...]}
+    for m in markets:
+        if m.get("key") == market_key:
+            return m.get("outcomes", [])
+    return []
+
+
 def _extract_consensus_market(game: Dict[str, Any], market_key: str, outcome_name: Optional[str] = None) -> Optional[float]:
     values: List[float] = []
     for bookmaker in game.get("bookmakers", []):
-        markets = bookmaker.get("markets", {})
-        entries = markets.get(market_key, []) if isinstance(markets, dict) else []
-        for outcome in entries:
+        for outcome in _get_market_entries(bookmaker, market_key):
             if outcome_name is None or outcome.get("name") == outcome_name:
                 target = outcome.get("point") if market_key in {"spreads", "totals"} else outcome.get("price")
                 if target is not None:
@@ -90,9 +100,7 @@ def _extract_consensus_market(game: Dict[str, Any], market_key: str, outcome_nam
 def _extract_best_price(game: Dict[str, Any], market_key: str, outcome_name: str) -> Optional[float]:
     prices: List[float] = []
     for bookmaker in game.get("bookmakers", []):
-        markets = bookmaker.get("markets", {})
-        entries = markets.get(market_key, []) if isinstance(markets, dict) else []
-        for outcome in entries:
+        for outcome in _get_market_entries(bookmaker, market_key):
             if outcome.get("name") == outcome_name and outcome.get("price") is not None:
                 prices.append(float(outcome["price"]))
     if not prices:
@@ -217,7 +225,7 @@ def predict_games(api_data: Iterable[Dict[str, Any]]) -> pd.DataFrame:
     return output
 
 
-def log_prediction(prediction: Dict[str, Any], notes: str = "") -> None:
+def log_prediction(prediction: Dict[str, Any], notes: str = "", is_bet: bool = False) -> None:
     MODEL_PERFORMANCE_PATH.parent.mkdir(parents=True, exist_ok=True)
     row = {
         "logged_at": datetime.utcnow().isoformat(),
@@ -231,6 +239,8 @@ def log_prediction(prediction: Dict[str, Any], notes: str = "") -> None:
         "away_cover_prob": prediction.get("away_cover_prob"),
         "pick_side": prediction.get("pick_side"),
         "pick_confidence": prediction.get("pick_confidence"),
+        # is_bet=1 means confidence cleared the betting threshold — treat as a real bet for ROI tracking
+        "is_bet": int(is_bet),
         "model_version": prediction.get("model_version", MODEL_VERSION),
         "actual_home_covered": "",
         "result_status": "pending",
