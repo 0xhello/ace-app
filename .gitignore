@@ -5,3 +5,10 @@ node_modules/
 *.log
 dist/
 next-env.d.ts
+tsconfig.tsbuildinfo
+
+# ML — model binary and runtime log are not source files
+ml/**/__pycache__/
+ml/**/*.pyc
+ml/nba_spread/artifacts/*.joblib
+ml/nba_spread/model_performance.csv

@@ -1,0 +1,65 @@
+{
+  "rows_train": 18224,
+  "rows_test": 4556,
+  "accuracy": 0.5417,
+  "precision": 0.5251,
+  "recall": 0.8302,
+  "roc_auc": 0.5587,
+  "best_threshold": 0.58,
+  "threshold_sweep": {
+    "0.52": {
+      "bets": 4090,
+      "wins": 2226,
+      "win_rate": 0.5443,
+      "units": 159.6364,
+      "roi": 0.039
+    },
+    "0.53": {
+      "bets": 3863,
+      "wins": 2101,
+      "win_rate": 0.5439,
+      "units": 148.0,
+      "roi": 0.0383
+    },
+    "0.54": {
+      "bets": 3630,
+      "wins": 1986,
+      "win_rate": 0.5471,
+      "units": 161.4545,
+      "roi": 0.0445
+    },
+    "0.55": {
+      "bets": 3396,
+      "wins": 1866,
+      "win_rate": 0.5495,
+      "units": 166.3636,
+      "roi": 0.049
+    },
+    "0.56": {
+      "bets": 3149,
+      "wins": 1733,
+      "win_rate": 0.5503,
+      "units": 159.4545,
+      "roi": 0.0506
+    },
+    "0.57": {
+      "bets": 2935,
+      "wins": 1614,
+      "win_rate": 0.5499,
+      "units": 146.2727,
+      "roi": 0.0498
+    },
+    "0.58": {
+      "bets": 2696,
+      "wins": 1496,
+      "win_rate": 0.5549,
+      "units": 160.0,
+      "roi": 0.0593
+    }
+  },
+  "bets": 2696,
+  "wins": 1496,
+  "win_rate": 0.5549,
+  "units": 160.0,
+  "roi": 0.0593
+}
