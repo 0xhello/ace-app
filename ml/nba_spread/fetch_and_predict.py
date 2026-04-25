@@ -17,7 +17,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 import pandas as pd
@@ -104,13 +104,14 @@ def filter_upcoming(games: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return upcoming
 
 
-def run() -> None:
+def run(threshold: Optional[float] = None) -> None:
     print("=" * 55)
     print("  ACE — NBA Spread Prediction Run")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 55)
 
-    threshold = _load_best_threshold()
+    if threshold is None:
+        threshold = _load_best_threshold()
     print(f"  Confidence threshold: {threshold}")
 
     print("  Fetching NBA odds from The Odds API...")
@@ -160,8 +161,14 @@ def run() -> None:
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--threshold", type=float, default=None,
+                        help="Override confidence threshold (e.g. 0.54). Defaults to value from last training run.")
+    args = parser.parse_args()
+
     try:
-        run()
+        run(threshold=args.threshold)
     except Exception as e:
         print(f"\n  ERROR: {e}", file=sys.stderr)
         sys.exit(1)

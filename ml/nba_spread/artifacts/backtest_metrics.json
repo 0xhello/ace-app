@@ -5,7 +5,7 @@
   "precision": 0.5251,
   "recall": 0.8302,
   "roc_auc": 0.5587,
-  "best_threshold": 0.58,
+  "best_threshold": 0.54,
   "threshold_sweep": {
     "0.52": {
       "bets": 4090,

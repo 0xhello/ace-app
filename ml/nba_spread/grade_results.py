@@ -84,6 +84,19 @@ def determine_covered(home_score: int, away_score: int, home_line: float) -> Opt
     return None  # push — no action
 
 
+def report_only() -> None:
+    """Print performance summary from the local log without hitting any API."""
+    print("=" * 55)
+    print("  ACE — Model Performance Report")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=" * 55)
+    if not MODEL_PERFORMANCE_PATH.exists():
+        print("  No model_performance.csv found. Run fetch_and_predict first.")
+        return
+    df = pd.read_csv(MODEL_PERFORMANCE_PATH)
+    _print_summary(df)
+
+
 def run(days_back: int = 3) -> None:
     print("=" * 55)
     print("  ACE — Grade Pending Predictions")
@@ -197,7 +210,7 @@ def _print_summary(df: pd.DataFrame) -> None:
     graded = df[df["result_status"] == "graded"]
     pending = df[df["result_status"] == "pending"]
     pushed = df[df["result_status"] == "push"]
-    total = len(df) - 1  # exclude the test row if present
+    total = len(df)
 
     if graded.empty:
         print("  No graded predictions yet.")
@@ -237,10 +250,14 @@ def _print_summary(df: pd.DataFrame) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=3, help="Days back to check for scores")
+    parser.add_argument("--report-only", action="store_true", help="Print stats without hitting any API")
     args = parser.parse_args()
 
     try:
-        run(days_back=args.days)
+        if args.report_only:
+            report_only()
+        else:
+            run(days_back=args.days)
     except Exception as e:
         print(f"\n  ERROR: {e}", file=sys.stderr)
         sys.exit(1)
