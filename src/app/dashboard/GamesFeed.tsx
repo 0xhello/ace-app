@@ -5,6 +5,7 @@ import { fetchAllGames } from "@/lib/odds-api";
 import { fetchAllESPNNews } from "@/lib/espn";
 import { generateIntelMap } from "@/lib/live-signals";
 import { generateLivePicks } from "@/lib/live-picks";
+import { fetchWeatherForGames } from "@/lib/weather";
 import * as serverCache from "@/lib/server-cache";
 
 const CACHE_KEY = "board-games";
@@ -15,7 +16,6 @@ async function getGames(): Promise<{
   fetchedAt: string | null;
   feedMode: "live" | "demo";
 }> {
-  // Serve from server cache on initial render if still fresh
   const cached = serverCache.get(CACHE_KEY);
   const cachedGames = cached?.data?.games ?? [];
   if (cached && !serverCache.isStale(CACHE_KEY, cachedGames)) {
@@ -40,12 +40,7 @@ async function getGames(): Promise<{
 
     return { games: result.games, errors: result.errors, fetchedAt: result.fetchedAt, feedMode: "live" };
   } catch (e: any) {
-    return {
-      games: getMockGames(),
-      errors: [e.message],
-      fetchedAt: new Date().toISOString(),
-      feedMode: "demo",
-    };
+    return { games: getMockGames(), errors: [e.message], fetchedAt: new Date().toISOString(), feedMode: "demo" };
   }
 }
 
@@ -60,16 +55,23 @@ async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T
 export default async function GamesFeed() {
   const { games, errors, fetchedAt, feedMode } = await getGames();
 
-  // Fetch ESPN news for signal generation (free, no quota impact)
-  const newsItems = await withTimeout(fetchAllESPNNews(), 5_000, []);
+  // Fetch ESPN news + weather in parallel (both free, no quota impact)
+  const [newsItems, weatherMap] = await Promise.all([
+    withTimeout(fetchAllESPNNews(), 5_000, []),
+    withTimeout(fetchWeatherForGames(games), 6_000, new Map()),
+  ]);
 
-  // Generate intel map and top picks from real data
-  const intelMap = generateIntelMap(games, newsItems);
+  // Pull server-side movement map from cache (populated by /api/board on each refresh)
+  const cached = serverCache.get(CACHE_KEY);
+  const movementMap: Record<string, Record<string, "up" | "down" | null>> =
+    cached?.data?.movementMap ?? {};
+
+  const intelMap = generateIntelMap(games, newsItems, weatherMap, movementMap);
   const topPicks = generateLivePicks(games, 5);
 
   if (games.length === 0) {
     const quotaIssue = errors.some((e) =>
-      /quota|usage|401|429|invalid|expired/i.test(String(e))
+      /quota|usage|401|429|invalid|expired|configured/i.test(String(e))
     );
     return (
       <div className="text-center py-20 max-w-xl mx-auto px-6">

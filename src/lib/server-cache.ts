@@ -12,6 +12,19 @@ interface CacheEntry {
 
 const store = new Map<string, CacheEntry>();
 
+// Snapshot of odds from the previous fetch — used to compute line movement
+// key: gameId, value: { ml_away, ml_home, sp_away, sp_home, ov, un }
+export type OddsSnapshot = Record<string, Record<string, number | null>>;
+let prevOddsSnapshot: OddsSnapshot = {};
+
+export function getPrevOddsSnapshot(): OddsSnapshot {
+  return prevOddsSnapshot;
+}
+
+export function setPrevOddsSnapshot(snap: OddsSnapshot): void {
+  prevOddsSnapshot = snap;
+}
+
 // TTL in ms — shorter when live games are in play
 const TTL_LIVE     = 30_000;        // 30 seconds
 const TTL_SOON     = 3 * 60_000;    // 3 minutes  (game starts within 2h)

@@ -4,8 +4,8 @@ import { useState } from "react";
 import { X, Sparkles, TrendingUp, TrendingDown, AlertTriangle, Zap, CloudRain, BarChart2, ChevronRight, Check } from "lucide-react";
 import { cn, formatAmericanOdds, timeUntilGame } from "@/lib/utils";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
-import { getSignalsForGame, getConfidenceForGame, getAIRecommendation } from "@/lib/signals";
 import { impliedProbability, edgePct, noVigProb } from "@/lib/edge";
+import type { GameIntel } from "@/lib/live-signals";
 import { bookDeepLink } from "@/lib/deeplinks";
 import { saveAlert } from "@/lib/alerts";
 import { Game } from "@/types/game";
@@ -126,20 +126,22 @@ export default function GameDetailPanel({
   onClose,
   onToggleLeg,
   selectedIds,
+  boardIntel,
 }: {
   game: Game;
   onClose: () => void;
   onToggleLeg: (leg: SlipLeg) => void;
   selectedIds: string[];
+  boardIntel?: GameIntel;
 }) {
   const [activeTab, setActiveTab] = useState<"overview" | "books" | "signals" | "alert">("overview");
 
   const away = game.away_team;
   const home = game.home_team;
 
-  const conf = getConfidenceForGame(game.id, home, away);
-  const aiRec = getAIRecommendation(game.id, home, away);
-  const signals = getSignalsForGame(game.id, home, away);
+  const conf = boardIntel?.confidence ?? { pct: 50, tier: "low" as const, label: "No data yet", components: { base_prob: 50, injury_modifier: 0, weather_modifier: 0, movement_modifier: 0 } };
+  const aiRec = boardIntel?.recommendation ?? null;
+  const signals = boardIntel?.signals ?? [];
 
   // Alert form state
   const [alertForm, setAlertForm] = useState({
@@ -154,7 +156,7 @@ export default function GameDetailPanel({
   const bestAwayML = bestH2HAcrossBooks(game, away);
   const bestHomeML = bestH2HAcrossBooks(game, home);
 
-  // Edge analysis
+  // Edge analysis — use real confidence from boardIntel
   const recOdds = (() => {
     if (!aiRec) return null;
     if (aiRec.market === "ml-away") return bestAwayML;
@@ -164,6 +166,9 @@ export default function GameDetailPanel({
 
   const edge = recOdds !== null ? edgePct(aiRec!.confidence, recOdds) : null;
   const implied = recOdds !== null ? impliedProbability(recOdds) : null;
+
+  // Confidence breakdown from real formula
+  const confComponents = boardIntel?.confidence?.components;
 
   // No-vig true probabilities
   const [trueAway, trueHome] = bestAwayML && bestHomeML ? noVigProb(bestAwayML, bestHomeML) : [null, null];
@@ -307,7 +312,7 @@ export default function GameDetailPanel({
                 <div className="flex items-end gap-3 mb-3">
                   <div>
                     <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-0.5">Our model</p>
-                    <p className="text-[22px] font-black font-mono text-white leading-none">{aiRec.confidence.toFixed(0)}%</p>
+                    <p className="text-[22px] font-black font-mono text-white leading-none">{typeof aiRec.confidence === "number" ? aiRec.confidence.toFixed(0) : conf.pct}%</p>
                   </div>
                   <div className="pb-0.5 text-[#6b7068]">
                     <ChevronRight className="h-4 w-4" />
@@ -378,19 +383,44 @@ export default function GameDetailPanel({
               />
             </div>
 
+            {/* Confidence breakdown */}
+            {confComponents && (
+              <div className="rounded-xl border border-[#22251f] bg-[#121412] p-3">
+                <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-2">Confidence breakdown</p>
+                <div className="space-y-1.5">
+                  {[
+                    { label: "Base win prob", value: confComponents.base_prob, suffix: "%" },
+                    { label: "Injury impact", value: confComponents.injury_modifier, suffix: "pts" },
+                    { label: "Weather", value: confComponents.weather_modifier, suffix: "pts" },
+                    { label: "Line movement", value: confComponents.movement_modifier, suffix: "pts" },
+                  ].map(({ label, value, suffix }) => (
+                    <div key={label} className="flex items-center justify-between">
+                      <span className="text-[10px] text-[#6b7068]">{label}</span>
+                      <span className={cn(
+                        "text-[10px] font-mono font-bold",
+                        value > 0 ? "text-[#3ee68a]" : value < 0 ? "text-[#ef4444]" : "text-[#6b7068]"
+                      )}>
+                        {value > 0 ? "+" : ""}{value}{suffix}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Top signals (preview) */}
             {signals.length > 0 && (
               <div>
                 <p className="text-[9px] text-[#6b7068] uppercase tracking-wider mb-2">Top signals</p>
                 <div className="space-y-2">
-                  {signals.slice(0, 3).map((sig) => {
+                  {signals.slice(0, 3).map((sig, i) => {
                     const Icon = SIGNAL_ICON[sig.type] ?? Zap;
                     return (
-                      <div key={sig.id} className="flex items-start gap-2.5 rounded-lg border border-[#22251f] bg-[#121412] p-2.5">
+                      <div key={i} className="flex items-start gap-2.5 rounded-lg border border-[#22251f] bg-[#121412] p-2.5">
                         <Icon className="h-3 w-3 mt-0.5 shrink-0" style={{ color: SEVERITY_COLOR[sig.severity] }} />
                         <div className="min-w-0">
-                          <p className="text-[11px] font-semibold text-white leading-snug">{sig.summary}</p>
-                          <p className="text-[9px] text-[#6b7068] mt-0.5 leading-relaxed line-clamp-2">{sig.details}</p>
+                          <p className="text-[11px] font-semibold text-white leading-snug">{sig.title}</p>
+                          <p className="text-[9px] text-[#6b7068] mt-0.5 leading-relaxed line-clamp-2">{sig.detail}</p>
                         </div>
                       </div>
                     );
@@ -479,15 +509,15 @@ export default function GameDetailPanel({
                 <p className="text-[12px] text-[#6b7068]">No signals for this game</p>
                 <p className="text-[10px] text-[#6b7068] mt-1">Check back closer to game time</p>
               </div>
-            ) : signals.map((sig) => {
+            ) : signals.map((sig, i) => {
               const Icon = SIGNAL_ICON[sig.type] ?? Zap;
               return (
-                <div key={sig.id} className="rounded-xl border border-[#22251f] bg-[#121412] p-3">
+                <div key={i} className="rounded-xl border border-[#22251f] bg-[#121412] p-3">
                   <div className="flex items-start gap-2.5">
                     <Icon className="h-3.5 w-3.5 mt-0.5 shrink-0" style={{ color: SEVERITY_COLOR[sig.severity] }} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <p className="text-[11px] font-semibold text-white leading-snug">{sig.summary}</p>
+                        <p className="text-[11px] font-semibold text-white leading-snug">{sig.title}</p>
                         <span
                           className="shrink-0 text-[7px] font-bold uppercase tracking-widest px-1 py-[1px] rounded"
                           style={{ color: SEVERITY_COLOR[sig.severity], background: `${SEVERITY_COLOR[sig.severity]}18` }}
@@ -495,19 +525,19 @@ export default function GameDetailPanel({
                           {sig.severity}
                         </span>
                         <span className="shrink-0 text-[7px] text-[#6b7068] uppercase tracking-widest border border-[#2e332a] px-1 py-[1px] rounded">
-                          {sig.certainty}
+                          {sig.time}
                         </span>
                       </div>
-                      <p className="text-[10px] text-[#9ca39a] leading-relaxed">{sig.details}</p>
-                      {sig.benefits.length > 0 && (
+                      <p className="text-[10px] text-[#9ca39a] leading-relaxed">{sig.detail}</p>
+                      {((sig.benefits?.length ?? 0) > 0 || (sig.harms?.length ?? 0) > 0) && (
                         <div className="mt-2 flex flex-wrap gap-1">
-                          {sig.benefits.map((b, i) => (
-                            <span key={i} className="text-[8px] text-[#3ee68a] bg-[#3ee68a]/8 border border-[#3ee68a]/15 px-1.5 py-0.5 rounded-full">
+                          {(sig.benefits ?? []).map((b, j) => (
+                            <span key={j} className="text-[8px] text-[#3ee68a] bg-[#3ee68a]/8 border border-[#3ee68a]/15 px-1.5 py-0.5 rounded-full">
                               ↑ {b}
                             </span>
                           ))}
-                          {sig.harms.map((h, i) => (
-                            <span key={i} className="text-[8px] text-[#ef4444] bg-[#ef4444]/8 border border-[#ef4444]/15 px-1.5 py-0.5 rounded-full">
+                          {(sig.harms ?? []).map((h, j) => (
+                            <span key={j} className="text-[8px] text-[#ef4444] bg-[#ef4444]/8 border border-[#ef4444]/15 px-1.5 py-0.5 rounded-full">
                               ↓ {h}
                             </span>
                           ))}

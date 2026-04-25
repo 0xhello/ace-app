@@ -381,6 +381,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
             onClose={() => setSelectedGame(null)}
             onToggleLeg={toggleLeg}
             selectedIds={selectedIds}
+            boardIntel={intelMap[selectedGame.id]}
           />
         ) : (
           <BetSlip slip={slip} onRemove={removeLeg} onClear={() => setSlip([])} games={games} />
