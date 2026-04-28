@@ -342,14 +342,14 @@ export default function OpsPage() {
         <div className="ace-panel p-5">
           <SectionHead title={`Today's Activity · ${pipeline?.etToday ?? sig?.et_today ?? "—"}`} icon={Zap} />
           <div className="flex gap-3 mb-4">
-            <Kpi label="Games on slate" value={String(sig?.today.games.length ?? "—")} color="#e4e4e7" />
+            <Kpi label="Games on slate" value={String(sig?.today?.games?.length ?? "—")} color="#e4e4e7" />
             <Kpi label="Predictions logged" value={String(m?.todayLogged ?? "—")} color="#e4e4e7" />
-            <Kpi label="Snapshots captured" value={String(sig?.today.snapshots ?? "—")} color="#e4e4e7" />
-            <Kpi label="Signals today" value={String(sig?.today.signals ?? "—")} color={(sig?.today.signals ?? 0) > 0 ? "#3ee68a" : "#6b7068"} />
+            <Kpi label="Snapshots captured" value={String(sig?.today?.snapshots ?? "—")} color="#e4e4e7" />
+            <Kpi label="Signals today" value={String(sig?.today?.signals ?? "—")} color={(sig?.today?.signals ?? 0) > 0 ? "#3ee68a" : "#6b7068"} />
           </div>
 
           {/* Games on slate */}
-          {sig?.today.games && sig.today.games.length > 0 ? (
+          {sig?.today?.games && sig.today.games.length > 0 ? (
             <div className="space-y-1.5">
               <p className="ace-label mb-2">games</p>
               <div className="flex flex-wrap gap-2">

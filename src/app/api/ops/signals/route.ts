@@ -87,18 +87,18 @@ export async function GET() {
   });
 
   if (result.error) {
-    return NextResponse.json({ error: result.error.message }, { status: 500 });
+    return NextResponse.json({ error: result.error.message });
   }
 
   let data: Record<string, unknown>;
   try {
     data = JSON.parse(result.stdout);
   } catch {
-    return NextResponse.json({ error: "Failed to parse signal query output", raw: result.stdout.slice(0, 500) }, { status: 500 });
+    return NextResponse.json({ error: "Failed to parse signal query output", raw: result.stdout.slice(0, 500) });
   }
 
   if (data.error) {
-    return NextResponse.json({ error: data.error }, { status: 500 });
+    return NextResponse.json({ error: data.error });
   }
 
   // Compute edge status (mirrors Python compute_edge_status logic)
