@@ -35,6 +35,12 @@ interface PipelineData {
   refreshedAt: string;
 }
 
+interface RecentSignal {
+  id: number; game_date: string; home: string; away: string;
+  side: string; line: number; clv: number | null; win: number | null;
+  src: string | null;
+}
+
 interface SignalsData {
   by_status: Record<string, number>;
   total: number;
@@ -44,17 +50,17 @@ interface SignalsData {
   today: { signals: number; snapshots: number; games: Array<{ home: string; away: string }> };
   stale: Array<{ id: number; game_date: string; home_team: string; away_team: string }>;
   open_signals: Array<{ id: number; game_date: string; home_team: string; away_team: string; bet_side: string; line_at_signal: number; status: string }>;
+  recent_graded: RecentSignal[];
   et_today: string;
   edgeStatus: string;
   needFor30: number;
   error?: string;
 }
 
-// ─── Utilities ────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function timeAgo(ts: string | null): string {
   if (!ts) return "never";
-  // ts is "YYYY-MM-DD HH:MM:SS" local machine time
   const d = new Date(ts.replace(" ", "T"));
   const diffMs = Date.now() - d.getTime();
   const h = Math.floor(diffMs / 3_600_000);
@@ -71,6 +77,27 @@ function staleness(ts: string | null): "ok" | "warn" | "stale" | "unknown" {
   if (h < 26) return "ok";
   if (h < 50) return "warn";
   return "stale";
+}
+
+// cronUtcHour: when the cron fires in UTC
+function nextRun(cronUtcHour: number): string {
+  const nowMs = Date.now();
+  const now = new Date();
+  const todayRun = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), cronUtcHour, 0, 0));
+  const target = todayRun.getTime() > nowMs ? todayRun.getTime() : todayRun.getTime() + 86_400_000;
+  const diffMs = target - nowMs;
+  const h = Math.floor(diffMs / 3_600_000);
+  const m = Math.floor((diffMs % 3_600_000) / 60_000);
+  if (h === 0 && m < 5) return "any moment";
+  if (h === 0) return `in ${m}m`;
+  if (h < 24)  return `in ${h}h ${m}m`;
+  return "tomorrow";
+}
+
+function fmtDate(d: string): string {
+  const [, mo, day] = d.split("-");
+  const months = ["", "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${months[parseInt(mo)]} ${parseInt(day)}`;
 }
 
 function fmtPct(v: number | null, decimals = 1): string {
@@ -99,11 +126,11 @@ function winRateColor(v: number | null): string {
 }
 
 function edgeStatusColor(s: string): string {
-  if (s === "strong" || s === "strong?") return "#3ee68a";
-  if (s === "promising" || s === "promising?") return "#f5c062";
-  if (s === "inconclusive" || s === "inconclusive?") return "#f5c062";
-  if (s === "bad") return "#ef4444";
-  return "#6b7068"; // accumulating
+  if (s.startsWith("strong"))      return "#3ee68a";
+  if (s.startsWith("promising"))   return "#f5c062";
+  if (s.startsWith("inconclusive"))return "#f5c062";
+  if (s === "bad")                  return "#ef4444";
+  return "#6b7068";
 }
 
 function abbrevTeam(full: string): string {
@@ -111,40 +138,61 @@ function abbrevTeam(full: string): string {
   return last.length > 6 ? last.slice(0, 3).toUpperCase() : last.toUpperCase();
 }
 
-// ─── Tiny components ──────────────────────────────────────────────────────────
+function jobHealthColor(job: JobStatus): string {
+  if (job.hasError) return "#ef4444";
+  if (job.truncated) return "#f5c062";
+  const age = staleness(job.lastRunAt);
+  if (age === "ok") return "#3ee68a";
+  if (age === "warn") return "#f5c062";
+  if (age === "stale") return "#ef4444";
+  return "#6b7068";
+}
+
+// ─── Small components ─────────────────────────────────────────────────────────
 
 function Kpi({ label, value, sub, color, mono = true }: {
   label: string; value: string; sub?: string; color?: string; mono?: boolean;
 }) {
   return (
     <div className="flex-1 rounded-xl border border-[#22251f] bg-[#121412] p-4 min-w-0">
-      <p className="ace-label mb-1">{label}</p>
+      <p className="text-[9px] font-semibold text-[#4a524a] uppercase tracking-[0.14em] mb-1.5">{label}</p>
       <p className={cn("text-[22px] font-black leading-none", mono && "font-mono")}
          style={{ color: color ?? "#e4e4e7" }}>{value}</p>
-      {sub && <p className="text-[10px] text-[#6b7068] mt-1">{sub}</p>}
+      {sub && <p className="text-[10px] text-[#6b7068] mt-1.5 leading-tight">{sub}</p>}
     </div>
   );
 }
 
 function SectionHead({ title, icon: Icon }: { title: string; icon: React.ElementType }) {
   return (
-    <div className="flex items-center gap-2 mb-3">
+    <div className="flex items-center gap-2 mb-4">
       <Icon className="h-3.5 w-3.5 text-[#3ee68a]" />
-      <p className="text-[10px] font-bold text-[#3ee68a] uppercase tracking-[0.18em]">{title}</p>
+      <p className="text-[11px] font-bold text-[#3ee68a] uppercase tracking-[0.18em]">{title}</p>
     </div>
   );
 }
 
-function JobCard({ name, cron, job }: { name: string; cron: string; job: JobStatus }) {
+function StatusDot({ label, color }: { label: string; color: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: color }} />
+      <span className="text-[10px] text-[#9ca39a]">{label}</span>
+    </div>
+  );
+}
+
+function JobCard({ name, cron, cronPdt, cronUtcHour, job }: {
+  name: string; cron: string; cronPdt: string; cronUtcHour: number; job: JobStatus;
+}) {
   const age = staleness(job.lastRunAt);
-  const ageColor = age === "ok" ? "#3ee68a" : age === "warn" ? "#f5c062" : age === "stale" ? "#ef4444" : "#6b7068";
+  const color = jobHealthColor(job);
   const statusIcon = job.hasError
     ? <XCircle className="h-3.5 w-3.5 text-[#ef4444] shrink-0" />
     : job.truncated
     ? <AlertTriangle className="h-3.5 w-3.5 text-[#f5c062] shrink-0" />
     : age === "unknown"
     ? <Clock className="h-3.5 w-3.5 text-[#6b7068] shrink-0" />
-    : <CheckCircle2 className="h-3.5 w-3.5 shrink-0" style={{ color: ageColor }} />;
+    : <CheckCircle2 className="h-3.5 w-3.5 shrink-0" style={{ color }} />;
 
   return (
     <div className={cn(
@@ -154,15 +202,18 @@ function JobCard({ name, cron, job }: { name: string; cron: string; job: JobStat
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-white truncate">{name}</p>
-          <p className="text-[9px] text-[#6b7068] mt-0.5 font-mono">{cron}</p>
+          <p className="text-[9px] text-[#6b7068] font-mono mt-0.5">{cronPdt} PDT · {cron}</p>
         </div>
         {statusIcon}
       </div>
-      <p className="text-[10px] font-mono" style={{ color: ageColor }}>
-        {job.lastRunAt ? `${job.lastRunAt.slice(11, 16)}  ·  ${timeAgo(job.lastRunAt)}` : "no run recorded"}
+      <p className="text-[10px] font-mono leading-tight" style={{ color }}>
+        {job.lastRunAt
+          ? `last: ${job.lastRunAt.slice(0, 10)}  ${job.lastRunAt.slice(11, 16)}  ·  ${timeAgo(job.lastRunAt)}`
+          : "no run recorded"}
       </p>
+      <p className="text-[9px] text-[#4a524a] mt-1">next: {nextRun(cronUtcHour)}</p>
       {job.quotaRemaining !== null && (
-        <p className="text-[9px] text-[#6b7068] mt-1">quota remaining: {job.quotaRemaining}</p>
+        <p className="text-[9px] text-[#6b7068] mt-1">quota after run: {job.quotaRemaining}</p>
       )}
       {job.hasError && job.errorSnippet && (
         <p className="text-[9px] text-[#ef4444] mt-1.5 leading-tight truncate">{job.errorSnippet}</p>
@@ -176,7 +227,7 @@ function JobCard({ name, cron, job }: { name: string; cron: string; job: JobStat
 
 function AlertRow({ icon: Icon, msg, color }: { icon: React.ElementType; msg: string; color: string }) {
   return (
-    <div className="flex items-start gap-2.5 py-2 border-b border-[#1a1e1a] last:border-0">
+    <div className="flex items-start gap-2.5 py-2.5 border-b border-[#1a1e1a] last:border-0">
       <Icon className="h-3.5 w-3.5 mt-0.5 shrink-0" style={{ color }} />
       <p className="text-[11px] text-[#d4d7d0] leading-tight">{msg}</p>
     </div>
@@ -188,17 +239,46 @@ function BarRow({ label, wins, graded, winRate }: { label: string; wins: number;
   const color = winRateColor(winRate);
   return (
     <div className="mb-3">
-      <div className="flex items-center justify-between mb-1">
+      <div className="flex items-center justify-between mb-1.5">
         <span className="text-[10px] text-[#9ca39a] font-mono">{label}</span>
         <span className="text-[10px] font-mono" style={{ color }}>
-          {graded > 0 ? `${wins}W/${graded - wins}L · ${pct.toFixed(0)}%` : "no data"}
+          {graded > 0 ? `${wins}W / ${graded - wins}L · ${pct.toFixed(0)}%` : "no data"}
         </span>
       </div>
-      <div className="h-1 rounded-full bg-[#22251f] overflow-hidden">
+      <div className="h-1.5 rounded-full bg-[#22251f] overflow-hidden">
         {graded > 0 && (
           <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
         )}
       </div>
+    </div>
+  );
+}
+
+function FunnelStep({ label, count, color, arrow }: { label: string; count: number; color: string; arrow?: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="text-center">
+        <p className="text-[18px] font-black font-mono leading-none" style={{ color }}>{count}</p>
+        <p className="text-[8px] text-[#4a524a] uppercase tracking-widest mt-0.5">{label}</p>
+      </div>
+      {arrow && <span className="text-[#3a4033] text-[14px] mx-1">→</span>}
+    </div>
+  );
+}
+
+function RecentSignalRow({ s }: { s: RecentSignal }) {
+  const isFallback = s.src?.includes("fallback");
+  return (
+    <div className="grid grid-cols-[28px_52px_1fr_52px_44px_52px_40px] gap-2 items-center py-2 border-b border-[#161a16] last:border-0">
+      <span className="text-[9px] text-[#3a4033] font-mono">#{s.id}</span>
+      <span className="text-[9px] text-[#6b7068]">{fmtDate(s.game_date)}</span>
+      <span className="text-[10px] text-[#9ca39a] truncate">{abbrevTeam(s.away)} @ {abbrevTeam(s.home)}</span>
+      <span className="text-[9px] font-mono text-[#9ca39a]">{s.side?.toUpperCase()} {s.line > 0 ? "+" : ""}{s.line}</span>
+      <span className="text-[9px] font-mono" style={{ color: roiColor(s.clv) }}>{fmtClv(s.clv)}</span>
+      <span className="text-[8px] text-[#4a524a]">{isFallback ? "fallback" : "same-bk"}</span>
+      <span className={cn("text-[9px] font-bold text-right", s.win === 1 ? "text-[#3ee68a]" : "text-[#ef4444]")}>
+        {s.win === 1 ? "WIN" : "LOSS"}
+      </span>
     </div>
   );
 }
@@ -236,28 +316,29 @@ export default function OpsPage() {
   // Build alerts
   const alerts: Array<{ icon: React.ElementType; msg: string; color: string }> = [];
   if (pipeline) {
-    const QUOTA_WARN = 60;
-    if (pipeline.latestQuota !== null && pipeline.latestQuota < QUOTA_WARN)
-      alerts.push({ icon: AlertTriangle, msg: `API quota low — ${pipeline.latestQuota} requests remaining`, color: "#ef4444" });
+    if (pipeline.latestQuota !== null && pipeline.latestQuota < 60)
+      alerts.push({ icon: AlertTriangle, msg: `API quota critical — ${pipeline.latestQuota} requests remaining`, color: "#ef4444" });
+    else if (pipeline.latestQuota !== null && pipeline.latestQuota < 150)
+      alerts.push({ icon: AlertTriangle, msg: `API quota low — ${pipeline.latestQuota} requests remaining`, color: "#f5c062" });
     const jobs = pipeline.jobs;
-    if (jobs.state.hasError)    alerts.push({ icon: XCircle, msg: `Team state job errored: ${jobs.state.errorSnippet}`, color: "#ef4444" });
+    if (jobs.state.hasError)    alerts.push({ icon: XCircle, msg: `Team state errored: ${jobs.state.errorSnippet}`, color: "#ef4444" });
     if (jobs.grade.hasError)    alerts.push({ icon: XCircle, msg: `Grade job errored: ${jobs.grade.errorSnippet}`, color: "#ef4444" });
-    if (jobs.fetch.hasError)    alerts.push({ icon: XCircle, msg: `Fetch/predict job errored: ${jobs.fetch.errorSnippet}`, color: "#ef4444" });
-    if (jobs.snapshot.hasError) alerts.push({ icon: XCircle, msg: `Snapshot job errored: ${jobs.snapshot.errorSnippet}`, color: "#ef4444" });
+    if (jobs.fetch.hasError)    alerts.push({ icon: XCircle, msg: `Fetch/predict errored: ${jobs.fetch.errorSnippet}`, color: "#ef4444" });
+    if (jobs.snapshot.hasError) alerts.push({ icon: XCircle, msg: `Snapshot errored: ${jobs.snapshot.errorSnippet}`, color: "#ef4444" });
     if (jobs.snapshot.truncated && !jobs.snapshot.hasError)
-      alerts.push({ icon: AlertTriangle, msg: "Snapshot job output truncated — possible crash or power loss", color: "#f5c062" });
+      alerts.push({ icon: AlertTriangle, msg: "Snapshot output truncated — possible crash or power loss", color: "#f5c062" });
     if (jobs.fetch.truncated && !jobs.fetch.hasError)
-      alerts.push({ icon: AlertTriangle, msg: "Fetch/predict job output truncated", color: "#f5c062" });
+      alerts.push({ icon: AlertTriangle, msg: "Fetch/predict output truncated", color: "#f5c062" });
     Object.entries(jobs).forEach(([key, j]) => {
-      if (!j.lastRunAt && key !== "snapshot")
-        alerts.push({ icon: Clock, msg: `${key} job has no recorded run`, color: "#6b7068" });
+      if (staleness(j.lastRunAt) === "stale")
+        alerts.push({ icon: Clock, msg: `${key} job hasn't run in >2 days`, color: "#f5c062" });
     });
   }
   if (signals && !signals.error) {
     if (signals.stale.length > 0)
-      alerts.push({ icon: AlertTriangle, msg: `${signals.stale.length} stale open signal(s) older than 3 days — will be auto-voided on next grade run`, color: "#f5c062" });
+      alerts.push({ icon: AlertTriangle, msg: `${signals.stale.length} stale open signal(s) older than 3 days — auto-void pending`, color: "#f5c062" });
     if ((signals.by_status["proxy_captured"] ?? 0) > 0)
-      alerts.push({ icon: Info, msg: `${signals.by_status["proxy_captured"]} signal(s) have closing proxy captured and are waiting on game scores`, color: "#6b7068" });
+      alerts.push({ icon: Info, msg: `${signals.by_status["proxy_captured"]} signal(s) have proxy captured, awaiting game scores`, color: "#6b7068" });
   }
 
   if (loading) {
@@ -273,12 +354,15 @@ export default function OpsPage() {
 
   const m = pipeline?.model;
   const sig = signals;
+  const jobs = pipeline?.jobs;
+
+  const emptyJob: JobStatus = { lastRunAt: null, quotaRemaining: null, hasError: false, errorSnippet: null, truncated: false };
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
-      <div className="max-w-5xl mx-auto px-6 py-6 space-y-6">
+      <div className="max-w-5xl mx-auto px-6 py-6 space-y-5">
 
-        {/* Header */}
+        {/* ── Header ── */}
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -294,22 +378,50 @@ export default function OpsPage() {
                 refreshed {Math.round((Date.now() - lastRefresh.getTime()) / 1000)}s ago
               </p>
             )}
-            <p className="text-[9px] text-[#3a4033] font-mono mt-0.5">ET date: {pipeline?.etToday ?? sig?.et_today ?? "—"}</p>
+            <p className="text-[9px] text-[#3a4033] font-mono mt-0.5">ET: {pipeline?.etToday ?? sig?.et_today ?? "—"}</p>
           </div>
         </div>
 
-        {/* A. Pipeline Health */}
+        {/* ── System status strip ── */}
+        <div className="flex items-center gap-4 rounded-xl border border-[#1a1e1a] bg-[#0d0f0d] px-4 py-3 flex-wrap">
+          <StatusDot label="State"    color={jobHealthColor(jobs?.state    ?? emptyJob)} />
+          <StatusDot label="Grade"    color={jobHealthColor(jobs?.grade    ?? emptyJob)} />
+          <StatusDot label="Fetch"    color={jobHealthColor(jobs?.fetch    ?? emptyJob)} />
+          <StatusDot label="Snapshot" color={jobHealthColor(jobs?.snapshot ?? emptyJob)} />
+          <div className="h-3 w-px bg-[#22251f]" />
+          <span className="text-[10px] text-[#6b7068]">
+            Quota <span className="font-mono text-[#9ca39a]">{pipeline?.latestQuota ?? "—"} / 500</span>
+          </span>
+          <div className="h-3 w-px bg-[#22251f]" />
+          <span className="text-[10px] text-[#6b7068]">
+            Edge{" "}
+            <span className="font-mono font-bold" style={{ color: edgeStatusColor(sig?.edgeStatus ?? "") }}>
+              {sig?.edgeStatus?.toUpperCase() ?? "—"}
+            </span>
+            {sig && !sig.error && sig.needFor30 > 0 && (
+              <span className="text-[#4a524a]"> ({sig.clv.n}/30)</span>
+            )}
+          </span>
+          {alerts.length > 0 && (
+            <>
+              <div className="h-3 w-px bg-[#22251f]" />
+              <span className="text-[9px] font-bold text-[#f5c062]">⚠ {alerts.length} alert{alerts.length !== 1 ? "s" : ""}</span>
+            </>
+          )}
+        </div>
+
+        {/* ── A. Pipeline Health ── */}
         <div className="ace-panel p-5">
           <SectionHead title="Pipeline Health" icon={Activity} />
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <JobCard name="update_team_state" cron="8:00am daily" job={pipeline?.jobs.state ?? { lastRunAt: null, quotaRemaining: null, hasError: false, errorSnippet: null, truncated: false }} />
-            <JobCard name="grade_results" cron="9:00am daily" job={pipeline?.jobs.grade ?? { lastRunAt: null, quotaRemaining: null, hasError: false, errorSnippet: null, truncated: false }} />
-            <JobCard name="fetch_and_predict" cron="noon daily" job={pipeline?.jobs.fetch ?? { lastRunAt: null, quotaRemaining: null, hasError: false, errorSnippet: null, truncated: false }} />
-            <JobCard name="snapshot --6pm_proxy" cron="3:00pm daily" job={pipeline?.jobs.snapshot ?? { lastRunAt: null, quotaRemaining: null, hasError: false, errorSnippet: null, truncated: false }} />
+            <JobCard name="update_team_state"  cronPdt="8:00am"  cron="daily"  cronUtcHour={15} job={jobs?.state    ?? emptyJob} />
+            <JobCard name="grade_results"      cronPdt="9:00am"  cron="daily"  cronUtcHour={16} job={jobs?.grade    ?? emptyJob} />
+            <JobCard name="fetch_and_predict"  cronPdt="12:00pm" cron="daily"  cronUtcHour={19} job={jobs?.fetch    ?? emptyJob} />
+            <JobCard name="snapshot --6pm_proxy" cronPdt="3:00pm" cron="daily" cronUtcHour={22} job={jobs?.snapshot ?? emptyJob} />
           </div>
           {pipeline?.latestQuota != null && (
             <div className="flex items-center gap-3">
-              <div className="flex-1 h-1 rounded-full bg-[#22251f] overflow-hidden">
+              <div className="flex-1 h-1.5 rounded-full bg-[#22251f] overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all"
                   style={{
@@ -319,16 +431,16 @@ export default function OpsPage() {
                 />
               </div>
               <p className="text-[10px] font-mono text-[#9ca39a] shrink-0">
-                {pipeline.latestQuota} / 500 quota remaining
+                {pipeline.latestQuota} / 500 remaining
               </p>
             </div>
           )}
         </div>
 
-        {/* F. Needs Attention (only shown when there's something) */}
+        {/* ── Needs Attention ── */}
         {alerts.length > 0 && (
           <div className="rounded-xl border border-[#f5c062]/20 bg-[#f5c062]/[0.03] p-4">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-1">
               <AlertTriangle className="h-3.5 w-3.5 text-[#f5c062]" />
               <p className="text-[10px] font-bold text-[#f5c062] uppercase tracking-[0.18em]">Needs Attention</p>
             </div>
@@ -338,20 +450,36 @@ export default function OpsPage() {
           </div>
         )}
 
-        {/* B. Today's Activity */}
+        {/* ── B. Today's Activity ── */}
         <div className="ace-panel p-5">
           <SectionHead title={`Today's Activity · ${pipeline?.etToday ?? sig?.et_today ?? "—"}`} icon={Zap} />
-          <div className="flex gap-3 mb-4">
-            <Kpi label="Games on slate" value={String(sig?.today?.games?.length ?? "—")} color="#e4e4e7" />
-            <Kpi label="Predictions logged" value={String(m?.todayLogged ?? "—")} color="#e4e4e7" />
-            <Kpi label="Snapshots captured" value={String(sig?.today?.snapshots ?? "—")} color="#e4e4e7" />
-            <Kpi label="Signals today" value={String(sig?.today?.signals ?? "—")} color={(sig?.today?.signals ?? 0) > 0 ? "#3ee68a" : "#6b7068"} />
+
+          {/* KPIs */}
+          <div className="flex gap-3 mb-5">
+            <Kpi label="Games on slate"     value={String(sig?.today?.games?.length ?? "—")} />
+            <Kpi label="Predictions logged" value={String(m?.todayLogged ?? "—")} />
+            <Kpi label="Snapshots captured" value={String(sig?.today?.snapshots ?? "—")} />
+            <Kpi label="Signals fired"      value={String(sig?.today?.signals ?? "—")}
+                 color={(sig?.today?.signals ?? 0) > 0 ? "#3ee68a" : "#6b7068"} />
           </div>
 
+          {/* Signal pipeline funnel */}
+          {sig && !sig.error && (
+            <div className="rounded-xl border border-[#1a1e1a] bg-[#0d0f0d] p-4 mb-4">
+              <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-3">Signal pipeline (all-time)</p>
+              <div className="flex items-center gap-1 flex-wrap">
+                <FunnelStep label="Open"    count={sig.by_status["open"] ?? 0}            color="#f5c062" arrow />
+                <FunnelStep label="Proxy ✓" count={sig.by_status["proxy_captured"] ?? 0}  color="#9ca39a" arrow />
+                <FunnelStep label="Graded"  count={sig.by_status["graded"] ?? 0}           color="#3ee68a" arrow />
+                <FunnelStep label="Voided"  count={sig.by_status["no_action"] ?? 0}        color="#3a4033" />
+              </div>
+            </div>
+          )}
+
           {/* Games on slate */}
-          {sig?.today?.games && sig.today.games.length > 0 ? (
-            <div className="space-y-1.5">
-              <p className="ace-label mb-2">games</p>
+          {sig?.today?.games && sig.today.games.length > 0 && (
+            <div className="mb-4">
+              <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-2">Games on slate</p>
               <div className="flex flex-wrap gap-2">
                 {sig.today.games.map((g, i) => (
                   <div key={i} className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-3 py-1.5 flex items-center gap-1.5">
@@ -362,38 +490,41 @@ export default function OpsPage() {
                 ))}
               </div>
             </div>
-          ) : (
-            <p className="text-[11px] text-[#6b7068]">No games found for today. Noon cron may not have run yet.</p>
           )}
 
           {/* Open signals */}
           {sig?.open_signals && sig.open_signals.length > 0 && (
-            <div className="mt-4">
-              <p className="ace-label mb-2">open signals</p>
+            <div>
+              <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-2">Open signals</p>
               <div className="space-y-1.5">
                 {sig.open_signals.map((s) => (
                   <div key={s.id} className="flex items-center gap-3 rounded-lg border border-[#22251f] bg-[#0d0f0d] px-3 py-2">
                     <span className="text-[9px] text-[#6b7068] font-mono shrink-0">#{s.id}</span>
-                    <span className="text-[10px] text-[#9ca39a] shrink-0">{s.game_date}</span>
+                    <span className="text-[10px] text-[#6b7068] shrink-0">{s.game_date}</span>
                     <span className="text-[10px] text-white flex-1">{abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}</span>
                     <span className="text-[9px] font-mono text-[#3ee68a]">{s.bet_side.toUpperCase()} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}</span>
                     <span className={cn(
                       "text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border",
-                      s.status === "proxy_captured" ? "text-[#f5c062] border-[#f5c062]/20 bg-[#f5c062]/5" : "text-[#6b7068] border-[#2e332a] bg-transparent"
+                      s.status === "proxy_captured"
+                        ? "text-[#f5c062] border-[#f5c062]/20 bg-[#f5c062]/5"
+                        : "text-[#6b7068] border-[#2e332a]"
                     )}>{s.status === "proxy_captured" ? "proxy ✓" : "open"}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
+
+          {!sig?.today?.games?.length && !sig?.open_signals?.length && (
+            <p className="text-[11px] text-[#6b7068]">No game or signal data for today yet. Noon cron may not have run.</p>
+          )}
         </div>
 
-        {/* C. Prediction Performance */}
+        {/* ── C. Prediction Performance ── */}
         <div className="ace-panel p-5">
           <SectionHead title="Prediction Performance" icon={TrendingUp} />
 
-          {/* Tabs */}
-          <div className="flex gap-0.5 mb-4 border-b border-[#22251f] pb-0">
+          <div className="flex gap-0.5 mb-5 border-b border-[#22251f]">
             {(["all", "bets", "conf", "source"] as const).map((t) => (
               <button
                 key={t}
@@ -403,35 +534,37 @@ export default function OpsPage() {
                   perfTab === t ? "text-white border-[#3ee68a]" : "text-[#6b7068] border-transparent hover:text-[#d4d7d0]"
                 )}
               >
-                {t === "all" ? "All Predictions" : t === "bets" ? "Bets Only" : t === "conf" ? "By Confidence" : "Pinnacle vs Fallback"}
+                {t === "all" ? "All" : t === "bets" ? "Bets Only" : t === "conf" ? "Confidence" : "Pinnacle vs Fallback"}
               </button>
             ))}
           </div>
 
           {perfTab === "all" && m && (
             <div>
-              <div className="flex gap-3 mb-4">
+              <div className="flex gap-3 mb-3">
                 <Kpi label="Total logged" value={String(m.total)} />
-                <Kpi label="Graded" value={String(m.graded)} sub={`${m.pending} pending · ${m.pushed} push`} />
-                <Kpi label="Record" value={`${m.wins}W/${m.losses}L`} color={winRateColor(m.winRate)} />
-                <Kpi label="Win rate" value={fmtPct(m.winRate)} color={winRateColor(m.winRate)} sub="break-even: 52.4%" />
-                <Kpi label="ROI" value={fmtRoiPct(m.roi)} color={roiColor(m.roi)} sub="flat-bet -110" />
+                <Kpi label="Graded"       value={String(m.graded)} sub={`${m.pending} pending · ${m.pushed} push`} />
+                <Kpi label="Record"       value={`${m.wins}–${m.losses}`} color={winRateColor(m.winRate)} />
+                <Kpi label="Win rate"     value={fmtPct(m.winRate)} color={winRateColor(m.winRate)} sub="break-even 52.4%" />
+                <Kpi label="ROI"          value={fmtRoiPct(m.roi)} color={roiColor(m.roi)} sub="flat-bet −110" />
               </div>
               {m.avgConf !== null && (
-                <p className="text-[10px] text-[#6b7068]">avg model confidence: <span className="text-[#9ca39a] font-mono">{(m.avgConf * 100).toFixed(1)}%</span></p>
+                <p className="text-[10px] text-[#6b7068]">
+                  avg confidence: <span className="font-mono text-[#9ca39a]">{(m.avgConf * 100).toFixed(1)}%</span>
+                </p>
               )}
-              <p className="text-[9px] text-[#3a4033] mt-2">Graded predictions only. ROI = flat-bet at -110 vig.</p>
+              <p className="text-[9px] text-[#3a4033] mt-2">Graded predictions only. ROI = flat-bet at −110 vig.</p>
             </div>
           )}
 
           {perfTab === "bets" && m && (
             <div>
-              <div className="flex gap-3 mb-4">
-                <Kpi label="Bets logged" value={String(m.betsTotal)} sub="is_bet=1" />
-                <Kpi label="Bets graded" value={String(m.betsGraded)} />
-                <Kpi label="Record" value={`${m.betsWins}W/${m.betsLosses}L`} color={winRateColor(m.betsWinRate)} />
-                <Kpi label="Win rate" value={fmtPct(m.betsWinRate)} color={winRateColor(m.betsWinRate)} />
-                <Kpi label="ROI" value={fmtRoiPct(m.betsRoi)} color={roiColor(m.betsRoi)} />
+              <div className="flex gap-3 mb-3">
+                <Kpi label="Bets logged"  value={String(m.betsTotal)} sub="is_bet=1" />
+                <Kpi label="Bets graded"  value={String(m.betsGraded)} />
+                <Kpi label="Record"       value={`${m.betsWins}–${m.betsLosses}`} color={winRateColor(m.betsWinRate)} />
+                <Kpi label="Win rate"     value={fmtPct(m.betsWinRate)} color={winRateColor(m.betsWinRate)} />
+                <Kpi label="ROI"          value={fmtRoiPct(m.betsRoi)} color={roiColor(m.betsRoi)} />
               </div>
               <p className="text-[9px] text-[#3a4033]">High-confidence bets = Pinnacle edge ≥4pp, or conf ≥ threshold when Pinnacle unavailable.</p>
             </div>
@@ -439,9 +572,9 @@ export default function OpsPage() {
 
           {perfTab === "conf" && m && (
             <div>
-              <p className="text-[10px] text-[#6b7068] mb-4">Win rate by confidence bucket (graded predictions only)</p>
+              <p className="text-[10px] text-[#6b7068] mb-4">Win rate by model confidence bucket (graded only)</p>
               {m.buckets.map((b) => <BarRow key={b.label} label={b.label} wins={b.wins} graded={b.graded} winRate={b.winRate} />)}
-              <p className="text-[9px] text-[#3a4033] mt-2">Need more data before buckets are meaningful.</p>
+              <p className="text-[9px] text-[#3a4033] mt-2">Buckets are meaningful once each has 20+ graded predictions.</p>
             </div>
           )}
 
@@ -449,106 +582,138 @@ export default function OpsPage() {
             <div>
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4">
-                  <p className="ace-label mb-2">Pinnacle-backed</p>
-                  <p className="text-[10px] text-[#6b7068] mb-2">edge_vs_pinnacle present</p>
-                  <BarRow label={`${m.pinnacleWins}W/${m.pinnacleGraded - m.pinnacleWins}L`} wins={m.pinnacleWins} graded={m.pinnacleGraded} winRate={m.pinnacleWinRate} />
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Pinnacle-backed</p>
+                  <p className="text-[10px] text-[#6b7068] mb-3">edge_vs_pinnacle present</p>
+                  <BarRow label={`${m.pinnacleWins}W / ${m.pinnacleGraded - m.pinnacleWins}L`} wins={m.pinnacleWins} graded={m.pinnacleGraded} winRate={m.pinnacleWinRate} />
                 </div>
                 <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4">
-                  <p className="ace-label mb-2">Fallback (no Pinnacle)</p>
-                  <p className="text-[10px] text-[#6b7068] mb-2">confidence threshold only</p>
-                  <BarRow label={`${m.fallbackWins}W/${m.fallbackGraded - m.fallbackWins}L`} wins={m.fallbackWins} graded={m.fallbackGraded} winRate={m.fallbackWinRate} />
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Fallback (no Pinnacle)</p>
+                  <p className="text-[10px] text-[#6b7068] mb-3">confidence threshold only</p>
+                  <BarRow label={`${m.fallbackWins}W / ${m.fallbackGraded - m.fallbackWins}L`} wins={m.fallbackWins} graded={m.fallbackGraded} winRate={m.fallbackWinRate} />
                 </div>
               </div>
-              <p className="text-[9px] text-[#3a4033]">Pinnacle-backed = model disagreed with Pinnacle by ≥4pp. Fallback = Pinnacle line unavailable.</p>
+              <p className="text-[9px] text-[#3a4033]">Pinnacle-backed = model disagreed with Pinnacle ≥4pp. Fallback = Pinnacle line unavailable.</p>
             </div>
           )}
         </div>
 
-        {/* D. CLV / Signal Validation */}
+        {/* ── D. CLV / Signal Validation ── */}
         <div className="ace-panel p-5">
           <SectionHead title="CLV / Signal Validation" icon={Database} />
 
           {sig?.error ? (
-            <p className="text-[11px] text-[#ef4444]">Signal DB error: {sig.error}</p>
+            <p className="text-[11px] text-[#ef4444]">Signal DB unavailable: {sig.error}</p>
           ) : sig ? (
             <div>
-              {/* Status row */}
+              {/* Counts */}
               <div className="flex gap-3 mb-4">
-                <Kpi label="Total signals" value={String(sig.total)} />
-                <Kpi label="Open" value={String(sig.by_status["open"] ?? 0)} color={(sig.by_status["open"] ?? 0) > 0 ? "#f5c062" : "#6b7068"} />
+                <Kpi label="Total signals"  value={String(sig.total)} />
+                <Kpi label="Open"           value={String(sig.by_status["open"] ?? 0)} color={(sig.by_status["open"] ?? 0) > 0 ? "#f5c062" : "#6b7068"} />
                 <Kpi label="Proxy captured" value={String(sig.by_status["proxy_captured"] ?? 0)} color={(sig.by_status["proxy_captured"] ?? 0) > 0 ? "#f5c062" : "#6b7068"} />
-                <Kpi label="Graded" value={String(sig.by_status["graded"] ?? 0)} color="#3ee68a" />
-                <Kpi label="Voided" value={String(sig.by_status["no_action"] ?? 0)} color="#6b7068" />
+                <Kpi label="Graded"         value={String(sig.by_status["graded"] ?? 0)} color="#3ee68a" />
+                <Kpi label="Voided"         value={String(sig.by_status["no_action"] ?? 0)} color="#6b7068" />
               </div>
 
-              {/* Edge status + CLV */}
-              <div className="flex gap-3 mb-4">
-                <div className="flex-1 rounded-xl border border-[#22251f] bg-[#121412] p-4">
-                  <p className="ace-label mb-1">Edge Status</p>
-                  <p className="text-[20px] font-black font-mono" style={{ color: edgeStatusColor(sig.edgeStatus) }}>
-                    {sig.edgeStatus.toUpperCase()}
-                  </p>
-                  <p className="text-[9px] text-[#6b7068] mt-1">
-                    {sig.needFor30 > 0
-                      ? `${sig.needFor30} more graded signal${sig.needFor30 !== 1 ? "s" : ""} needed`
-                      : "Enough data for status assessment"}
-                  </p>
+              {/* Edge status + progress */}
+              <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4 mb-4">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Edge Status</p>
+                    <p className="text-[22px] font-black font-mono" style={{ color: edgeStatusColor(sig.edgeStatus) }}>
+                      {sig.edgeStatus.toUpperCase()}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] text-[#4a524a] mb-1">graded signals</p>
+                    <p className="text-[22px] font-black font-mono text-[#9ca39a]">{sig.clv.n}<span className="text-[14px] text-[#4a524a]"> / 30</span></p>
+                  </div>
                 </div>
-                <Kpi label="Avg CLV" value={fmtClv(sig.clv.avg)} color={sig.clv.avg !== null ? roiColor(sig.clv.avg) : "#6b7068"} sub="pts vs closing" />
-                <Kpi label="Median CLV" value={fmtClv(sig.clv.median)} color={sig.clv.median !== null ? roiColor(sig.clv.median) : "#6b7068"} />
-                <Kpi label="% Positive CLV" value={sig.clv.pct_positive !== null ? `${sig.clv.pct_positive}%` : "—"} color={sig.clv.pct_positive !== null ? winRateColor(sig.clv.pct_positive / 100) : "#6b7068"} />
+                <div className="h-1.5 rounded-full bg-[#22251f] overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(100, (sig.clv.n / 30) * 100)}%`,
+                      background: edgeStatusColor(sig.edgeStatus),
+                    }}
+                  />
+                </div>
+                {sig.needFor30 > 0 && (
+                  <p className="text-[9px] text-[#4a524a] mt-2">{sig.needFor30} more graded signal{sig.needFor30 !== 1 ? "s" : ""} needed for edge assessment</p>
+                )}
               </div>
+
+              {/* CLV KPIs */}
+              <div className="flex gap-3 mb-4">
+                <Kpi label="Avg CLV"      value={fmtClv(sig.clv.avg)}    color={sig.clv.avg    !== null ? roiColor(sig.clv.avg)    : "#6b7068"} sub="pts vs closing" />
+                <Kpi label="Median CLV"   value={fmtClv(sig.clv.median)} color={sig.clv.median !== null ? roiColor(sig.clv.median) : "#6b7068"} />
+                <Kpi label="% Positive"   value={sig.clv.pct_positive !== null ? `${sig.clv.pct_positive}%` : "—"} color={sig.clv.pct_positive !== null ? winRateColor(sig.clv.pct_positive / 100) : "#6b7068"} />
+                <Kpi label="CLV W/L"      value={`${sig.clv.wins}–${sig.clv.total_graded - sig.clv.wins}`} color={winRateColor(sig.clv.wins / (sig.clv.total_graded || 1))} />
+              </div>
+
+              {/* Recent graded signals */}
+              {sig.recent_graded && sig.recent_graded.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-2">Recent graded signals</p>
+                  <div className="rounded-xl border border-[#1a1e1a] bg-[#0d0f0d] px-3 py-1">
+                    {/* Header */}
+                    <div className="grid grid-cols-[28px_52px_1fr_52px_44px_52px_40px] gap-2 py-1.5 border-b border-[#22251f]">
+                      {["#", "Date", "Game", "Side", "CLV", "Source", "Result"].map((h) => (
+                        <span key={h} className="text-[8px] font-bold text-[#3a4033] uppercase tracking-widest">{h}</span>
+                      ))}
+                    </div>
+                    {sig.recent_graded.map((s) => <RecentSignalRow key={s.id} s={s} />)}
+                  </div>
+                </div>
+              )}
 
               {/* Same-book vs fallback */}
-              <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-3">
-                  <p className="ace-label mb-1">Same-book CLV</p>
-                  <p className="text-[16px] font-black font-mono" style={{ color: sig.same_book.clv !== null ? roiColor(sig.same_book.clv) : "#6b7068" }}>
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Same-book CLV</p>
+                  <p className="text-[20px] font-black font-mono" style={{ color: sig.same_book.clv !== null ? roiColor(sig.same_book.clv) : "#6b7068" }}>
                     {fmtClv(sig.same_book.clv)}
                   </p>
                   <p className="text-[9px] text-[#6b7068] mt-1">n={sig.same_book.n} · signal and close from same book</p>
                 </div>
                 <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-3">
-                  <p className="ace-label mb-1">Fallback CLV</p>
-                  <p className="text-[16px] font-black font-mono" style={{ color: sig.fallback.clv !== null ? roiColor(sig.fallback.clv) : "#6b7068" }}>
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Fallback CLV</p>
+                  <p className="text-[20px] font-black font-mono" style={{ color: sig.fallback.clv !== null ? roiColor(sig.fallback.clv) : "#6b7068" }}>
                     {fmtClv(sig.fallback.clv)}
                   </p>
                   <p className="text-[9px] text-[#6b7068] mt-1">n={sig.fallback.n} · different book used at close</p>
                 </div>
               </div>
-              <p className="text-[9px] text-[#3a4033]">CLV = direction × (line_at_signal − closing_line). Positive = beat the close. Threshold for edge status: 30+ graded signals.</p>
+              <p className="text-[9px] text-[#3a4033] mt-3">CLV = direction × (line_at_signal − closing_line). Positive = beat the close.</p>
             </div>
           ) : (
             <p className="text-[11px] text-[#6b7068]">Signal data unavailable.</p>
           )}
         </div>
 
-        {/* E. Strategy Breakdown */}
+        {/* ── E. Strategy Breakdown ── */}
         <div className="ace-panel p-5">
           <SectionHead title="Strategy Breakdown" icon={TrendingUp} />
           <div className="grid grid-cols-3 gap-3">
-            {/* Model predictions */}
             <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4">
-              <p className="ace-label mb-1">Model Predictions</p>
+              <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Model Predictions</p>
               <p className="text-[10px] text-[#6b7068] mb-3">All predictions logged by noon cron</p>
               {m ? (
                 <>
-                  <p className="text-[18px] font-black font-mono mb-1" style={{ color: winRateColor(m.winRate) }}>
+                  <p className="text-[22px] font-black font-mono mb-1" style={{ color: winRateColor(m.winRate) }}>
                     {fmtPct(m.winRate, 0)}
                   </p>
-                  <p className="text-[10px] text-[#6b7068]">{m.wins}W/{m.losses}L · {m.graded} graded</p>
+                  <p className="text-[10px] text-[#6b7068]">{m.wins}W / {m.losses}L · {m.graded} graded</p>
                   <p className="text-[10px] font-mono mt-1" style={{ color: roiColor(m.roi) }}>ROI {fmtRoiPct(m.roi)}</p>
                 </>
               ) : <p className="text-[11px] text-[#6b7068]">—</p>}
             </div>
 
-            {/* Line movement signals */}
             <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4">
-              <p className="ace-label mb-1">Line Movement</p>
-              <p className="text-[10px] text-[#6b7068] mb-3">Auto-detected ≥1.5pt moves (3pm cron)</p>
+              <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Line Movement</p>
+              <p className="text-[10px] text-[#6b7068] mb-3">Auto-detected ≥1.5pt moves · 3pm cron</p>
               {sig && !sig.error ? (
                 <>
-                  <p className="text-[18px] font-black font-mono mb-1" style={{ color: edgeStatusColor(sig.edgeStatus) }}>
+                  <p className="text-[22px] font-black font-mono mb-1" style={{ color: edgeStatusColor(sig.edgeStatus) }}>
                     {sig.edgeStatus.toUpperCase()}
                   </p>
                   <p className="text-[10px] text-[#6b7068]">{sig.total} total · {sig.by_status["graded"] ?? 0} graded</p>
@@ -557,19 +722,18 @@ export default function OpsPage() {
               ) : <p className="text-[11px] text-[#6b7068]">—</p>}
             </div>
 
-            {/* Hybrid */}
             <div className="rounded-xl border border-dashed border-[#2e332a] bg-transparent p-4">
-              <p className="ace-label mb-1 text-[#3a4033]">Hybrid / Aligned</p>
-              <p className="text-[10px] text-[#3a4033] mb-3">Model bet + line movement same game</p>
+              <p className="text-[9px] text-[#3a4033] uppercase tracking-widest mb-1">Hybrid / Aligned</p>
+              <p className="text-[10px] text-[#3a4033] mb-3">Model bet + line move on same game</p>
               <p className="text-[11px] text-[#3a4033] font-mono">TODO</p>
-              <p className="text-[9px] text-[#3a4033] mt-1">Requires cross-referencing game_id across model CSV and signal DB. Coming once signal volume warrants it.</p>
+              <p className="text-[9px] text-[#3a4033] mt-2">Needs cross-ref of game_id across CSV and signal DB. Enable once signal volume warrants it.</p>
             </div>
           </div>
         </div>
 
-        {/* Footer */}
+        {/* ── Footer ── */}
         <p className="text-[9px] text-[#27272a] text-center pb-4">
-          ACE Ops · Internal only · Auto-refreshes every 60s · Data from ml/logs, model_performance.csv, signal_log.db
+          ACE Ops · Internal only · Auto-refreshes every 60s · ml/logs · model_performance.csv · signal_log.db
         </p>
       </div>
     </div>

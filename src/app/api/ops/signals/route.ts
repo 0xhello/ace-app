@@ -60,6 +60,19 @@ try:
                   'away_team': r['away_team'], 'bet_side': r['bet_side'],
                   'line_at_signal': r['line_at_signal'], 'status': r['status']} for r in open_signals]
 
+    # Recent graded signals for history table
+    recent_rows = conn.execute(
+        '''SELECT id, game_date, home_team, away_team, bet_side,
+                  line_at_signal, clv_points, covered, closing_source
+           FROM signal_log WHERE status="graded"
+           ORDER BY id DESC LIMIT 10'''
+    ).fetchall()
+    recent_graded = [{'id': r['id'], 'game_date': r['game_date'],
+                      'home': r['home_team'], 'away': r['away_team'],
+                      'side': r['bet_side'], 'line': r['line_at_signal'],
+                      'clv': r['clv_points'], 'win': r['covered'],
+                      'src': r['closing_source']} for r in recent_rows]
+
     conn.close()
     print(json.dumps({
         'by_status': by_status,
@@ -73,6 +86,7 @@ try:
         'today': {'signals': today_sigs, 'snapshots': today_snaps, 'games': today_games},
         'stale': stale,
         'open_signals': open_list,
+        'recent_graded': recent_graded,
         'et_today': et_today,
     }))
 except Exception as e:
