@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutGrid, Sparkles, Bell, Settings, Crown } from "lucide-react";
+import { LayoutGrid, Sparkles, Bell, Settings, Crown, Terminal } from "lucide-react";
 
 const NAV = [
   { href: "/dashboard", label: "Board", icon: LayoutGrid },
   { href: "/dashboard/tracked", label: "Tracked", icon: Sparkles },
   { href: "/dashboard/alerts", label: "Alerts", icon: Bell },
+  { href: "/dashboard/ops", label: "Ops", icon: Terminal },
 ];
 
 const SAVED_FILTERS = [

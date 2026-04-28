@@ -1,65 +1,65 @@
 {
   "rows_train": 18224,
   "rows_test": 4556,
-  "accuracy": 0.5417,
-  "precision": 0.5251,
-  "recall": 0.8302,
-  "roc_auc": 0.5587,
-  "best_threshold": 0.54,
+  "accuracy": 0.5123,
+  "precision": 0.5137,
+  "recall": 0.3801,
+  "roc_auc": 0.5113,
+  "best_threshold": 0.58,
   "threshold_sweep": {
     "0.52": {
-      "bets": 4090,
-      "wins": 2226,
-      "win_rate": 0.5443,
-      "units": 159.6364,
-      "roi": 0.039
+      "bets": 3237,
+      "wins": 1656,
+      "win_rate": 0.5116,
+      "units": -75.5455,
+      "roi": -0.0233
     },
     "0.53": {
-      "bets": 3863,
-      "wins": 2101,
-      "win_rate": 0.5439,
-      "units": 148.0,
-      "roi": 0.0383
+      "bets": 2669,
+      "wins": 1370,
+      "win_rate": 0.5133,
+      "units": -53.5455,
+      "roi": -0.0201
     },
     "0.54": {
-      "bets": 3630,
-      "wins": 1986,
-      "win_rate": 0.5471,
-      "units": 161.4545,
-      "roi": 0.0445
+      "bets": 2169,
+      "wins": 1105,
+      "win_rate": 0.5095,
+      "units": -59.4545,
+      "roi": -0.0274
     },
     "0.55": {
-      "bets": 3396,
-      "wins": 1866,
-      "win_rate": 0.5495,
-      "units": 166.3636,
-      "roi": 0.049
+      "bets": 1720,
+      "wins": 881,
+      "win_rate": 0.5122,
+      "units": -38.0909,
+      "roi": -0.0221
     },
     "0.56": {
-      "bets": 3149,
-      "wins": 1733,
-      "win_rate": 0.5503,
-      "units": 159.4545,
-      "roi": 0.0506
+      "bets": 1329,
+      "wins": 668,
+      "win_rate": 0.5026,
+      "units": -53.7273,
+      "roi": -0.0404
     },
     "0.57": {
-      "bets": 2935,
-      "wins": 1614,
-      "win_rate": 0.5499,
-      "units": 146.2727,
-      "roi": 0.0498
+      "bets": 1024,
+      "wins": 522,
+      "win_rate": 0.5098,
+      "units": -27.4545,
+      "roi": -0.0268
     },
     "0.58": {
-      "bets": 2696,
-      "wins": 1496,
-      "win_rate": 0.5549,
-      "units": 160.0,
-      "roi": 0.0593
+      "bets": 785,
+      "wins": 404,
+      "win_rate": 0.5146,
+      "units": -13.7273,
+      "roi": -0.0175
     }
   },
-  "bets": 2696,
-  "wins": 1496,
-  "win_rate": 0.5549,
-  "units": 160.0,
-  "roi": 0.0593
+  "bets": 785,
+  "wins": 404,
+  "win_rate": 0.5146,
+  "units": -13.7273,
+  "roi": -0.0175
 }

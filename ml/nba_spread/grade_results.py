@@ -26,6 +26,8 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from .inference import MODEL_PERFORMANCE_PATH, update_prediction_result
+from .signal_logger import grade_signal, void_stale_signals
+from .train_spread_model import TEAM_NAME_TO_CODE
 
 _ENV_PATH = Path(__file__).resolve().parents[2] / ".env.local"
 load_dotenv(_ENV_PATH)
@@ -97,7 +99,7 @@ def report_only() -> None:
     _print_summary(df)
 
 
-def run(days_back: int = 3) -> None:
+def run(days_back: int = 3, void_stale: bool = False, stale_days: int = 3) -> None:
     print("=" * 55)
     print("  ACE — Grade Pending Predictions")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -126,6 +128,7 @@ def run(days_back: int = 3) -> None:
     graded = 0
     pushed = 0
     not_found = 0
+    clv_graded = 0
 
     for _, pred in pending.iterrows():
         game_id = str(pred["game_id"])
@@ -136,12 +139,26 @@ def run(days_back: int = 3) -> None:
         # Try direct ID match first
         game = score_map.get(game_id)
 
-        # Fallback: match by team names (handles ID mismatches across API calls)
+        # Fallback: match by team names, but only within ±48 hours of predicted start.
+        # Without the date check, playoff series games (same teams, different dates)
+        # incorrectly match a completed Game 1 against a pending Game 2 prediction.
         if game is None:
+            try:
+                pred_dt = datetime.fromisoformat(str(pred["commence_time"]).replace("Z", "+00:00"))
+            except Exception:
+                pred_dt = None
             for g in completed:
-                if _teams_match(g, home_team, away_team):
-                    game = g
-                    break
+                if not _teams_match(g, home_team, away_team):
+                    continue
+                if pred_dt is not None:
+                    try:
+                        game_dt = datetime.fromisoformat(g["commence_time"].replace("Z", "+00:00"))
+                        if abs((game_dt - pred_dt).total_seconds()) > 43200:  # 12 hours
+                            continue
+                    except Exception:
+                        pass
+                game = g
+                break
 
         if game is None:
             not_found += 1
@@ -161,22 +178,38 @@ def run(days_back: int = 3) -> None:
             _mark_void(game_id, home_score, away_score)
             pushed += 1
             print(f"  PUSH  {away_team} @ {home_team}  {away_score}-{home_score}  line={home_line:+.1f}")
-            continue
+        else:
+            update_prediction_result(game_id, actual)
+            graded += 1
 
-        update_prediction_result(game_id, actual)
-        graded += 1
+            pick_side = str(pred["pick_side"])
+            correct = (pick_side == "home" and actual == 1) or (pick_side == "away" and actual == 0)
+            result_str = "WIN " if correct else "LOSS"
+            print(
+                f"  {result_str}  {away_team} @ {home_team}  "
+                f"{away_score}-{home_score}  line={home_line:+.1f}  "
+                f"pick={pick_side.upper()}  actual_covered={'HOME' if actual == 1 else 'AWAY'}"
+            )
 
-        pick_side = str(pred["pick_side"])
-        correct = (pick_side == "home" and actual == 1) or (pick_side == "away" and actual == 0)
-        result_str = "WIN " if correct else "LOSS"
-        print(
-            f"  {result_str}  {away_team} @ {home_team}  "
-            f"{away_score}-{home_score}  line={home_line:+.1f}  "
-            f"pick={pick_side.upper()}  actual_covered={'HOME' if actual == 1 else 'AWAY'}"
-        )
+        # Grade any CLV signals logged for this game (push or result — both get graded)
+        clv_results = grade_signal(game_id, home_score, away_score)
+        clv_graded += len(clv_results)
+        for r in clv_results:
+            clv_str = f"{r['clv_points']:+.1f}" if r["clv_points"] is not None else "n/a"
+            cov_str = {1: "covered", 0: "missed", None: "push"}.get(r["covered"], "?")
+            print(f"         CLV signal #{r['id']}  clv={clv_str}pts  result={cov_str}")
 
     print()
-    print(f"  Graded: {graded}  Pushed: {pushed}  Not found yet: {not_found}")
+    print(f"  Graded: {graded}  Pushed: {pushed}  Not found yet: {not_found}  CLV signals graded: {clv_graded}")
+
+    if void_stale:
+        voided = void_stale_signals(days=stale_days)
+        if voided:
+            print(f"\n  Voided {len(voided)} stale signal(s) (no closing line after {stale_days}+ days):")
+            for s in voided:
+                print(f"    #{s['id']}  {s['game_date']}  {s['away_team']} @ {s['home_team']}  [{s['signal_type']}]")
+        else:
+            print(f"\n  No stale signals to void (threshold: {stale_days} days).")
 
     # Reload and show updated summary
     updated_df = pd.read_csv(MODEL_PERFORMANCE_PATH)
@@ -184,9 +217,21 @@ def run(days_back: int = 3) -> None:
 
 
 def _teams_match(game: Dict[str, Any], home_team: str, away_team: str) -> bool:
-    """Fuzzy match by last word of team name (e.g. 'Celtics' matches 'Boston Celtics')."""
+    """
+    Match API full team names against our stored team codes (e.g. 'por', 'sa').
+    First tries code lookup via TEAM_NAME_TO_CODE; falls back to last-word fuzzy match
+    for any full names stored in older rows.
+    """
     g_home = game.get("home_team", "")
     g_away = game.get("away_team", "")
+
+    # Primary: convert API full names to codes and compare directly
+    g_home_code = TEAM_NAME_TO_CODE.get(g_home, "").lower()
+    g_away_code = TEAM_NAME_TO_CODE.get(g_away, "").lower()
+    if g_home_code and g_away_code:
+        return g_home_code == home_team.lower() and g_away_code == away_team.lower()
+
+    # Fallback: last-word fuzzy match (handles full names stored in older rows)
     ht = home_team.split()[-1].lower()
     at = away_team.split()[-1].lower()
     return (ht in g_home.lower() and at in g_away.lower()) or (
@@ -210,7 +255,6 @@ def _print_summary(df: pd.DataFrame) -> None:
     graded = df[df["result_status"] == "graded"]
     pending = df[df["result_status"] == "pending"]
     pushed = df[df["result_status"] == "push"]
-    total = len(df)
 
     if graded.empty:
         print("  No graded predictions yet.")
@@ -251,13 +295,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=3, help="Days back to check for scores")
     parser.add_argument("--report-only", action="store_true", help="Print stats without hitting any API")
+    parser.add_argument("--void-stale", action="store_true",
+                        help="Mark open signals with no closing line older than --stale-days as no_action")
+    parser.add_argument("--stale-days", type=int, default=3,
+                        help="Age threshold in days for --void-stale (default: 3)")
     args = parser.parse_args()
 
     try:
         if args.report_only:
             report_only()
         else:
-            run(days_back=args.days)
+            run(days_back=args.days, void_stale=args.void_stale, stale_days=args.stale_days)
     except Exception as e:
         print(f"\n  ERROR: {e}", file=sys.stderr)
         sys.exit(1)

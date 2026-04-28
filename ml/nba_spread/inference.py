@@ -22,7 +22,15 @@ from .train_spread_model import (
 
 MODULE_DIR = Path(__file__).resolve().parent
 MODEL_PERFORMANCE_PATH = MODULE_DIR / "model_performance.csv"
-MODEL_VERSION = "nba_spread_xgb_v1"
+MODEL_VERSION = "nba_spread_xgb_v2"
+
+# Columns added after initial release — all migrated in on first write if missing
+_LATE_ADD_COLUMNS: Dict[str, Any] = {
+    "home_injury_impact": 0.0,
+    "away_injury_impact": 0.0,
+    "pinnacle_prob": "",      # Pinnacle de-vigged implied probability for home covering
+    "edge_vs_pinnacle": "",   # model_home_cover_prob - pinnacle_prob (our claimed edge)
+}
 
 
 def _load_json(path: Path) -> Dict[str, Any]:
@@ -132,6 +140,25 @@ def _team_feature_block(team_code: str, game_date: pd.Timestamp, team_state: Dic
         f"{prefix}_cover_rate_5": float(state.get("cover_rate_5", 0.5)),
         f"{prefix}_cover_rate_10": float(state.get("cover_rate_10", 0.5)),
         f"{prefix}_games_played": float(state.get("games_played", 0)),
+        # Rolling box-score efficiency
+        f"{prefix}_ortg_avg5": float(state.get("ortg_avg5", 0.0)),
+        f"{prefix}_drtg_avg5": float(state.get("drtg_avg5", 0.0)),
+        f"{prefix}_pace_avg5": float(state.get("pace_avg5", 0.0)),
+        f"{prefix}_ts_avg5": float(state.get("ts_avg5", 0.0)),
+        f"{prefix}_ortg_avg10": float(state.get("ortg_avg10", 0.0)),
+        f"{prefix}_drtg_avg10": float(state.get("drtg_avg10", 0.0)),
+        # Q4 / clutch
+        f"{prefix}_q4_margin_avg5": float(state.get("q4_margin_avg5", 0.0)),
+        f"{prefix}_q4_cover_rate5": float(state.get("q4_cover_rate5", 0.5)),
+        # Travel
+        f"{prefix}_miles_traveled": float(state.get("miles_traveled", 0.0)),
+        f"{prefix}_tz_delta": float(state.get("tz_delta", 0.0)),
+        f"{prefix}_road_trip_games": float(state.get("road_trip_games", 0.0)),
+        # Venue splits
+        f"{prefix}_ortg_home_avg5": float(state.get("ortg_home_avg5", 0.0)),
+        f"{prefix}_ts_home_avg5": float(state.get("ts_home_avg5", 0.0)),
+        f"{prefix}_ortg_away_avg5": float(state.get("ortg_away_avg5", 0.0)),
+        f"{prefix}_ts_away_avg5": float(state.get("ts_away_avg5", 0.0)),
     }
 
 
@@ -172,7 +199,7 @@ def prepare_features_for_model(api_data: Iterable[Dict[str, Any]]) -> pd.DataFra
             "season": season,
             "month": int(game_date.month),
             "day_of_week": int(game_date.dayofweek),
-            "is_playoffs": 0,
+            "is_playoffs": int((game_date.month == 4 and game_date.day >= 16) or game_date.month in (5, 6)),
             "home_team": home_team,
             "away_team": away_team,
             "home_line": float(home_line),
@@ -198,6 +225,16 @@ def prepare_features_for_model(api_data: Iterable[Dict[str, Any]]) -> pd.DataFra
         row["pts_for_avg5_diff"] = row["home_points_for_avg_5"] - row["away_points_for_avg_5"]
         row["pts_against_avg5_diff"] = row["home_points_against_avg_5"] - row["away_points_against_avg_5"]
         row["cover_rate5_diff"] = row["home_cover_rate_5"] - row["away_cover_rate_5"]
+        # Efficiency differentials
+        row["ortg_avg5_diff"]    = row["home_ortg_avg5"]  - row["away_ortg_avg5"]
+        row["drtg_avg5_diff"]    = row["home_drtg_avg5"]  - row["away_drtg_avg5"]
+        row["net_rtg_avg5_diff"] = (row["home_ortg_avg5"] - row["home_drtg_avg5"]) \
+                                 - (row["away_ortg_avg5"] - row["away_drtg_avg5"])
+        row["pace_avg5_diff"]    = row["home_pace_avg5"]  - row["away_pace_avg5"]
+        # Q4 differential
+        row["q4_margin_diff"]    = row["home_q4_margin_avg5"] - row["away_q4_margin_avg5"]
+        # Travel differential (away disadvantage > home disadvantage)
+        row["travel_diff"]       = row["away_miles_traveled"] - row["home_miles_traveled"]
         rows.append(row)
 
     frame = pd.DataFrame(rows)
@@ -206,27 +243,147 @@ def prepare_features_for_model(api_data: Iterable[Dict[str, Any]]) -> pd.DataFra
             frame[col] = 0.0
     frame = frame.fillna(0.0)
     # home_line is already in feature_columns — use set to avoid duplicate columns
-    meta_cols = ["game_id", "commence_time", "home_team", "away_team"]
+    meta_cols = ["game_id", "commence_time", "home_team", "away_team", "home_line"]
     return frame[meta_cols + feature_columns]
 
 
-def predict_games(api_data: Iterable[Dict[str, Any]]) -> pd.DataFrame:
+def _american_to_prob(price: float) -> float:
+    """Raw implied probability from American odds (vig included)."""
+    if price < 0:
+        return abs(price) / (abs(price) + 100.0)
+    return 100.0 / (price + 100.0)
+
+
+def _extract_pinnacle_cover_prob(game: Dict[str, Any]) -> Optional[float]:
+    """
+    De-vig Pinnacle's spread market juice to get a fair probability of home covering.
+
+    Returns None when Pinnacle has no line for this game (not on the user's API plan,
+    or Pinnacle hasn't posted yet). Callers must handle None gracefully.
+
+    De-vig formula: p_fair = p_raw / (p_home_raw + p_away_raw)
+    This removes the bookmaker margin and leaves the implied probability.
+    """
+    home_name = game.get("home_team", "")
+    away_name = game.get("away_team", "")
+
+    for bookmaker in game.get("bookmakers", []):
+        if bookmaker.get("key") != "pinnacle":
+            continue
+        entries = _get_market_entries(bookmaker, "spreads")
+        if not entries:
+            return None
+        home_price: Optional[float] = None
+        away_price: Optional[float] = None
+        for outcome in entries:
+            price = outcome.get("price")
+            if price is None:
+                continue
+            name = outcome.get("name", "")
+            if name == home_name:
+                home_price = float(price)
+            elif name == away_name:
+                away_price = float(price)
+        if home_price is None or away_price is None:
+            return None
+        h_imp = _american_to_prob(home_price)
+        a_imp = _american_to_prob(away_price)
+        total = h_imp + a_imp
+        if total <= 0:
+            return None
+        return h_imp / total
+    return None
+
+
+def predict_games(api_data: Iterable[Dict[str, Any]], apply_injuries: bool = True) -> pd.DataFrame:
+    from .injuries import fetch_injuries, compute_team_impact, adjust_home_cover_prob
+
+    # Materialize so we can iterate twice: once for features, once for Pinnacle extraction
+    games = list(api_data)
+
     artifacts = load_artifacts()
     model = artifacts["model"]
     feature_columns = artifacts["feature_columns"]
-    features = prepare_features_for_model(api_data)
-    probs = model.predict_proba(features[feature_columns])[:, 1]
+    features = prepare_features_for_model(games)
+    raw_probs = model.predict_proba(features[feature_columns])[:, 1]
+
     output = features[["game_id", "commence_time", "home_team", "away_team", "home_line"]].copy()
-    output["home_cover_prob"] = probs
-    output["away_cover_prob"] = 1 - probs
-    output["pick_side"] = np.where(probs >= 0.5, "home", "away")
-    output["pick_confidence"] = np.where(probs >= 0.5, probs, 1 - probs)
+    output["raw_home_cover_prob"] = raw_probs
+
+    # --- Injury adjustment (post-hoc, not a trained feature) ---
+    injury_data: Dict[str, Any] = {}
+    if apply_injuries:
+        try:
+            injury_data = fetch_injuries()
+        except Exception:
+            injury_data = {}
+
+    home_impacts = []
+    away_impacts = []
+    adjusted_probs = []
+
+    for i, row in output.iterrows():
+        h_code = str(row["home_team"])
+        a_code = str(row["away_team"])
+        h_imp = compute_team_impact(h_code, injury_data) if apply_injuries else 0.0
+        a_imp = compute_team_impact(a_code, injury_data) if apply_injuries else 0.0
+        adj_p = adjust_home_cover_prob(float(raw_probs[output.index.get_loc(i)]), h_imp, a_imp)
+        home_impacts.append(h_imp)
+        away_impacts.append(a_imp)
+        adjusted_probs.append(adj_p)
+
+    adj = np.array(adjusted_probs)
+    output["home_cover_prob"] = adj
+    output["away_cover_prob"] = 1.0 - adj
+    output["home_injury_impact"] = home_impacts
+    output["away_injury_impact"] = away_impacts
+
+    # --- Pinnacle divergence signal ---
+    # Build game_id → pinnacle_prob map from original raw game dicts.
+    # None means Pinnacle had no line (handled gracefully downstream).
+    pinnacle_map: Dict[str, Optional[float]] = {
+        g.get("id", ""): _extract_pinnacle_cover_prob(g) for g in games
+    }
+    # pd.to_numeric ensures None values become NaN (float64), not Python None in an
+    # object column. Without this, subtracting an object column crashes with TypeError.
+    output["pinnacle_prob"] = pd.to_numeric(
+        output["game_id"].map(pinnacle_map), errors="coerce"
+    )
+    # edge > 0: model thinks home MORE likely to cover than Pinnacle
+    # edge < 0: model thinks home LESS likely to cover than Pinnacle (away edge)
+    # NaN propagates cleanly when pinnacle_prob is missing — no special casing needed.
+    output["edge_vs_pinnacle"] = output["home_cover_prob"] - output["pinnacle_prob"]
+
+    output["pick_side"] = np.where(adj >= 0.5, "home", "away")
+    output["pick_confidence"] = np.where(adj >= 0.5, adj, 1.0 - adj)
     output["model_version"] = MODEL_VERSION
     return output
 
 
+def _migrate_late_columns() -> None:
+    """Add any columns from _LATE_ADD_COLUMNS that are missing from the CSV."""
+    if not MODEL_PERFORMANCE_PATH.exists():
+        return
+    df = pd.read_csv(MODEL_PERFORMANCE_PATH)
+    changed = False
+    for col, default in _LATE_ADD_COLUMNS.items():
+        if col not in df.columns:
+            df[col] = default
+            changed = True
+    if changed:
+        df.to_csv(MODEL_PERFORMANCE_PATH, index=False)
+
+
 def log_prediction(prediction: Dict[str, Any], notes: str = "", is_bet: bool = False) -> None:
     MODEL_PERFORMANCE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _migrate_late_columns()
+
+    pinnacle_prob = prediction.get("pinnacle_prob")
+    edge = prediction.get("edge_vs_pinnacle")
+    # NaN from pandas becomes float('nan') in a dict — store as empty string for clean CSV
+    pinnacle_prob_val = "" if pinnacle_prob is None or (isinstance(pinnacle_prob, float) and np.isnan(pinnacle_prob)) else round(float(pinnacle_prob), 5)
+    edge_val = "" if edge is None or (isinstance(edge, float) and np.isnan(edge)) else round(float(edge), 5)
+
     row = {
         "logged_at": datetime.utcnow().isoformat(),
         "game_id": prediction.get("game_id"),
@@ -239,18 +396,32 @@ def log_prediction(prediction: Dict[str, Any], notes: str = "", is_bet: bool = F
         "away_cover_prob": prediction.get("away_cover_prob"),
         "pick_side": prediction.get("pick_side"),
         "pick_confidence": prediction.get("pick_confidence"),
-        # is_bet=1 means confidence cleared the betting threshold — treat as a real bet for ROI tracking
+        # is_bet=1 means edge vs Pinnacle (or conf fallback) cleared the threshold
         "is_bet": int(is_bet),
         "model_version": prediction.get("model_version", MODEL_VERSION),
         "actual_home_covered": "",
         "result_status": "pending",
         "correct": "",
         "notes": notes,
+        # Late-add columns at END — must stay last to match _migrate_late_columns order
+        "home_injury_impact": prediction.get("home_injury_impact", 0.0),
+        "away_injury_impact": prediction.get("away_injury_impact", 0.0),
+        "pinnacle_prob": pinnacle_prob_val,
+        "edge_vs_pinnacle": edge_val,
     }
     with MODEL_PERFORMANCE_PATH.open("a", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(row.keys()))
         if fh.tell() == 0:
+            # New file: write header from dict order, which becomes the canonical order
+            writer = csv.DictWriter(fh, fieldnames=list(row.keys()))
             writer.writeheader()
+        else:
+            # Existing file: use the CSV's own header so appended rows always align
+            with MODEL_PERFORMANCE_PATH.open(newline="") as rfh:
+                existing_fieldnames = next(csv.reader(rfh))
+            for key in row:
+                if key not in existing_fieldnames:
+                    existing_fieldnames.append(key)
+            writer = csv.DictWriter(fh, fieldnames=existing_fieldnames)
         writer.writerow(row)
 
 

@@ -22,8 +22,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
+import pandas as pd
 
-from .train_spread_model import TEAM_NAME_TO_CODE, TEAM_STATE_PATH
+from .train_spread_model import TEAM_NAME_TO_CODE, TEAM_STATE_PATH, GAME_EFFICIENCY_PATH
 
 ESPN_SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
 
@@ -120,7 +121,9 @@ def fetch_season(season_start: date, today: date) -> List[Dict[str, Any]]:
     return all_games
 
 
-def build_state(games: List[Dict[str, Any]], existing: Dict[str, Any]) -> Dict[str, Any]:
+def build_state(games: List[Dict[str, Any]], existing: Dict[str, Any],
+                efficiency: Optional[Dict[str, Dict[str, float]]] = None,
+                advanced: Optional[Dict[str, Dict[str, float]]] = None) -> Dict[str, Any]:
     sorted_games = sorted(games, key=lambda g: g["date"])
 
     # Build per-team game log
@@ -157,6 +160,8 @@ def build_state(games: List[Dict[str, Any]], existing: Dict[str, Any]) -> Dict[s
         season = int(last["date"][:4]) + (1 if month >= 10 else 0)
 
         old = existing.get(team, {})
+        eff = (efficiency or {}).get(team, {})
+        adv = (advanced or {}).get(team, {})
         state[team] = {
             "season": season,
             "last_game_date": last["date"],
@@ -166,10 +171,29 @@ def build_state(games: List[Dict[str, Any]], existing: Dict[str, Any]) -> Dict[s
             "margin_avg_5": float(sum(margins[-5:]) / len(margins[-5:])),
             "points_for_avg_5": float(sum(pts_for[-5:]) / len(pts_for[-5:])),
             "points_against_avg_5": float(sum(pts_against[-5:]) / len(pts_against[-5:])),
-            # ESPN has no spread data — carry forward training-era cover rates
             "cover_rate_5": float(old.get("cover_rate_5", 0.5)),
             "cover_rate_10": float(old.get("cover_rate_10", 0.5)),
             "games_played": len(log),
+            # Rolling efficiency from nba_api box scores
+            "ortg_avg5": eff.get("ortg_avg5", old.get("ortg_avg5", 0.0)),
+            "drtg_avg5": eff.get("drtg_avg5", old.get("drtg_avg5", 0.0)),
+            "pace_avg5": eff.get("pace_avg5", old.get("pace_avg5", 0.0)),
+            "ts_avg5": eff.get("ts_avg5", old.get("ts_avg5", 0.0)),
+            "ortg_avg10": eff.get("ortg_avg10", old.get("ortg_avg10", 0.0)),
+            "drtg_avg10": eff.get("drtg_avg10", old.get("drtg_avg10", 0.0)),
+            # Q4 / clutch features
+            "q4_margin_avg5": adv.get("q4_margin_avg5", old.get("q4_margin_avg5", 0.0)),
+            "q4_margin_avg10": adv.get("q4_margin_avg10", old.get("q4_margin_avg10", 0.0)),
+            "q4_cover_rate5": adv.get("q4_cover_rate5", old.get("q4_cover_rate5", 0.5)),
+            # Travel (most recent game's travel)
+            "miles_traveled": adv.get("miles_traveled", old.get("miles_traveled", 0.0)),
+            "tz_delta": adv.get("tz_delta", old.get("tz_delta", 0.0)),
+            "road_trip_games": adv.get("road_trip_games", old.get("road_trip_games", 0.0)),
+            # Venue splits
+            "ortg_home_avg5": adv.get("ortg_home_avg5", old.get("ortg_home_avg5", 0.0)),
+            "ts_home_avg5": adv.get("ts_home_avg5", old.get("ts_home_avg5", 0.0)),
+            "ortg_away_avg5": adv.get("ortg_away_avg5", old.get("ortg_away_avg5", 0.0)),
+            "ts_away_avg5": adv.get("ts_away_avg5", old.get("ts_away_avg5", 0.0)),
         }
 
     # Teams with no games in new data keep old state
@@ -178,6 +202,74 @@ def build_state(games: List[Dict[str, Any]], existing: Dict[str, Any]) -> Dict[s
             state[team] = s
 
     return state
+
+
+def _load_latest_efficiency() -> Dict[str, Dict[str, float]]:
+    """Read the most recent rolling efficiency values per team from team_game_efficiency.csv."""
+    if not GAME_EFFICIENCY_PATH.exists():
+        return {}
+    eff = pd.read_csv(GAME_EFFICIENCY_PATH, parse_dates=["date"])
+    latest = (
+        eff.sort_values("date")
+        .groupby("team_code", sort=False)
+        .last()
+        .reset_index()
+    )
+    result: Dict[str, Dict[str, float]] = {}
+    eff_cols = ["ortg_avg5", "drtg_avg5", "pace_avg5", "ts_avg5", "ortg_avg10", "drtg_avg10"]
+    for _, row in latest.iterrows():
+        team = str(row["team_code"])
+        result[team] = {c: float(row[c]) if not pd.isna(row[c]) else 0.0 for c in eff_cols}
+    return result
+
+
+def _load_latest_advanced() -> Dict[str, Dict[str, float]]:
+    """Read the most recent Q4, travel, and venue split features per team."""
+    data_dir = GAME_EFFICIENCY_PATH.parent
+
+    def _latest_per_team(path: Path, team_col: str, cols: list[str]) -> Dict[str, Dict[str, float]]:
+        if not path.exists():
+            return {}
+        df = pd.read_csv(path, parse_dates=["date"])
+        latest = df.sort_values("date").groupby(team_col, sort=False).last().reset_index()
+        result = {}
+        for _, row in latest.iterrows():
+            team = str(row[team_col])
+            result[team] = {c: float(row[c]) if not pd.isna(row[c]) else 0.0 for c in cols if c in row}
+        return result
+
+    q4 = _latest_per_team(
+        data_dir / "q4_features.csv", "team_code",
+        ["q4_margin_avg5", "q4_margin_avg10", "q4_cover_rate5"],
+    )
+    travel = _latest_per_team(
+        data_dir / "travel_features.csv", "team_code",
+        ["miles_traveled", "tz_delta", "road_trip_games"],
+    )
+    # Venue splits: each row has EITHER home OR away stats set — never both.
+    # Must separately find the last home-game row and last away-game row per team.
+    splits: Dict[str, Dict[str, float]] = {}
+    splits_path = data_dir / "home_away_splits.csv"
+    if splits_path.exists():
+        sp = pd.read_csv(splits_path, parse_dates=["date"]).sort_values("date")
+        last_home = sp[sp["ortg_home_avg5"].notna()].groupby("team_code").last().reset_index()
+        last_away = sp[sp["ortg_away_avg5"].notna()].groupby("team_code").last().reset_index()
+        for _, row in last_home.iterrows():
+            t = str(row["team_code"])
+            splits.setdefault(t, {})["ortg_home_avg5"] = float(row["ortg_home_avg5"])
+            splits[t]["ts_home_avg5"] = float(row["ts_home_avg5"]) if not pd.isna(row["ts_home_avg5"]) else 0.0
+        for _, row in last_away.iterrows():
+            t = str(row["team_code"])
+            splits.setdefault(t, {})["ortg_away_avg5"] = float(row["ortg_away_avg5"])
+            splits[t]["ts_away_avg5"] = float(row["ts_away_avg5"]) if not pd.isna(row["ts_away_avg5"]) else 0.0
+
+    combined: Dict[str, Dict[str, float]] = {}
+    for team in set(list(q4) + list(travel) + list(splits)):
+        combined[team] = {}
+        combined[team].update(q4.get(team, {}))
+        combined[team].update(travel.get(team, {}))
+        combined[team].update(splits.get(team, {}))
+    return combined
 
 
 def run(season_year: int) -> None:
@@ -203,7 +295,15 @@ def run(season_year: int) -> None:
         print("  No games found. State unchanged.")
         return
 
-    new_state = build_state(games, existing)
+    print("  Loading latest efficiency stats...")
+    efficiency = _load_latest_efficiency()
+    print(f"  Efficiency loaded for {len(efficiency)} teams")
+
+    print("  Loading latest advanced features (Q4/travel/splits)...")
+    advanced = _load_latest_advanced()
+    print(f"  Advanced features loaded for {len(advanced)} teams")
+
+    new_state = build_state(games, existing, efficiency, advanced)
     TEAM_STATE_PATH.write_text(json.dumps(new_state, indent=2))
 
     print(f"  Saved {len(new_state)} teams → {TEAM_STATE_PATH}")

@@ -12,35 +12,27 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_a
 from xgboost import XGBClassifier
 
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts"
+EFFICIENCY_PATH = Path(__file__).resolve().parent / "data" / "team_season_efficiency.csv"
+GAME_EFFICIENCY_PATH = Path(__file__).resolve().parent / "data" / "team_game_efficiency.csv"
+REFEREE_PATH = Path(__file__).resolve().parent / "data" / "referee_features.csv"
 MODEL_PATH = ARTIFACT_DIR / "nba_spread_xgb.joblib"
 FEATURE_COLUMNS_PATH = ARTIFACT_DIR / "feature_columns.json"
 BACKTEST_METRICS_PATH = ARTIFACT_DIR / "backtest_metrics.json"
 TEAM_STATE_PATH = ARTIFACT_DIR / "latest_team_state.json"
 
 FEATURE_COLUMNS: List[str] = [
+    # Context
     "season",
     "month",
     "day_of_week",
     "is_playoffs",
-    "home_line",
-    "spread_abs",
-    "home_favorite",
-    "pickem",
-    "total_line",
-    "moneyline_home",
-    "moneyline_away",
-    "implied_prob_home",
-    "implied_prob_away",
-    "implied_prob_gap",
     # Rest / schedule
     "home_rest_days",
     "away_rest_days",
     "rest_diff",
     "home_back2back",
     "away_back2back",
-    # 2nd-half spread (real pre-game market line)
-    "h2_spread_line",
-    # Rolling team performance
+    # Rolling team performance — fundamental only, no market prices
     "home_margin_last1",
     "away_margin_last1",
     "home_margin_avg_3",
@@ -57,11 +49,51 @@ FEATURE_COLUMNS: List[str] = [
     "away_cover_rate_10",
     "home_games_played",
     "away_games_played",
-    # Matchup differentials
+    # Matchup differentials (rolling)
     "margin_avg5_diff",
     "pts_for_avg5_diff",
     "pts_against_avg5_diff",
     "cover_rate5_diff",
+    # Per-game rolling efficiency (ortg/drtg/pace from actual box scores — pre-shifted, no leakage)
+    "home_ortg_avg5",
+    "away_ortg_avg5",
+    "home_drtg_avg5",
+    "away_drtg_avg5",
+    "home_pace_avg5",
+    "away_pace_avg5",
+    "home_ts_avg5",
+    "away_ts_avg5",
+    "home_ortg_avg10",
+    "away_ortg_avg10",
+    "home_drtg_avg10",
+    "away_drtg_avg10",
+    # Efficiency matchup differentials
+    "ortg_avg5_diff",
+    "drtg_avg5_diff",
+    "net_rtg_avg5_diff",
+    "pace_avg5_diff",
+    # Q4 / clutch performance
+    "home_q4_margin_avg5",
+    "away_q4_margin_avg5",
+    "home_q4_cover_rate5",
+    "away_q4_cover_rate5",
+    "q4_margin_diff",
+    # Home/away venue-specific efficiency splits
+    "home_ortg_home_avg5",
+    "away_ortg_away_avg5",
+    "home_ts_home_avg5",
+    "away_ts_away_avg5",
+    # Travel burden
+    "home_miles_traveled",
+    "away_miles_traveled",
+    "home_road_trip_games",
+    "away_road_trip_games",
+    "home_tz_delta",
+    "away_tz_delta",
+    "travel_diff",
+    # crew_total_pts_avg excluded: referee data only covers 2021+ (~28% of rows).
+    # Sparse coverage degrades the model vs the baseline. Re-add once multi-season
+    # historical referee data is available.
 ]
 
 TEAM_NAME_TO_CODE: Dict[str, str] = {
@@ -220,6 +252,226 @@ def merge_team_features(df: pd.DataFrame, team_games: pd.DataFrame) -> pd.DataFr
     return merged
 
 
+def load_efficiency_data() -> pd.DataFrame:
+    """
+    Load team season efficiency and shift by 1 season to prevent leakage.
+    Each row represents the efficiency stats a team ENTERS a season with
+    (i.e., last season's numbers), keyed by (team_code, season).
+    """
+    if not EFFICIENCY_PATH.exists():
+        raise FileNotFoundError(
+            f"Efficiency data not found: {EFFICIENCY_PATH}\n"
+            "Run: python3 -m ml.nba_spread.fetch_efficiency_data"
+        )
+    eff = pd.read_csv(EFFICIENCY_PATH)
+    # Lag by 1: season 2025 game uses season 2024 efficiency stats
+    eff["season"] = eff["season"] + 1
+    return eff.rename(columns={
+        "ortg": "home_ortg", "drtg": "home_drtg",
+        "net_rtg": "home_net_rtg", "pace": "home_pace", "ts_pct": "home_ts_pct",
+    })
+
+
+def merge_efficiency(df: pd.DataFrame, eff: pd.DataFrame) -> pd.DataFrame:
+    """Join lagged efficiency onto each game for both home and away team."""
+    home_eff = eff.rename(columns={
+        "team_code": "home",
+        "home_ortg": "home_ortg", "home_drtg": "home_drtg",
+        "home_net_rtg": "home_net_rtg", "home_pace": "home_pace", "home_ts_pct": "home_ts_pct",
+    })
+    away_eff = eff.rename(columns={
+        "team_code": "away",
+        "home_ortg": "away_ortg", "home_drtg": "away_drtg",
+        "home_net_rtg": "away_net_rtg", "home_pace": "away_pace", "home_ts_pct": "away_ts_pct",
+    })
+
+    merged = df.merge(home_eff[["season", "home", "home_ortg", "home_drtg", "home_net_rtg", "home_pace", "home_ts_pct"]],
+                      on=["season", "home"], how="left")
+    merged = merged.merge(away_eff[["season", "away", "away_ortg", "away_drtg", "away_net_rtg", "away_pace", "away_ts_pct"]],
+                          on=["season", "away"], how="left")
+
+    # Fill missing (first season in dataset or expansion teams) with global means
+    for col in ["home_ortg", "home_drtg", "home_net_rtg", "home_pace", "home_ts_pct"]:
+        merged[col] = merged[col].fillna(merged[col].mean())
+    for col in ["away_ortg", "away_drtg", "away_net_rtg", "away_pace", "away_ts_pct"]:
+        merged[col] = merged[col].fillna(merged[col].mean())
+
+    merged["ortg_diff"] = merged["home_ortg"] - merged["away_ortg"]
+    merged["drtg_diff"] = merged["home_drtg"] - merged["away_drtg"]
+    merged["net_rtg_diff"] = merged["home_net_rtg"] - merged["away_net_rtg"]
+    merged["pace_diff"] = merged["home_pace"] - merged["away_pace"]
+    return merged
+
+
+def merge_advanced_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Join Q4/clutch, home/away splits, and travel features onto each training row.
+    All three CSVs are keyed by (date, team_code) with pre-shifted rolling values.
+    Missing rows fill with column mean.
+    """
+    advanced_dir = Path(__file__).resolve().parent / "data"
+
+    # Fixed defaults for NaN imputation — avoids future-looking column.mean()
+    _FILL_DEFAULTS: dict[str, float] = {
+        "q4_margin_avg5": 0.0, "q4_margin_avg10": 0.0, "q4_cover_rate5": 0.5,
+        "ortg_home_avg5": 0.0, "ts_home_avg5": 0.0,
+        "ortg_away_avg5": 0.0, "ts_away_avg5": 0.0,
+        "miles_traveled": 0.0, "tz_delta": 0.0, "road_trip_games": 0.0,
+    }
+
+    def _join(df_base: pd.DataFrame, path: Path,
+              home_cols: list[str], away_cols: list[str]) -> pd.DataFrame:
+        if not path.exists():
+            return df_base
+        feat = pd.read_csv(path, parse_dates=["date"])
+
+        home_feat = feat.rename(columns={"team_code": "home",
+                                          **{c: f"home_{c}" for c in home_cols + away_cols}})
+        away_feat = feat.rename(columns={"team_code": "away",
+                                          **{c: f"away_{c}" for c in home_cols + away_cols}})
+
+        home_keep = ["date", "home"] + [f"home_{c}" for c in home_cols]
+        away_keep = ["date", "away"] + [f"away_{c}" for c in away_cols]
+
+        merged = df_base.merge(home_feat[home_keep], on=["date", "home"], how="left")
+        merged = merged.merge(away_feat[away_keep], on=["date", "away"], how="left")
+        for c in home_keep[2:] + away_keep[2:]:
+            if c in merged.columns:
+                # Strip prefix to find the base column name for its fixed default
+                base = c.removeprefix("home_").removeprefix("away_")
+                fill = _FILL_DEFAULTS.get(base, 0.0)
+                merged[c] = merged[c].fillna(fill)
+        return merged
+
+    # Q4 features
+    q4_cols = ["q4_margin_avg5", "q4_margin_avg10", "q4_cover_rate5"]
+    df = _join(df, advanced_dir / "q4_features.csv", q4_cols, q4_cols)
+    df["q4_margin_diff"] = df.get("home_q4_margin_avg5", 0) - df.get("away_q4_margin_avg5", 0)
+
+    # Home/away venue splits
+    home_split_cols = ["ortg_home_avg5", "ts_home_avg5"]
+    away_split_cols = ["ortg_away_avg5", "ts_away_avg5"]
+    df = _join(df, advanced_dir / "home_away_splits.csv", home_split_cols, away_split_cols)
+
+    # Travel features
+    travel_cols = ["miles_traveled", "tz_delta", "road_trip_games"]
+    df = _join(df, advanced_dir / "travel_features.csv", travel_cols, travel_cols)
+    df["travel_diff"] = df.get("away_miles_traveled", 0) - df.get("home_miles_traveled", 0)
+
+    # Player availability / lineup quality
+    lineup_path = advanced_dir / "lineup_quality.csv"
+    if lineup_path.exists():
+        lq = pd.read_csv(lineup_path, parse_dates=["date"])
+        lq = lq[["date", "team_code", "lineup_quality_pct", "star_absent", "key_players_absent"]]
+
+        home_lq = lq.rename(columns={
+            "team_code": "home",
+            "lineup_quality_pct": "home_lineup_quality_pct",
+            "star_absent": "home_star_absent",
+            "key_players_absent": "home_key_players_absent",
+        })
+        away_lq = lq.rename(columns={
+            "team_code": "away",
+            "lineup_quality_pct": "away_lineup_quality_pct",
+            "star_absent": "away_star_absent",
+            "key_players_absent": "away_key_players_absent",
+        })
+
+        df = df.merge(
+            home_lq[["date", "home", "home_lineup_quality_pct", "home_star_absent", "home_key_players_absent"]],
+            on=["date", "home"], how="left",
+        )
+        df = df.merge(
+            away_lq[["date", "away", "away_lineup_quality_pct", "away_star_absent", "away_key_players_absent"]],
+            on=["date", "away"], how="left",
+        )
+
+        df["home_lineup_quality_pct"] = df["home_lineup_quality_pct"].fillna(1.0)
+        df["away_lineup_quality_pct"] = df["away_lineup_quality_pct"].fillna(1.0)
+        df["home_star_absent"] = df["home_star_absent"].fillna(0)
+        df["away_star_absent"] = df["away_star_absent"].fillna(0)
+        df["home_key_players_absent"] = df["home_key_players_absent"].fillna(0)
+        df["away_key_players_absent"] = df["away_key_players_absent"].fillna(0)
+        df["lineup_quality_diff"] = df["home_lineup_quality_pct"] - df["away_lineup_quality_pct"]
+
+    # Referee tendencies — join via NBA game_id bridge from game efficiency CSV
+    referee_path = advanced_dir / "referee_features.csv"
+    game_eff_path = advanced_dir / "team_game_efficiency.csv"
+    if referee_path.exists() and game_eff_path.exists():
+        ref = pd.read_csv(referee_path)[["game_id", "crew_total_pts_avg"]].dropna(subset=["crew_total_pts_avg"])
+        ref = ref.rename(columns={"game_id": "nba_game_id"})
+        ref["nba_game_id"] = ref["nba_game_id"].astype(str)
+
+        # Build (date, home_team, away_team) → nba_game_id from game efficiency rows
+        eff_cols = pd.read_csv(game_eff_path, usecols=["date", "team_code", "nba_game_id"])
+        eff_cols["date"] = pd.to_datetime(eff_cols["date"])
+        eff_cols["nba_game_id"] = eff_cols["nba_game_id"].astype(str)
+        # Self-join on same game_id to get home and away
+        home_rows = eff_cols.rename(columns={"team_code": "home"})
+        away_rows = eff_cols.rename(columns={"team_code": "away"})
+        game_bridge = home_rows.merge(away_rows, on=["date", "nba_game_id"]).query("home != away")
+        game_bridge = game_bridge.drop_duplicates(subset=["date", "home", "away"])
+
+        # Join referee features onto the bridge then onto training data
+        game_bridge = game_bridge.merge(ref, on="nba_game_id", how="left")
+        df = df.merge(
+            game_bridge[["date", "home", "away", "crew_total_pts_avg"]],
+            on=["date", "home", "away"], how="left",
+        )
+        # NaN rows (no referee match) are left as NaN — XGBoost handles missing natively
+    else:
+        df["crew_total_pts_avg"] = float("nan")
+
+    return df
+
+
+def merge_game_efficiency(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Join per-game rolling ortg/drtg/pace onto each training row.
+    Matches on (date, team_code) — rolling values are pre-shifted so no leakage.
+    Falls back to column mean when a team/date has no prior game data.
+    """
+    if not GAME_EFFICIENCY_PATH.exists():
+        raise FileNotFoundError(
+            f"Game efficiency data not found: {GAME_EFFICIENCY_PATH}\n"
+            "Run: python3 -m ml.nba_spread.fetch_game_efficiency"
+        )
+    eff = pd.read_csv(GAME_EFFICIENCY_PATH, parse_dates=["date"])
+
+    roll_cols = ["ortg_avg5", "drtg_avg5", "pace_avg5", "ts_avg5", "ortg_avg10", "drtg_avg10"]
+
+    home_eff = eff.rename(columns={
+        "team_code": "home",
+        **{c: f"home_{c}" for c in roll_cols},
+    })[["date", "home"] + [f"home_{c}" for c in roll_cols]]
+
+    away_eff = eff.rename(columns={
+        "team_code": "away",
+        **{c: f"away_{c}" for c in roll_cols},
+    })[["date", "away"] + [f"away_{c}" for c in roll_cols]]
+
+    merged = df.merge(home_eff, on=["date", "home"], how="left")
+    merged = merged.merge(away_eff, on=["date", "away"], how="left")
+
+    # Neutral priors for missing efficiency data (e.g., expansion teams, first season)
+    # Using historical NBA averages rather than future-looking column.mean()
+    _EFF_DEFAULTS = {
+        "ortg_avg5": 110.0, "drtg_avg5": 110.0, "pace_avg5": 98.0,
+        "ts_avg5": 0.55, "ortg_avg10": 110.0, "drtg_avg10": 110.0,
+    }
+    for side in ("home", "away"):
+        for c in roll_cols:
+            col = f"{side}_{c}"
+            merged[col] = merged[col].fillna(_EFF_DEFAULTS.get(c, 0.0))
+
+    merged["ortg_avg5_diff"]   = merged["home_ortg_avg5"] - merged["away_ortg_avg5"]
+    merged["drtg_avg5_diff"]   = merged["home_drtg_avg5"] - merged["away_drtg_avg5"]
+    merged["net_rtg_avg5_diff"] = (merged["home_ortg_avg5"] - merged["home_drtg_avg5"]) \
+                                 - (merged["away_ortg_avg5"] - merged["away_drtg_avg5"])
+    merged["pace_avg5_diff"]   = merged["home_pace_avg5"] - merged["away_pace_avg5"]
+    return merged
+
+
 def load_and_prepare_dataset(csv_path: Path) -> Tuple[pd.DataFrame, pd.DataFrame]:
     df = pd.read_csv(csv_path)
     df.columns = [c.strip() for c in df.columns]
@@ -263,8 +515,21 @@ def load_and_prepare_dataset(csv_path: Path) -> Tuple[pd.DataFrame, pd.DataFrame
 
     team_games = build_team_games(model_df)
     model_df = merge_team_features(model_df, team_games)
-    model_df[FEATURE_COLUMNS] = model_df[FEATURE_COLUMNS].fillna(0)
+    model_df = merge_game_efficiency(model_df)
+    model_df = merge_advanced_features(model_df)
 
+    # Per-column defaults — avoids bad 0-fills for features where 0 is misleading.
+    # crew_total_pts_avg intentionally left out: referee data only covers 2021+,
+    # so ~72% of rows are NaN — XGBoost handles missing natively (learns direction
+    # for each split), which outperforms filling with an arbitrary 215.0 constant.
+    _FINAL_DEFAULTS: dict[str, float] = {
+        "home_q4_cover_rate5": 0.5, "away_q4_cover_rate5": 0.5,
+        "home_cover_rate_5": 0.5, "away_cover_rate_5": 0.5,
+        "home_cover_rate_10": 0.5, "away_cover_rate_10": 0.5,
+    }
+    for col in FEATURE_COLUMNS:
+        if col in model_df.columns:
+            model_df[col] = model_df[col].fillna(_FINAL_DEFAULTS.get(col, 0.0))
     return model_df, team_games
 
 
@@ -329,15 +594,15 @@ def train_model(train_df: pd.DataFrame) -> XGBClassifier:
     y_train = train_df["home_covered"]
 
     model = XGBClassifier(
-        n_estimators=500,
+        n_estimators=600,
         max_depth=4,
-        learning_rate=0.03,
+        learning_rate=0.025,
         subsample=0.8,
-        colsample_bytree=0.75,
-        reg_lambda=2.0,
+        colsample_bytree=0.65,
+        reg_lambda=2.5,
         reg_alpha=0.5,
-        min_child_weight=4,
-        gamma=0.1,
+        min_child_weight=5,
+        gamma=0.15,
         objective="binary:logistic",
         eval_metric="logloss",
         random_state=42,

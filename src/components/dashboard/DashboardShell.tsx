@@ -8,6 +8,7 @@ import BetSlip from "@/components/BetSlip";
 import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
 import AskAce from "@/components/AskAce";
+import ModelPerformanceCard from "@/components/ModelPerformanceCard";
 import { Search, Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getSignalsForGame, hasHighSeveritySignal } from "@/lib/signals";
@@ -320,6 +321,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
         <div className="flex-1 overflow-y-auto scrollbar-hide">
           <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
+          <ModelPerformanceCard />
 
           {liveGames.length > 0 && (
             <>
