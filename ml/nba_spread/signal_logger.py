@@ -35,12 +35,24 @@ Usage (CLI):
 from __future__ import annotations
 
 import argparse
+import math
 import sqlite3
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 DB_PATH = Path(__file__).resolve().parent / "data" / "signal_log.db"
+
+
+def _null_float(v: Any) -> Optional[float]:
+    """Convert NaN / None / empty-string to None for SQLite storage."""
+    if v is None or v == "":
+        return None
+    try:
+        f = float(v)
+        return None if math.isnan(f) else f
+    except (TypeError, ValueError):
+        return None
 
 # ---------------------------------------------------------------------------
 # CLV computation — pure functions, no I/O, easy to unit-test
@@ -182,6 +194,38 @@ def init_db(path: Path = DB_PATH) -> None:
         CREATE INDEX IF NOT EXISTS idx_signal_status  ON signal_log(status);
         CREATE INDEX IF NOT EXISTS idx_signal_game_id ON signal_log(game_id);
         CREATE INDEX IF NOT EXISTS idx_snap_game      ON line_snapshots(game_id, captured_at);
+
+        CREATE TABLE IF NOT EXISTS predictions (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            logged_at             TEXT NOT NULL,
+            game_id               TEXT NOT NULL UNIQUE,
+            commence_time         TEXT,
+            season                TEXT,
+            home_team             TEXT,
+            away_team             TEXT,
+            home_line             REAL,
+            home_cover_prob       REAL,
+            away_cover_prob       REAL,
+            pick_side             TEXT,
+            pick_confidence       REAL,
+            is_bet                INTEGER DEFAULT 0,
+            model_version         TEXT,
+            threshold_used        REAL,
+            actual_home_covered   INTEGER,
+            result_status         TEXT NOT NULL DEFAULT 'pending',
+            correct               INTEGER,
+            notes                 TEXT DEFAULT '',
+            home_injury_impact    REAL DEFAULT 0.0,
+            away_injury_impact    REAL DEFAULT 0.0,
+            injury_data_available INTEGER DEFAULT 0,
+            pinnacle_prob         REAL,
+            edge_vs_pinnacle      REAL,
+            features_json         TEXT,
+            created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_pred_game_id ON predictions(game_id);
+        CREATE INDEX IF NOT EXISTS idx_pred_status  ON predictions(result_status);
     """)
     # Migrate existing DBs that predate these columns
     _migrate(conn)
@@ -264,25 +308,31 @@ def record_closing_proxy(
     game_id: str,
     closing_line: float,
     source: str = "odds_api_6pm",
+    force: bool = False,
     db_path: Path = DB_PATH,
 ) -> int:
     """
-    Update all open signals for game_id with the closing line proxy.
+    Update signals for game_id with the closing line proxy.
     Returns number of rows updated.
+
+    force=True  — overwrite even when closing_line is already set (used by the
+                  pregame cron to replace the 6pm_proxy with a truer close).
+    force=False — default; only fills rows where closing_line IS NULL.
     """
     init_db(db_path)
     conn = get_db(db_path)
     captured_at = datetime.now(timezone.utc).isoformat()
+    null_guard = "" if force else "AND closing_line IS NULL"
     cursor = conn.execute(
-        """
+        f"""
         UPDATE signal_log
-        SET closing_line       = ?,
-            closing_source     = ?,
+        SET closing_line        = ?,
+            closing_source      = ?,
             closing_captured_at = ?,
-            status             = 'proxy_captured'
+            status              = 'proxy_captured'
         WHERE game_id = ?
-          AND status  = 'open'
-          AND closing_line IS NULL
+          AND status IN ('open', 'proxy_captured')
+          {null_guard}
         """,
         (closing_line, source, captured_at, game_id),
     )
@@ -325,6 +375,191 @@ def save_snapshot(
     )
     conn.commit()
     conn.close()
+
+
+def log_prediction_db(row: Dict[str, Any], db_path: Path = DB_PATH) -> None:
+    """
+    INSERT OR IGNORE a prediction row into the predictions table.
+    Silently skips duplicates (same game_id) — idempotent by design.
+
+    Expected keys in `row` (all optional except game_id / logged_at):
+      game_id, logged_at, commence_time, season,
+      home_team, away_team, home_line,
+      home_cover_prob, away_cover_prob, pick_side, pick_confidence,
+      is_bet, model_version, threshold_used,
+      home_injury_impact, away_injury_impact, injury_data_available,
+      pinnacle_prob, edge_vs_pinnacle, features_json
+    """
+    init_db(db_path)
+    conn = get_db(db_path)
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO predictions (
+            logged_at, game_id, commence_time, season,
+            home_team, away_team, home_line,
+            home_cover_prob, away_cover_prob, pick_side, pick_confidence,
+            is_bet, model_version, threshold_used,
+            home_injury_impact, away_injury_impact, injury_data_available,
+            pinnacle_prob, edge_vs_pinnacle, features_json,
+            result_status
+        ) VALUES (
+            :logged_at, :game_id, :commence_time, :season,
+            :home_team, :away_team, :home_line,
+            :home_cover_prob, :away_cover_prob, :pick_side, :pick_confidence,
+            :is_bet, :model_version, :threshold_used,
+            :home_injury_impact, :away_injury_impact, :injury_data_available,
+            :pinnacle_prob, :edge_vs_pinnacle, :features_json,
+            'pending'
+        )
+        """,
+        {
+            "logged_at":             row.get("logged_at", datetime.now(timezone.utc).isoformat()),
+            "game_id":               row["game_id"],
+            "commence_time":         row.get("commence_time"),
+            "season":                row.get("season"),
+            "home_team":             row.get("home_team"),
+            "away_team":             row.get("away_team"),
+            "home_line":             _null_float(row.get("home_line")),
+            "home_cover_prob":       _null_float(row.get("home_cover_prob")),
+            "away_cover_prob":       _null_float(row.get("away_cover_prob")),
+            "pick_side":             row.get("pick_side"),
+            "pick_confidence":       _null_float(row.get("pick_confidence")),
+            "is_bet":                int(bool(row.get("is_bet", 0))),
+            "model_version":         row.get("model_version"),
+            "threshold_used":        _null_float(row.get("threshold_used")),
+            "home_injury_impact":    _null_float(row.get("home_injury_impact", 0.0)),
+            "away_injury_impact":    _null_float(row.get("away_injury_impact", 0.0)),
+            "injury_data_available": int(bool(row.get("injury_data_available", 0))),
+            "pinnacle_prob":         _null_float(row.get("pinnacle_prob")),
+            "edge_vs_pinnacle":      _null_float(row.get("edge_vs_pinnacle")),
+            "features_json":         row.get("features_json"),
+        },
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_prediction_result_db(
+    game_id: str,
+    actual_home_covered: Optional[int],
+    notes: str = "",
+    db_path: Path = DB_PATH,
+) -> int:
+    """
+    Set grading fields on a predictions row after the game is played.
+    Returns number of rows updated (0 if game_id not found).
+
+    actual_home_covered: 1=home covered, 0=away covered, None=push
+    correct: 1 if pick_side matches who covered, 0 otherwise, None on push
+    """
+    init_db(db_path)
+    conn = get_db(db_path)
+
+    pred = conn.execute(
+        "SELECT pick_side FROM predictions WHERE game_id = ?", (game_id,)
+    ).fetchone()
+
+    if not pred:
+        conn.close()
+        return 0
+
+    pick_side = pred["pick_side"]
+    if actual_home_covered is None:
+        correct = None
+        result_status = "push"
+    elif pick_side == "home":
+        correct = 1 if actual_home_covered == 1 else 0
+        result_status = "graded"
+    else:
+        correct = 1 if actual_home_covered == 0 else 0
+        result_status = "graded"
+
+    cursor = conn.execute(
+        """
+        UPDATE predictions
+        SET actual_home_covered = ?,
+            correct             = ?,
+            result_status       = ?,
+            notes               = CASE WHEN ? != '' THEN ? ELSE notes END
+        WHERE game_id = ?
+        """,
+        (actual_home_covered, correct, result_status, notes, notes, game_id),
+    )
+    updated = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def migrate_csv_to_db(csv_path: Path, db_path: Path = DB_PATH) -> int:
+    """
+    One-time migration: read model_performance.csv and INSERT OR IGNORE each
+    row into the predictions table. Returns number of rows inserted.
+
+    Skips rows already present (UNIQUE game_id constraint) — safe to re-run.
+    """
+    import csv as _csv
+
+    if not csv_path.exists():
+        print(f"  CSV not found: {csv_path}")
+        return 0
+
+    inserted = 0
+    with csv_path.open() as f:
+        reader = _csv.DictReader(f)
+        for raw in reader:
+            game_id = raw.get("game_id", "").strip()
+            if not game_id:
+                continue
+
+            result_status = raw.get("result_status", "pending").strip()
+            correct_raw   = raw.get("correct", "").strip()
+            covered_raw   = raw.get("actual_home_covered", "").strip()
+
+            correct: Optional[int] = None
+            if correct_raw not in ("", "nan", "NaN"):
+                try:
+                    correct = int(float(correct_raw))
+                except ValueError:
+                    pass
+
+            actual_home_covered: Optional[int] = None
+            if covered_raw not in ("", "nan", "NaN"):
+                try:
+                    actual_home_covered = int(float(covered_raw))
+                except ValueError:
+                    pass
+
+            row: Dict[str, Any] = {
+                "logged_at":             raw.get("logged_at", "").strip(),
+                "game_id":               game_id,
+                "commence_time":         raw.get("commence_time", "").strip() or None,
+                "season":                raw.get("season", "").strip() or None,
+                "home_team":             raw.get("home_team", "").strip() or None,
+                "away_team":             raw.get("away_team", "").strip() or None,
+                "home_line":             raw.get("home_line"),
+                "home_cover_prob":       raw.get("home_cover_prob"),
+                "away_cover_prob":       raw.get("away_cover_prob"),
+                "pick_side":             raw.get("pick_side", "").strip() or None,
+                "pick_confidence":       raw.get("pick_confidence"),
+                "is_bet":                raw.get("is_bet", "0").strip(),
+                "model_version":         raw.get("model_version", "").strip() or None,
+                "threshold_used":        raw.get("threshold_used"),
+                "home_injury_impact":    raw.get("home_injury_impact", "0.0"),
+                "away_injury_impact":    raw.get("away_injury_impact", "0.0"),
+                "injury_data_available": 0,
+                "pinnacle_prob":         raw.get("pinnacle_prob"),
+                "edge_vs_pinnacle":      raw.get("edge_vs_pinnacle"),
+                "features_json":         None,
+            }
+            log_prediction_db(row, db_path)
+
+            if result_status in ("graded", "push") and correct is not None:
+                update_prediction_result_db(game_id, actual_home_covered, "", db_path)
+
+            inserted += 1
+
+    return inserted
 
 
 def grade_signal(
@@ -800,7 +1035,7 @@ def _cmd_log(args: argparse.Namespace) -> None:
     print(f"    status: open  |  CLV pending closing line (~6pm ET)")
 
 
-def _cmd_status(args: argparse.Namespace) -> None:
+def _cmd_status(_args: argparse.Namespace) -> None:
     signals = get_open_signals()
     print(f"\n  Open / pending signals: {len(signals)}\n")
     if not signals:

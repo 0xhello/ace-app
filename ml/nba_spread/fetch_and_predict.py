@@ -153,25 +153,21 @@ def _save_snapshots(upcoming: List[Dict[str, Any]], label: str) -> int:
     return saved
 
 
-def _record_closing_proxies(upcoming: List[Dict[str, Any]]) -> int:
+def _record_closing_proxies(upcoming: List[Dict[str, Any]], force: bool = False) -> int:
     """
     For every open signal whose game_id is in the current odds fetch,
     record the current spread as the closing-line proxy.
 
-    Tries to use the same book the signal was originally logged with.
-    Falls back to the preferred-book order if that book is no longer
-    available, and marks the source as '<book>_fallback' so the mismatch
-    is visible in the data.
+    force=True — used by the pregame cron to overwrite the 6pm_proxy line
+                 with a truer closing number captured closer to tip-off.
     """
     updated_total = 0
     for game in upcoming:
         game_id = game["id"]
-        # Find which book the open signal was logged with
         preferred = get_signal_execution_source(game_id)
         home_line, _, book = _extract_spread(game, preferred_book=preferred)
         if home_line is None:
             continue
-        # Flag if we couldn't match the original book
         if preferred and book != preferred:
             source = f"{book}_fallback"
         else:
@@ -180,6 +176,7 @@ def _record_closing_proxies(upcoming: List[Dict[str, Any]]) -> int:
             game_id=game_id,
             closing_line=home_line,
             source=source,
+            force=force,
         )
     return updated_total
 
@@ -275,12 +272,15 @@ def run(
     n_saved = _save_snapshots(upcoming, label)
     print(f"  Snapshots saved: {n_saved} games  (label={label!r})")
 
-    # On 6pm_proxy runs: stamp open signals + auto-detect line movements
-    if label == "6pm_proxy":
-        n_updated = _record_closing_proxies(upcoming)
+    # On 6pm_proxy / pregame runs: stamp open signals with closing line proxy.
+    # pregame uses force=True to overwrite the 6pm_proxy line with a truer close.
+    # detect_line_movements only fires on 6pm_proxy (movements already decided by then).
+    if label in ("6pm_proxy", "pregame"):
+        n_updated = _record_closing_proxies(upcoming, force=(label == "pregame"))
         if n_updated:
             print(f"  Closing proxies recorded: {n_updated} signal row(s) updated")
 
+    if label == "6pm_proxy":
         new_signals = detect_line_movements(game_date=_et_today())
         if new_signals:
             print(f"  Line movement signals auto-logged: {len(new_signals)}")
@@ -337,7 +337,7 @@ def run(
             edge = None
             is_bet = conf >= threshold
 
-        log_prediction(row.to_dict(), is_bet=is_bet)
+        log_prediction(row.to_dict(), is_bet=is_bet, threshold_used=threshold)
         logged += 1
         if is_bet:
             bets += 1

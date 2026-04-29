@@ -28,8 +28,11 @@ MODEL_VERSION = "nba_spread_xgb_v2"
 _LATE_ADD_COLUMNS: Dict[str, Any] = {
     "home_injury_impact": 0.0,
     "away_injury_impact": 0.0,
-    "pinnacle_prob": "",      # Pinnacle de-vigged implied probability for home covering
-    "edge_vs_pinnacle": "",   # model_home_cover_prob - pinnacle_prob (our claimed edge)
+    "pinnacle_prob": "",
+    "edge_vs_pinnacle": "",
+    "threshold_used": "",
+    "injury_data_available": 0,
+    "features_json": "",
 }
 
 
@@ -310,6 +313,13 @@ def predict_games(api_data: Iterable[Dict[str, Any]], apply_injuries: bool = Tru
     output = features[["game_id", "commence_time", "home_team", "away_team", "home_line"]].copy()
     output["raw_home_cover_prob"] = raw_probs
 
+    # Capture features_json before DataFrame is filtered — permanent snapshot of
+    # the exact vector fed to the model for each game.
+    feature_jsons = [
+        json.dumps({col: float(v) for col, v in zip(feature_columns, row)})
+        for row in features[feature_columns].to_numpy().tolist()
+    ]
+
     # --- Injury adjustment (post-hoc, not a trained feature) ---
     injury_data: Dict[str, Any] = {}
     if apply_injuries:
@@ -317,6 +327,7 @@ def predict_games(api_data: Iterable[Dict[str, Any]], apply_injuries: bool = Tru
             injury_data = fetch_injuries()
         except Exception:
             injury_data = {}
+    injury_data_available = 1 if injury_data else 0
 
     home_impacts = []
     away_impacts = []
@@ -357,6 +368,8 @@ def predict_games(api_data: Iterable[Dict[str, Any]], apply_injuries: bool = Tru
     output["pick_side"] = np.where(adj >= 0.5, "home", "away")
     output["pick_confidence"] = np.where(adj >= 0.5, adj, 1.0 - adj)
     output["model_version"] = MODEL_VERSION
+    output["features_json"] = feature_jsons
+    output["injury_data_available"] = injury_data_available
     return output
 
 
@@ -374,18 +387,29 @@ def _migrate_late_columns() -> None:
         df.to_csv(MODEL_PERFORMANCE_PATH, index=False)
 
 
-def log_prediction(prediction: Dict[str, Any], notes: str = "", is_bet: bool = False) -> None:
+def log_prediction(
+    prediction: Dict[str, Any],
+    notes: str = "",
+    is_bet: bool = False,
+    threshold_used: Optional[float] = None,
+) -> None:
+    from .signal_logger import log_prediction_db
+
     MODEL_PERFORMANCE_PATH.parent.mkdir(parents=True, exist_ok=True)
     _migrate_late_columns()
 
+    logged_at = datetime.utcnow().isoformat()
+
     pinnacle_prob = prediction.get("pinnacle_prob")
     edge = prediction.get("edge_vs_pinnacle")
-    # NaN from pandas becomes float('nan') in a dict — store as empty string for clean CSV
     pinnacle_prob_val = "" if pinnacle_prob is None or (isinstance(pinnacle_prob, float) and np.isnan(pinnacle_prob)) else round(float(pinnacle_prob), 5)
     edge_val = "" if edge is None or (isinstance(edge, float) and np.isnan(edge)) else round(float(edge), 5)
 
+    features_json_val = prediction.get("features_json") or ""
+    injury_available  = int(prediction.get("injury_data_available", 0))
+
     row = {
-        "logged_at": datetime.utcnow().isoformat(),
+        "logged_at": logged_at,
         "game_id": prediction.get("game_id"),
         "commence_time": prediction.get("commence_time"),
         "season": prediction.get("season", ""),
@@ -396,26 +420,27 @@ def log_prediction(prediction: Dict[str, Any], notes: str = "", is_bet: bool = F
         "away_cover_prob": prediction.get("away_cover_prob"),
         "pick_side": prediction.get("pick_side"),
         "pick_confidence": prediction.get("pick_confidence"),
-        # is_bet=1 means edge vs Pinnacle (or conf fallback) cleared the threshold
         "is_bet": int(is_bet),
         "model_version": prediction.get("model_version", MODEL_VERSION),
         "actual_home_covered": "",
         "result_status": "pending",
         "correct": "",
         "notes": notes,
-        # Late-add columns at END — must stay last to match _migrate_late_columns order
+        # Late-add columns — must stay last to match _migrate_late_columns order
         "home_injury_impact": prediction.get("home_injury_impact", 0.0),
         "away_injury_impact": prediction.get("away_injury_impact", 0.0),
         "pinnacle_prob": pinnacle_prob_val,
         "edge_vs_pinnacle": edge_val,
+        "threshold_used": threshold_used if threshold_used is not None else "",
+        "injury_data_available": injury_available,
+        "features_json": features_json_val,
     }
+
     with MODEL_PERFORMANCE_PATH.open("a", newline="") as fh:
         if fh.tell() == 0:
-            # New file: write header from dict order, which becomes the canonical order
             writer = csv.DictWriter(fh, fieldnames=list(row.keys()))
             writer.writeheader()
         else:
-            # Existing file: use the CSV's own header so appended rows always align
             with MODEL_PERFORMANCE_PATH.open(newline="") as rfh:
                 existing_fieldnames = next(csv.reader(rfh))
             for key in row:
@@ -424,8 +449,34 @@ def log_prediction(prediction: Dict[str, Any], notes: str = "", is_bet: bool = F
             writer = csv.DictWriter(fh, fieldnames=existing_fieldnames)
         writer.writerow(row)
 
+    # Mirror to SQLite — INSERT OR IGNORE keeps it idempotent
+    log_prediction_db({
+        "logged_at":             logged_at,
+        "game_id":               prediction.get("game_id"),
+        "commence_time":         prediction.get("commence_time"),
+        "season":                prediction.get("season"),
+        "home_team":             prediction.get("home_team"),
+        "away_team":             prediction.get("away_team"),
+        "home_line":             prediction.get("home_line"),
+        "home_cover_prob":       prediction.get("home_cover_prob"),
+        "away_cover_prob":       prediction.get("away_cover_prob"),
+        "pick_side":             prediction.get("pick_side"),
+        "pick_confidence":       prediction.get("pick_confidence"),
+        "is_bet":                int(is_bet),
+        "model_version":         prediction.get("model_version", MODEL_VERSION),
+        "threshold_used":        threshold_used,
+        "home_injury_impact":    prediction.get("home_injury_impact", 0.0),
+        "away_injury_impact":    prediction.get("away_injury_impact", 0.0),
+        "injury_data_available": injury_available,
+        "pinnacle_prob":         pinnacle_prob if not (isinstance(pinnacle_prob, float) and np.isnan(pinnacle_prob)) else None,
+        "edge_vs_pinnacle":      edge if not (isinstance(edge, float) and np.isnan(edge)) else None,
+        "features_json":         features_json_val or None,
+    })
+
 
 def update_prediction_result(game_id: str, actual_home_covered: int, notes: str = "") -> None:
+    from .signal_logger import update_prediction_result_db
+
     if not MODEL_PERFORMANCE_PATH.exists():
         raise FileNotFoundError(f"Performance log not found: {MODEL_PERFORMANCE_PATH}")
 
@@ -443,3 +494,6 @@ def update_prediction_result(game_id: str, actual_home_covered: int, notes: str 
     if notes:
         df.loc[mask, "notes"] = notes
     df.to_csv(MODEL_PERFORMANCE_PATH, index=False)
+
+    # Mirror grade to SQLite
+    update_prediction_result_db(game_id, actual_home_covered, notes)
