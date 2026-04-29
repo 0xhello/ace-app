@@ -85,11 +85,12 @@ export async function GET() {
   const logDir = path.join(process.cwd(), "ml", "logs");
   const csvPath = path.join(process.cwd(), "ml", "nba_spread", "data", "model_performance.csv");
 
-  const [stateMeta, gradeMeta, fetchMeta, snapshotMeta, csvText] = await Promise.all([
+  const [stateMeta, gradeMeta, fetchMeta, snapshotMeta, pregameMeta, csvText] = await Promise.all([
     readLogWithMtime(path.join(logDir, "state.log")),
     readLogWithMtime(path.join(logDir, "grade.log")),
     readLogWithMtime(path.join(logDir, "fetch.log")),
     readLogWithMtime(path.join(logDir, "snapshot.log")),
+    readLogWithMtime(path.join(logDir, "pregame.log")),
     fs.readFile(csvPath, "utf-8").catch(() => ""),
   ]);
 
@@ -97,14 +98,16 @@ export async function GET() {
   const gradeJob    = parseLog(gradeMeta.content);
   const fetchJob    = parseLog(fetchMeta.content);
   const snapshotJob = parseLog(snapshotMeta.content);
+  const pregameJob  = parseLog(pregameMeta.content);
 
   // state.log has no inline timestamp — use file mtime as fallback
   if (!stateJob.lastRunAt && stateMeta.mtimeMs) stateJob.lastRunAt = mtimeToTs(stateMeta.mtimeMs);
 
-  const jobs = { state: stateJob, grade: gradeJob, fetch: fetchJob, snapshot: snapshotJob };
+  const jobs = { state: stateJob, grade: gradeJob, fetch: fetchJob, snapshot: snapshotJob, pregame: pregameJob };
 
   // Latest quota = from the job whose log was modified most recently AND has a quota reading
   const jobsWithQuota = [
+    { quota: pregameJob.quotaRemaining,  mtime: pregameMeta.mtimeMs },
     { quota: snapshotJob.quotaRemaining, mtime: snapshotMeta.mtimeMs },
     { quota: fetchJob.quotaRemaining,    mtime: fetchMeta.mtimeMs },
     { quota: gradeJob.quotaRemaining,    mtime: gradeMeta.mtimeMs },

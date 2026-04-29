@@ -24,7 +24,7 @@ interface Pick {
 }
 
 interface PipelineData {
-  jobs: { state: JobStatus; grade: JobStatus; fetch: JobStatus; snapshot: JobStatus };
+  jobs: { state: JobStatus; grade: JobStatus; fetch: JobStatus; snapshot: JobStatus; pregame: JobStatus };
   latestQuota: number | null;
   picks: Pick[];
   model: {
@@ -395,6 +395,7 @@ export default function OpsPage() {
           <StatusDot label="Grade"    color={jobHealthColor(jobs?.grade    ?? emptyJob)} />
           <StatusDot label="Fetch"    color={jobHealthColor(jobs?.fetch    ?? emptyJob)} />
           <StatusDot label="Snapshot" color={jobHealthColor(jobs?.snapshot ?? emptyJob)} />
+          <StatusDot label="Pregame"  color={jobHealthColor(jobs?.pregame  ?? emptyJob)} />
           <div className="h-3 w-px bg-[#22251f]" />
           <span className="text-[10px] text-[#6b7068]">
             Quota <span className="font-mono text-[#9ca39a]">{pipeline?.latestQuota ?? "—"} / 500</span>
@@ -421,10 +422,11 @@ export default function OpsPage() {
         <div className="ace-panel p-5">
           <SectionHead title="Pipeline Health" icon={Activity} />
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <JobCard name="update_team_state"  cronPdt="8:00am"  cron="daily"  cronUtcHour={15} job={jobs?.state    ?? emptyJob} />
-            <JobCard name="grade_results"      cronPdt="9:00am"  cron="daily"  cronUtcHour={16} job={jobs?.grade    ?? emptyJob} />
-            <JobCard name="fetch_and_predict"  cronPdt="12:00pm" cron="daily"  cronUtcHour={19} job={jobs?.fetch    ?? emptyJob} />
-            <JobCard name="snapshot --6pm_proxy" cronPdt="3:00pm" cron="daily" cronUtcHour={22} job={jobs?.snapshot ?? emptyJob} />
+            <JobCard name="update_team_state"    cronPdt="8:00am"  cron="daily" cronUtcHour={15} job={jobs?.state    ?? emptyJob} />
+            <JobCard name="grade_results"        cronPdt="9:00am"  cron="daily" cronUtcHour={16} job={jobs?.grade    ?? emptyJob} />
+            <JobCard name="fetch_and_predict"    cronPdt="12:00pm" cron="daily" cronUtcHour={19} job={jobs?.fetch    ?? emptyJob} />
+            <JobCard name="snapshot --6pm_proxy" cronPdt="3:00pm"  cron="daily" cronUtcHour={22} job={jobs?.snapshot ?? emptyJob} />
+            <JobCard name="snapshot --pregame"   cronPdt="4:15pm"  cron="daily" cronUtcHour={23} job={jobs?.pregame  ?? emptyJob} />
           </div>
           {pipeline?.latestQuota != null && (
             <div className="flex items-center gap-3">
