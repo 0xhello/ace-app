@@ -55,12 +55,18 @@ function mtimeToTs(ms: number): string | null {
 
 interface CsvRow {
   logged_at: string;
+  commence_time: string;
+  home_team: string;
+  away_team: string;
+  home_line: string;
+  pick_side: string;
   result_status: string;
   correct: string;
   pick_confidence: string;
   is_bet: string;
   edge_vs_pinnacle: string;
   game_id: string;
+  model_version: string;
 }
 
 function parseCsv(text: string): CsvRow[] {
@@ -157,6 +163,27 @@ export async function GET() {
 
   const todayLogged = rows.filter((r) => r.logged_at.startsWith(etToday)).length;
 
+  // Full picks log, most recent first
+  const picks = rows.slice().reverse().map((r) => {
+    const line = parseFloat(r.home_line);
+    const conf = parseFloat(r.pick_confidence);
+    const correct = r.correct ? parseFloat(r.correct) : null;
+    const edge = r.edge_vs_pinnacle ? parseFloat(r.edge_vs_pinnacle) : null;
+    return {
+      date: r.commence_time ? r.commence_time.slice(0, 10) : r.logged_at.slice(0, 10),
+      home: r.home_team,
+      away: r.away_team,
+      line: isNaN(line) ? null : line,
+      side: r.pick_side,
+      conf: isNaN(conf) ? null : conf,
+      isBet: parseFloat(r.is_bet) === 1,
+      status: r.result_status,
+      correct: isNaN(correct as number) ? null : correct,
+      edge: edge !== null && isNaN(edge) ? null : edge,
+      version: r.model_version,
+    };
+  });
+
   return NextResponse.json({
     jobs,
     latestQuota,
@@ -185,6 +212,7 @@ export async function GET() {
       buckets,
       todayLogged,
     },
+    picks,
     etToday,
     refreshedAt: new Date().toISOString(),
   });

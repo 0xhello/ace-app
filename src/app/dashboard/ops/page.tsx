@@ -17,9 +17,16 @@ interface JobStatus {
   truncated: boolean;
 }
 
+interface Pick {
+  date: string; home: string; away: string; line: number | null; side: string;
+  conf: number | null; isBet: boolean; status: string; correct: number | null;
+  edge: number | null; version: string;
+}
+
 interface PipelineData {
   jobs: { state: JobStatus; grade: JobStatus; fetch: JobStatus; snapshot: JobStatus };
   latestQuota: number | null;
+  picks: Pick[];
   model: {
     total: number; graded: number; pending: number; pushed: number;
     wins: number; losses: number; winRate: number | null; roi: number | null;
@@ -730,6 +737,68 @@ export default function OpsPage() {
             </div>
           </div>
         </div>
+
+        {/* ── F. Picks Log ── */}
+        {pipeline?.picks && pipeline.picks.length > 0 && (
+          <div className="ace-panel p-5">
+            <SectionHead title="Picks Log" icon={Database} />
+            <p className="text-[10px] text-[#6b7068] mb-4">
+              All model predictions · auto-updates each morning when grade cron runs · {pipeline.picks.length} total
+            </p>
+
+            {/* Column headers */}
+            <div className="grid grid-cols-[60px_1fr_80px_44px_52px_36px_52px_44px] gap-2 px-3 pb-1.5 border-b border-[#22251f]">
+              {["Date","Game","Pick","Conf","Edge","Bet","Status","Result"].map((h) => (
+                <span key={h} className="text-[8px] font-bold text-[#3a4033] uppercase tracking-widest">{h}</span>
+              ))}
+            </div>
+
+            <div className="divide-y divide-[#0f110f]">
+              {pipeline.picks.map((p, i) => {
+                const pickLine = p.line !== null
+                  ? (p.side === "home" ? p.line : -p.line)
+                  : null;
+                const pickLabel = p.side === "home"
+                  ? abbrevTeam(p.home)
+                  : abbrevTeam(p.away);
+                const lineStr = pickLine !== null
+                  ? ` ${pickLine > 0 ? "+" : ""}${pickLine}`
+                  : "";
+                const resultColor = p.correct === 1 ? "#3ee68a" : p.correct === 0 ? "#ef4444" : "#6b7068";
+                const resultLabel = p.correct === 1 ? "WIN" : p.correct === 0 ? "LOSS" : p.status === "pending" ? "–" : "PUSH";
+                const edgeColor = p.edge !== null ? (p.edge >= 0.04 ? "#3ee68a" : p.edge <= -0.04 ? "#ef4444" : "#9ca39a") : "#3a4033";
+                const rowBg = p.status === "pending" ? "bg-[#0d0f0d]" : "";
+
+                return (
+                  <div key={i} className={cn(
+                    "grid grid-cols-[60px_1fr_80px_44px_52px_36px_52px_44px] gap-2 items-center px-3 py-2",
+                    rowBg
+                  )}>
+                    <span className="text-[9px] text-[#6b7068]">{fmtDate(p.date)}</span>
+                    <span className="text-[10px] text-[#9ca39a] truncate">{abbrevTeam(p.away)} @ {abbrevTeam(p.home)}</span>
+                    <span className="text-[9px] font-mono text-white truncate">{pickLabel}{lineStr}</span>
+                    <span className="text-[9px] font-mono text-[#6b7068]">{p.conf !== null ? `${(p.conf * 100).toFixed(0)}%` : "—"}</span>
+                    <span className="text-[9px] font-mono" style={{ color: edgeColor }}>
+                      {p.edge !== null ? `${p.edge >= 0 ? "+" : ""}${(p.edge * 100).toFixed(1)}pp` : "—"}
+                    </span>
+                    <span className={cn("text-[9px] font-bold", p.isBet ? "text-[#3ee68a]" : "text-[#3a4033]")}>
+                      {p.isBet ? "✓" : "—"}
+                    </span>
+                    <span className={cn(
+                      "text-[8px] uppercase tracking-widest font-semibold",
+                      p.status === "pending" ? "text-[#f5c062]" : "text-[#4a524a]"
+                    )}>{p.status}</span>
+                    <span className="text-[9px] font-bold text-right" style={{ color: resultColor }}>{resultLabel}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="text-[9px] text-[#3a4033] mt-3">
+              Source: ml/nba_spread/model_performance.csv · Edge = model prob − Pinnacle implied prob · Bet = high-confidence flag (is_bet=1)
+            </p>
+          </div>
+        )}
 
         {/* ── Footer ── */}
         <p className="text-[9px] text-[#27272a] text-center pb-4">
