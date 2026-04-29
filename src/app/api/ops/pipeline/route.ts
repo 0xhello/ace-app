@@ -83,7 +83,7 @@ function parseCsv(text: string): CsvRow[] {
 
 export async function GET() {
   const logDir = path.join(process.cwd(), "ml", "logs");
-  const csvPath = path.join(process.cwd(), "ml", "nba_spread", "model_performance.csv");
+  const csvPath = path.join(process.cwd(), "ml", "nba_spread", "data", "model_performance.csv");
 
   const [stateMeta, gradeMeta, fetchMeta, snapshotMeta, csvText] = await Promise.all([
     readLogWithMtime(path.join(logDir, "state.log")),
