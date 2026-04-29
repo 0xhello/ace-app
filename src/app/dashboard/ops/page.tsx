@@ -795,14 +795,14 @@ export default function OpsPage() {
             </div>
 
             <p className="text-[9px] text-[#3a4033] mt-3">
-              Source: ml/nba_spread/model_performance.csv · Edge = model prob − Pinnacle implied prob · Bet = high-confidence flag (is_bet=1)
+              Source: ml/nba_spread/data/model_performance.csv · Edge = model prob − Pinnacle implied prob · Bet = high-confidence flag (is_bet=1)
             </p>
           </div>
         )}
 
         {/* ── Footer ── */}
         <p className="text-[9px] text-[#27272a] text-center pb-4">
-          ACE Ops · Internal only · Auto-refreshes every 60s · ml/logs · model_performance.csv · signal_log.db
+          ACE Ops · Internal only · Auto-refreshes every 60s · ml/logs · data/model_performance.csv · data/signal_log.db
         </p>
       </div>
     </div>
