@@ -21,7 +21,7 @@ from .train_spread_model import (
 )
 
 MODULE_DIR = Path(__file__).resolve().parent
-MODEL_PERFORMANCE_PATH = MODULE_DIR / "model_performance.csv"
+MODEL_PERFORMANCE_PATH = MODULE_DIR / "data" / "model_performance.csv"
 MODEL_VERSION = "nba_spread_xgb_v2"
 
 # Columns added after initial release — all migrated in on first write if missing
