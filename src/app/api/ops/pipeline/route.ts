@@ -82,42 +82,64 @@ function parseCsv(text: string): CsvRow[] {
 }
 
 export async function GET() {
-  const logDir = path.join(process.cwd(), "ml", "logs");
-  const csvPath = path.join(process.cwd(), "ml", "nba_spread", "data", "model_performance.csv");
+  const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
+  const logDir = path.join(appRoot, "ml", "logs");
+  const csvPath = path.join(appRoot, "ml", "nba_spread", "data", "model_performance.csv");
 
-  const [stateMeta, gradeMeta, fetchMeta, snapshotMeta, pregameMeta, csvText] = await Promise.all([
+  const segmentsPath   = path.join(appRoot, "ml", "nba_spread", "artifacts", "model_performance_segments.json");
+  const archetypesPath = path.join(appRoot, "ml", "nba_spread", "artifacts", "team_archetypes.json");
+
+  const [stateMeta, gradeMeta, fetchMeta, snapshotMeta, pregameMeta, morningMeta, middayMeta, closingEarlyMeta, closingLateMeta, csvText, segmentsRaw, archetypesRaw] = await Promise.all([
     readLogWithMtime(path.join(logDir, "state.log")),
     readLogWithMtime(path.join(logDir, "grade.log")),
     readLogWithMtime(path.join(logDir, "fetch.log")),
     readLogWithMtime(path.join(logDir, "snapshot.log")),
     readLogWithMtime(path.join(logDir, "pregame.log")),
+    readLogWithMtime(path.join(logDir, "snapshot_morning.log")),
+    readLogWithMtime(path.join(logDir, "snapshot_midday.log")),
+    readLogWithMtime(path.join(logDir, "snapshot_closing_early.log")),
+    readLogWithMtime(path.join(logDir, "snapshot_closing_late.log")),
     fs.readFile(csvPath, "utf-8").catch(() => ""),
+    fs.readFile(segmentsPath, "utf-8").catch(() => ""),
+    fs.readFile(archetypesPath, "utf-8").catch(() => ""),
   ]);
 
-  const stateJob    = parseLog(stateMeta.content);
-  const gradeJob    = parseLog(gradeMeta.content);
-  const fetchJob    = parseLog(fetchMeta.content);
-  const snapshotJob = parseLog(snapshotMeta.content);
-  const pregameJob  = parseLog(pregameMeta.content);
+  const stateJob        = parseLog(stateMeta.content);
+  const gradeJob        = parseLog(gradeMeta.content);
+  const fetchJob        = parseLog(fetchMeta.content);
+  const snapshotJob     = parseLog(snapshotMeta.content);
+  const pregameJob      = parseLog(pregameMeta.content);
+  const morningJob      = parseLog(morningMeta.content);
+  const middayJob       = parseLog(middayMeta.content);
+  const closingEarlyJob = parseLog(closingEarlyMeta.content);
+  const closingLateJob  = parseLog(closingLateMeta.content);
 
   // state.log has no inline timestamp — use file mtime as fallback
   if (!stateJob.lastRunAt && stateMeta.mtimeMs) stateJob.lastRunAt = mtimeToTs(stateMeta.mtimeMs);
 
-  const jobs = { state: stateJob, grade: gradeJob, fetch: fetchJob, snapshot: snapshotJob, pregame: pregameJob };
+  const jobs = {
+    state: stateJob, grade: gradeJob, fetch: fetchJob,
+    snapshot: snapshotJob, pregame: pregameJob,
+    morning: morningJob, midday: middayJob,
+    closing_early: closingEarlyJob, closing_late: closingLateJob,
+  };
 
   // Latest quota = from the job whose log was modified most recently AND has a quota reading
   const jobsWithQuota = [
-    { quota: pregameJob.quotaRemaining,  mtime: pregameMeta.mtimeMs },
-    { quota: snapshotJob.quotaRemaining, mtime: snapshotMeta.mtimeMs },
-    { quota: fetchJob.quotaRemaining,    mtime: fetchMeta.mtimeMs },
-    { quota: gradeJob.quotaRemaining,    mtime: gradeMeta.mtimeMs },
-    { quota: stateJob.quotaRemaining,    mtime: stateMeta.mtimeMs },
+    { quota: closingLateJob.quotaRemaining,  mtime: closingLateMeta.mtimeMs },
+    { quota: closingEarlyJob.quotaRemaining, mtime: closingEarlyMeta.mtimeMs },
+    { quota: pregameJob.quotaRemaining,      mtime: pregameMeta.mtimeMs },
+    { quota: snapshotJob.quotaRemaining,     mtime: snapshotMeta.mtimeMs },
+    { quota: middayJob.quotaRemaining,       mtime: middayMeta.mtimeMs },
+    { quota: morningJob.quotaRemaining,      mtime: morningMeta.mtimeMs },
+    { quota: fetchJob.quotaRemaining,        mtime: fetchMeta.mtimeMs },
+    { quota: gradeJob.quotaRemaining,        mtime: gradeMeta.mtimeMs },
+    { quota: stateJob.quotaRemaining,        mtime: stateMeta.mtimeMs },
   ].filter((j): j is { quota: number; mtime: number } => j.quota !== null);
   jobsWithQuota.sort((a, b) => b.mtime - a.mtime);
   const latestQuota = jobsWithQuota[0]?.quota ?? null;
 
-  // ET today (UTC-5 conservative)
-  const etToday = new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10);
+  const etToday = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
   // Model stats from CSV
   const rows = parseCsv(csvText);
@@ -217,6 +239,8 @@ export async function GET() {
     },
     picks,
     etToday,
+    segments: segmentsRaw ? (() => { try { return JSON.parse(segmentsRaw); } catch { return null; } })() : null,
+    archetypes: archetypesRaw ? (() => { try { return JSON.parse(archetypesRaw); } catch { return null; } })() : null,
     refreshedAt: new Date().toISOString(),
   });
 }

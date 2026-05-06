@@ -46,7 +46,8 @@ function teamLabel(code: string): string {
 }
 
 export async function GET() {
-  const csvPath = path.join(process.cwd(), "ml", "nba_spread", "data", "model_performance.csv");
+  const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
+  const csvPath = path.join(appRoot, "ml", "nba_spread", "data", "model_performance.csv");
 
   let rows: CsvRow[] = [];
   try {

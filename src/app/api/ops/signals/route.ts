@@ -4,13 +4,18 @@ import { spawnSync } from "child_process";
 export const dynamic = "force-dynamic";
 
 // Runs as Python in the ace-app root — no PYTHONPATH needed, uses raw sqlite3 only.
+const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
+const dbPath = `${appRoot}/ml/nba_spread/data/signal_log.db`;
+
 const PYTHON_QUERY = `
 import sqlite3, json, statistics
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-DB = 'ml/nba_spread/data/signal_log.db'
-et_today = (datetime.now(timezone.utc) - timedelta(hours=5)).strftime('%Y-%m-%d')
-stale_threshold = (datetime.now(timezone.utc) - timedelta(hours=5) - timedelta(days=3)).strftime('%Y-%m-%d')
+_TZ_ET = ZoneInfo('America/New_York')
+DB = ${JSON.stringify(dbPath)}
+et_today = datetime.now(_TZ_ET).strftime('%Y-%m-%d')
+stale_threshold = (datetime.now(_TZ_ET) - timedelta(days=3)).strftime('%Y-%m-%d')
 
 try:
     conn = sqlite3.connect(DB)
@@ -30,9 +35,9 @@ try:
     pct_pos = round(sum(1 for v in clv_vals if v > 0) / len(clv_vals) * 100, 1) if clv_vals else None
 
     same = [r['clv_points'] for r in graded_rows
-            if r['clv_points'] is not None and r['closing_source'] and 'fallback' not in r['closing_source']]
+            if r['clv_points'] is not None and r['closing_source'] == 'pinnacle']
     fall = [r['clv_points'] for r in graded_rows
-            if r['clv_points'] is not None and r['closing_source'] and 'fallback' in r['closing_source']]
+            if r['clv_points'] is not None and r['closing_source'] and r['closing_source'] != 'pinnacle']
 
     today_sigs = conn.execute(
         'SELECT COUNT(*) n FROM signal_log WHERE game_date=?', (et_today,)
@@ -52,13 +57,14 @@ try:
     stale = [{'id': r['id'], 'game_date': r['game_date'],
               'home_team': r['home_team'], 'away_team': r['away_team']} for r in stale_rows]
 
-    # Open signals broken down by stage
+    # Open signals broken down by stage (include signal_type for display)
     open_signals = conn.execute(
-        'SELECT id, game_date, home_team, away_team, bet_side, line_at_signal, status FROM signal_log WHERE status IN ("open","proxy_captured")'
+        'SELECT id, game_date, home_team, away_team, bet_side, line_at_signal, status, signal_type FROM signal_log WHERE status IN ("open","proxy_captured") ORDER BY game_date ASC, id DESC'
     ).fetchall()
     open_list = [{'id': r['id'], 'game_date': r['game_date'], 'home_team': r['home_team'],
                   'away_team': r['away_team'], 'bet_side': r['bet_side'],
-                  'line_at_signal': r['line_at_signal'], 'status': r['status']} for r in open_signals]
+                  'line_at_signal': r['line_at_signal'], 'status': r['status'],
+                  'signal_type': r['signal_type']} for r in open_signals]
 
     # Recent graded signals for history table
     recent_rows = conn.execute(
@@ -73,6 +79,76 @@ try:
                       'clv': r['clv_points'], 'win': r['covered'],
                       'src': r['closing_source']} for r in recent_rows]
 
+    # Multi-book line tracking (book_lines table)
+    et_tomorrow = (datetime.now(_TZ_ET) + timedelta(days=1)).strftime('%Y-%m-%d')
+    try:
+        bl_total = conn.execute('SELECT COUNT(*) FROM book_lines').fetchone()[0]
+        bl_game_days = conn.execute('SELECT COUNT(DISTINCT game_date) FROM book_lines').fetchone()[0]
+        div_rows = conn.execute(
+            '''WITH latest AS (
+                 SELECT game_id, book, home_line, game_date, home_team, away_team, snapshot_label,
+                        ROW_NUMBER() OVER (PARTITION BY game_id, book ORDER BY captured_at DESC) AS rn
+                 FROM book_lines
+               )
+               SELECT l.game_date, l.home_team, l.away_team,
+                      p.home_line AS pinnacle_line,
+                      l.book, l.home_line AS book_line,
+                      ROUND(l.home_line - p.home_line, 2) AS divergence,
+                      l.snapshot_label
+               FROM latest l
+               JOIN latest p ON l.game_id = p.game_id AND p.book = "pinnacle" AND p.rn = 1
+               WHERE l.game_date IN (?, ?)
+                 AND l.book != "pinnacle"
+                 AND l.rn = 1
+                 AND ABS(l.home_line - p.home_line) >= 0.5
+               ORDER BY l.game_date ASC, ABS(l.home_line - p.home_line) DESC''',
+            (et_today, et_tomorrow)
+        ).fetchall()
+        divergences = [{'game_date': r['game_date'], 'home': r['home_team'], 'away': r['away_team'],
+                        'pinnacle_line': r['pinnacle_line'], 'book': r['book'],
+                        'book_line': r['book_line'], 'divergence': r['divergence'],
+                        'snapshot_label': r['snapshot_label']} for r in div_rows]
+        book_lines_data = {'total': bl_total, 'game_days': bl_game_days, 'divergences': divergences}
+    except Exception:
+        book_lines_data = {'total': 0, 'game_days': 0, 'divergences': []}
+
+    # Per-signal-type CLV breakdown.
+    # soft_book_divergence is deduplicated by (game_id, bet_side, game_date) so
+    # three books moving together count as one market observation, not three.
+    type_rows = conn.execute(
+        '''WITH deduped_div AS (
+               SELECT game_id, bet_side, game_date,
+                      AVG(clv_points) AS clv_points
+               FROM signal_log
+               WHERE status="graded" AND signal_type="soft_book_divergence"
+               GROUP BY game_id, bet_side, game_date
+           ),
+           other AS (
+               SELECT signal_type, clv_points
+               FROM signal_log
+               WHERE status="graded" AND signal_type != "soft_book_divergence"
+           )
+           SELECT "soft_book_divergence" AS signal_type,
+                  COUNT(*) AS n,
+                  ROUND(AVG(clv_points), 2) AS avg_clv,
+                  ROUND(100.0 * SUM(CASE WHEN clv_points > 0 THEN 1 ELSE 0 END)
+                        / NULLIF(COUNT(clv_points), 0), 1) AS pct_pos,
+                  COUNT(CASE WHEN clv_points IS NOT NULL THEN 1 END) AS graded
+           FROM deduped_div
+           UNION ALL
+           SELECT signal_type,
+                  COUNT(*) AS n,
+                  ROUND(AVG(clv_points), 2) AS avg_clv,
+                  ROUND(100.0 * SUM(CASE WHEN clv_points > 0 THEN 1 ELSE 0 END)
+                        / NULLIF(COUNT(clv_points), 0), 1) AS pct_pos,
+                  COUNT(CASE WHEN clv_points IS NOT NULL THEN 1 END) AS graded
+           FROM other
+           GROUP BY signal_type'''
+    ).fetchall()
+    by_type = {r['signal_type']: {'n': r['n'], 'avg_clv': r['avg_clv'],
+                                   'pct_pos': r['pct_pos'], 'graded': r['graded']}
+               for r in type_rows}
+
     conn.close()
     print(json.dumps({
         'by_status': by_status,
@@ -81,12 +157,14 @@ try:
             'avg': avg_clv, 'median': med_clv, 'pct_positive': pct_pos,
             'n': len(clv_vals), 'wins': wins, 'total_graded': len(graded_rows)
         },
-        'same_book': {'clv': round(sum(same) / len(same), 2) if same else None, 'n': len(same)},
-        'fallback':  {'clv': round(sum(fall) / len(fall), 2) if fall else None, 'n': len(fall)},
+        'pinnacle_close': {'clv': round(sum(same) / len(same), 2) if same else None, 'n': len(same)},
+        'non_pinnacle_close': {'clv': round(sum(fall) / len(fall), 2) if fall else None, 'n': len(fall)},
         'today': {'signals': today_sigs, 'snapshots': today_snaps, 'games': today_games},
         'stale': stale,
         'open_signals': open_list,
         'recent_graded': recent_graded,
+        'book_lines': book_lines_data,
+        'by_type': by_type,
         'et_today': et_today,
     }))
 except Exception as e:
