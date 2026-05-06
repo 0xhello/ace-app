@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import {
   Activity, AlertTriangle, CheckCircle2, XCircle, Clock,
   Database, TrendingUp, Zap, RefreshCw, Terminal, Brain,
-  BookMarked, PlusCircle, Wifi, Target, BarChart2, Info,
+  BookMarked, PlusCircle, Target, BarChart2, Info,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -234,16 +234,6 @@ function Bar({ wins, total, color }: { wins: number; total: number; color: strin
   return (
     <div className="h-1.5 rounded-full bg-[#1a1e1a] overflow-hidden">
       <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
-    </div>
-  );
-}
-
-function THead({ cols }: { cols: string[] }) {
-  return (
-    <div className="flex px-4 py-2.5 border-b border-[#181c18]">
-      {cols.map((c, i) => (
-        <span key={i} className="text-[8px] font-bold uppercase tracking-[0.14em] text-[#2e3328] flex-1 first:flex-[0_0_32px] last:text-right last:flex-none last:w-12">{c}</span>
-      ))}
     </div>
   );
 }
