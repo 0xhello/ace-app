@@ -1,0 +1,2709 @@
+{
+  "generated_at": "2026-05-03T12:00:03Z",
+  "source_url": "https://www.basketball-reference.com/leagues/NBA_2026_advanced.html",
+  "bpm_scale": 8.0,
+  "mp_scale": 28.0,
+  "starter_floor_impact": 0.1,
+  "players": {
+    "amen thompson": {
+      "name": "Amen Thompson",
+      "team": "hou",
+      "bpm": 2.6,
+      "mpg": 37.4,
+      "g": 79,
+      "impact": 0.325,
+      "tier": "bpm"
+    },
+    "kevin durant": {
+      "name": "Kevin Durant",
+      "team": "hou",
+      "bpm": 4.5,
+      "mpg": 36.4,
+      "g": 78,
+      "impact": 0.5625,
+      "tier": "bpm"
+    },
+    "desmond bane": {
+      "name": "Desmond Bane",
+      "team": "orl",
+      "bpm": 1.4,
+      "mpg": 33.6,
+      "g": 82,
+      "impact": 0.175,
+      "tier": "bpm"
+    },
+    "toumani camara": {
+      "name": "Toumani Camara",
+      "team": "por",
+      "bpm": -1.0,
+      "mpg": 33.3,
+      "g": 82,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jabari smith jr": {
+      "name": "Jabari Smith Jr.",
+      "team": "hou",
+      "bpm": -0.7,
+      "mpg": 35.1,
+      "g": 77,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "mikal bridges": {
+      "name": "Mikal Bridges",
+      "team": "ny",
+      "bpm": 2.7,
+      "mpg": 32.8,
+      "g": 82,
+      "impact": 0.3375,
+      "tier": "bpm"
+    },
+    "scottie barnes": {
+      "name": "Scottie Barnes",
+      "team": "tor",
+      "bpm": 4.2,
+      "mpg": 33.5,
+      "g": 80,
+      "impact": 0.525,
+      "tier": "bpm"
+    },
+    "tyrese maxey": {
+      "name": "Tyrese Maxey",
+      "team": "phi",
+      "bpm": 5.4,
+      "mpg": 38.0,
+      "g": 70,
+      "impact": 0.675,
+      "tier": "bpm"
+    },
+    "jamal murray": {
+      "name": "Jamal Murray",
+      "team": "den",
+      "bpm": 4.1,
+      "mpg": 35.4,
+      "g": 75,
+      "impact": 0.5125,
+      "tier": "bpm"
+    },
+    "derrick white": {
+      "name": "Derrick White",
+      "team": "bos",
+      "bpm": 3.2,
+      "mpg": 34.1,
+      "g": 77,
+      "impact": 0.4,
+      "tier": "bpm"
+    },
+    "vj edgecombe": {
+      "name": "VJ Edgecombe",
+      "team": "phi",
+      "bpm": -0.5,
+      "mpg": 35.0,
+      "g": 75,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "julius randle": {
+      "name": "Julius Randle",
+      "team": "min",
+      "bpm": 1.5,
+      "mpg": 33.0,
+      "g": 79,
+      "impact": 0.1875,
+      "tier": "bpm"
+    },
+    "brandon ingram": {
+      "name": "Brandon Ingram",
+      "team": "tor",
+      "bpm": 0.5,
+      "mpg": 33.8,
+      "g": 77,
+      "impact": 0.0625,
+      "tier": "bpm"
+    },
+    "nickeil alexander walker": {
+      "name": "Nickeil Alexander-Walker",
+      "team": "atl",
+      "bpm": 1.2,
+      "mpg": 33.4,
+      "g": 78,
+      "impact": 0.15,
+      "tier": "bpm"
+    },
+    "jalen brunson": {
+      "name": "Jalen Brunson",
+      "team": "ny",
+      "bpm": 3.1,
+      "mpg": 35.0,
+      "g": 74,
+      "impact": 0.3875,
+      "tier": "bpm"
+    },
+    "payton pritchard": {
+      "name": "Payton Pritchard",
+      "team": "bos",
+      "bpm": 2.3,
+      "mpg": 32.4,
+      "g": 79,
+      "impact": 0.2875,
+      "tier": "bpm"
+    },
+    "kon knueppel": {
+      "name": "Kon Knueppel",
+      "team": "cha",
+      "bpm": 2.8,
+      "mpg": 31.5,
+      "g": 81,
+      "impact": 0.35,
+      "tier": "bpm"
+    },
+    "jalen johnson": {
+      "name": "Jalen Johnson",
+      "team": "atl",
+      "bpm": 4.2,
+      "mpg": 35.2,
+      "g": 72,
+      "impact": 0.525,
+      "tier": "bpm"
+    },
+    "dyson daniels": {
+      "name": "Dyson Daniels",
+      "team": "atl",
+      "bpm": 1.3,
+      "mpg": 33.2,
+      "g": 76,
+      "impact": 0.1625,
+      "tier": "bpm"
+    },
+    "paolo banchero": {
+      "name": "Paolo Banchero",
+      "team": "orl",
+      "bpm": 1.4,
+      "mpg": 34.8,
+      "g": 72,
+      "impact": 0.175,
+      "tier": "bpm"
+    },
+    "donte divincenzo": {
+      "name": "Donte DiVincenzo",
+      "team": "min",
+      "bpm": 0.8,
+      "mpg": 30.4,
+      "g": 82,
+      "impact": 0.1,
+      "tier": "bpm"
+    },
+    "jaylen brown": {
+      "name": "Jaylen Brown",
+      "team": "bos",
+      "bpm": 3.3,
+      "mpg": 34.4,
+      "g": 71,
+      "impact": 0.4125,
+      "tier": "bpm"
+    },
+    "james harden": {
+      "name": "James Harden",
+      "team": "cle",
+      "bpm": 3.9,
+      "mpg": 34.8,
+      "g": 70,
+      "impact": 0.4875,
+      "tier": "bpm"
+    },
+    "demar derozan": {
+      "name": "DeMar DeRozan",
+      "team": "sac",
+      "bpm": -0.1,
+      "mpg": 31.2,
+      "g": 77,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "alperen sengun": {
+      "name": "Alperen \u015eeng\u00fcn",
+      "team": "hou",
+      "bpm": 4.2,
+      "mpg": 33.3,
+      "g": 72,
+      "impact": 0.525,
+      "tier": "bpm"
+    },
+    "miles bridges": {
+      "name": "Miles Bridges",
+      "team": "cha",
+      "bpm": 1.1,
+      "mpg": 31.0,
+      "g": 77,
+      "impact": 0.1375,
+      "tier": "bpm"
+    },
+    "rudy gobert": {
+      "name": "Rudy Gobert",
+      "team": "min",
+      "bpm": 1.0,
+      "mpg": 31.3,
+      "g": 76,
+      "impact": 0.125,
+      "tier": "bpm"
+    },
+    "ryan rollins": {
+      "name": "Ryan Rollins",
+      "team": "mil",
+      "bpm": 0.2,
+      "mpg": 32.1,
+      "g": 74,
+      "impact": 0.025,
+      "tier": "bpm"
+    },
+    "bam adebayo": {
+      "name": "Bam Adebayo",
+      "team": "mia",
+      "bpm": 2.0,
+      "mpg": 32.4,
+      "g": 73,
+      "impact": 0.25,
+      "tier": "bpm"
+    },
+    "cooper flagg": {
+      "name": "Cooper Flagg",
+      "team": "dal",
+      "bpm": 1.4,
+      "mpg": 33.5,
+      "g": 70,
+      "impact": 0.175,
+      "tier": "bpm"
+    },
+    "donovan mitchell": {
+      "name": "Donovan Mitchell",
+      "team": "cle",
+      "bpm": 5.1,
+      "mpg": 33.5,
+      "g": 70,
+      "impact": 0.6375,
+      "tier": "bpm"
+    },
+    "trey murphy iii": {
+      "name": "Trey Murphy III",
+      "team": "no",
+      "bpm": 2.4,
+      "mpg": 35.5,
+      "g": 66,
+      "impact": 0.3,
+      "tier": "bpm"
+    },
+    "brandin podziemski": {
+      "name": "Brandin Podziemski",
+      "team": "gs",
+      "bpm": 0.2,
+      "mpg": 28.5,
+      "g": 82,
+      "impact": 0.025,
+      "tier": "bpm"
+    },
+    "karl anthony towns": {
+      "name": "Karl-Anthony Towns",
+      "team": "ny",
+      "bpm": 3.3,
+      "mpg": 31.0,
+      "g": 75,
+      "impact": 0.4125,
+      "tier": "bpm"
+    },
+    "jaden mcdaniels": {
+      "name": "Jaden McDaniels",
+      "team": "min",
+      "bpm": -0.3,
+      "mpg": 31.7,
+      "g": 73,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "onyeka okongwu": {
+      "name": "Onyeka Okongwu",
+      "team": "atl",
+      "bpm": 0.7,
+      "mpg": 31.0,
+      "g": 74,
+      "impact": 0.0875,
+      "tier": "bpm"
+    },
+    "luka doncic": {
+      "name": "Luka Don\u010di\u0107",
+      "team": "lal",
+      "bpm": 9.3,
+      "mpg": 35.8,
+      "g": 64,
+      "impact": 1.0,
+      "tier": "bpm"
+    },
+    "wendell carter jr": {
+      "name": "Wendell Carter Jr.",
+      "team": "orl",
+      "bpm": -0.6,
+      "mpg": 29.3,
+      "g": 78,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "collin gillespie": {
+      "name": "Collin Gillespie",
+      "team": "phx",
+      "bpm": 2.5,
+      "mpg": 28.5,
+      "g": 80,
+      "impact": 0.3125,
+      "tier": "bpm"
+    },
+    "bub carrington": {
+      "name": "Bub Carrington",
+      "team": "wsh",
+      "bpm": -4.7,
+      "mpg": 27.7,
+      "g": 82,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "aj green": {
+      "name": "A.J. Green",
+      "team": "mil",
+      "bpm": -3.3,
+      "mpg": 29.1,
+      "g": 78,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "julian champagnie": {
+      "name": "Julian Champagnie",
+      "team": "sa",
+      "bpm": 1.4,
+      "mpg": 27.6,
+      "g": 82,
+      "impact": 0.1727,
+      "tier": "bpm"
+    },
+    "nikola jokic": {
+      "name": "Nikola Joki\u0107",
+      "team": "den",
+      "bpm": 14.2,
+      "mpg": 34.8,
+      "g": 65,
+      "impact": 1.0,
+      "tier": "bpm"
+    },
+    "cj mccollum": {
+      "name": "CJ McCollum",
+      "team": "atl",
+      "bpm": -0.3,
+      "mpg": 29.8,
+      "g": 76,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "shai gilgeous alexander": {
+      "name": "Shai Gilgeous-Alexander",
+      "team": "okc",
+      "bpm": 11.7,
+      "mpg": 33.2,
+      "g": 68,
+      "impact": 1.0,
+      "tier": "bpm"
+    },
+    "matas buzelis": {
+      "name": "Matas Buzelis",
+      "team": "chi",
+      "bpm": -1.0,
+      "mpg": 29.2,
+      "g": 77,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "saddiq bey": {
+      "name": "Saddiq Bey",
+      "team": "no",
+      "bpm": 0.5,
+      "mpg": 31.2,
+      "g": 72,
+      "impact": 0.0625,
+      "tier": "bpm"
+    },
+    "max christie": {
+      "name": "Max Christie",
+      "team": "dal",
+      "bpm": -1.5,
+      "mpg": 29.1,
+      "g": 77,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "de'aaron fox": {
+      "name": "De'Aaron Fox",
+      "team": "sa",
+      "bpm": 2.2,
+      "mpg": 31.0,
+      "g": 72,
+      "impact": 0.275,
+      "tier": "bpm"
+    },
+    "immanuel quickley": {
+      "name": "Immanuel Quickley",
+      "team": "tor",
+      "bpm": 2.4,
+      "mpg": 31.9,
+      "g": 70,
+      "impact": 0.3,
+      "tier": "bpm"
+    },
+    "kris dunn": {
+      "name": "Kris Dunn",
+      "team": "lac",
+      "bpm": -0.8,
+      "mpg": 27.2,
+      "g": 82,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "og anunoby": {
+      "name": "OG Anunoby",
+      "team": "ny",
+      "bpm": 2.0,
+      "mpg": 33.2,
+      "g": 67,
+      "impact": 0.25,
+      "tier": "bpm"
+    },
+    "royce o'neale": {
+      "name": "Royce O'Neale",
+      "team": "phx",
+      "bpm": 0.7,
+      "mpg": 28.4,
+      "g": 78,
+      "impact": 0.0875,
+      "tier": "bpm"
+    },
+    "quentin grimes": {
+      "name": "Quentin Grimes",
+      "team": "phi",
+      "bpm": -1.6,
+      "mpg": 29.4,
+      "g": 75,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "deni avdija": {
+      "name": "Deni Avdija",
+      "team": "por",
+      "bpm": 4.3,
+      "mpg": 33.3,
+      "g": 66,
+      "impact": 0.5375,
+      "tier": "bpm"
+    },
+    "naji marshall": {
+      "name": "Naji Marshall",
+      "team": "dal",
+      "bpm": -0.6,
+      "mpg": 29.5,
+      "g": 74,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "cade cunningham": {
+      "name": "Cade Cunningham",
+      "team": "det",
+      "bpm": 6.3,
+      "mpg": 33.9,
+      "g": 64,
+      "impact": 0.7875,
+      "tier": "bpm"
+    },
+    "reed sheppard": {
+      "name": "Reed Sheppard",
+      "team": "hou",
+      "bpm": 2.7,
+      "mpg": 26.2,
+      "g": 82,
+      "impact": 0.3156,
+      "tier": "bpm"
+    },
+    "devin booker": {
+      "name": "Devin Booker",
+      "team": "phx",
+      "bpm": 2.2,
+      "mpg": 33.5,
+      "g": 64,
+      "impact": 0.275,
+      "tier": "bpm"
+    },
+    "anthony edwards": {
+      "name": "Anthony Edwards",
+      "team": "min",
+      "bpm": 4.5,
+      "mpg": 35.0,
+      "g": 61,
+      "impact": 0.5625,
+      "tier": "bpm"
+    },
+    "tim hardaway jr": {
+      "name": "Tim Hardaway Jr.",
+      "team": "den",
+      "bpm": -0.7,
+      "mpg": 26.6,
+      "g": 80,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jaime jaquez jr": {
+      "name": "Jaime Jaquez Jr.",
+      "team": "mia",
+      "bpm": 0.1,
+      "mpg": 28.3,
+      "g": 75,
+      "impact": 0.0125,
+      "tier": "bpm"
+    },
+    "duncan robinson": {
+      "name": "Duncan Robinson",
+      "team": "det",
+      "bpm": 0.8,
+      "mpg": 27.4,
+      "g": 77,
+      "impact": 0.098,
+      "tier": "bpm"
+    },
+    "jeremiah fears": {
+      "name": "Jeremiah Fears",
+      "team": "no",
+      "bpm": -2.7,
+      "mpg": 25.8,
+      "g": 82,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "donovan clingan": {
+      "name": "Donovan Clingan",
+      "team": "por",
+      "bpm": 3.0,
+      "mpg": 27.2,
+      "g": 77,
+      "impact": 0.3642,
+      "tier": "bpm"
+    },
+    "kawhi leonard": {
+      "name": "Kawhi Leonard",
+      "team": "lac",
+      "bpm": 8.0,
+      "mpg": 32.1,
+      "g": 65,
+      "impact": 1.0,
+      "tier": "bpm"
+    },
+    "evan mobley": {
+      "name": "Evan Mobley",
+      "team": "cle",
+      "bpm": 3.0,
+      "mpg": 31.9,
+      "g": 65,
+      "impact": 0.375,
+      "tier": "bpm"
+    },
+    "andrew wiggins": {
+      "name": "Andrew Wiggins",
+      "team": "mia",
+      "bpm": 1.2,
+      "mpg": 30.3,
+      "g": 68,
+      "impact": 0.15,
+      "tier": "bpm"
+    },
+    "jake laravia": {
+      "name": "Jake LaRavia",
+      "team": "lal",
+      "bpm": -1.2,
+      "mpg": 25.1,
+      "g": 82,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "pascal siakam": {
+      "name": "Pascal Siakam",
+      "team": "ind",
+      "bpm": 0.7,
+      "mpg": 33.2,
+      "g": 62,
+      "impact": 0.0875,
+      "tier": "bpm"
+    },
+    "cason wallace": {
+      "name": "Cason Wallace",
+      "team": "okc",
+      "bpm": 1.2,
+      "mpg": 26.6,
+      "g": 77,
+      "impact": 0.1423,
+      "tier": "bpm"
+    },
+    "devin vassell": {
+      "name": "Devin Vassell",
+      "team": "sa",
+      "bpm": 0.5,
+      "mpg": 30.5,
+      "g": 67,
+      "impact": 0.0625,
+      "tier": "bpm"
+    },
+    "stephon castle": {
+      "name": "Stephon Castle",
+      "team": "sa",
+      "bpm": 1.9,
+      "mpg": 30.0,
+      "g": 68,
+      "impact": 0.2375,
+      "tier": "bpm"
+    },
+    "derik queen": {
+      "name": "Derik Queen",
+      "team": "no",
+      "bpm": -0.8,
+      "mpg": 25.0,
+      "g": 81,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "lamelo ball": {
+      "name": "LaMelo Ball",
+      "team": "cha",
+      "bpm": 4.7,
+      "mpg": 28.0,
+      "g": 72,
+      "impact": 0.5875,
+      "tier": "bpm"
+    },
+    "naz reid": {
+      "name": "Naz Reid",
+      "team": "min",
+      "bpm": 0.9,
+      "mpg": 26.1,
+      "g": 77,
+      "impact": 0.1047,
+      "tier": "bpm"
+    },
+    "davion mitchell": {
+      "name": "Davion Mitchell",
+      "team": "mia",
+      "bpm": -0.9,
+      "mpg": 28.6,
+      "g": 70,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "bruce brown": {
+      "name": "Bruce Brown",
+      "team": "den",
+      "bpm": -2.4,
+      "mpg": 24.4,
+      "g": 82,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "chet holmgren": {
+      "name": "Chet Holmgren",
+      "team": "okc",
+      "bpm": 4.2,
+      "mpg": 28.9,
+      "g": 69,
+      "impact": 0.525,
+      "tier": "bpm"
+    },
+    "josh hart": {
+      "name": "Josh Hart",
+      "team": "ny",
+      "bpm": 3.0,
+      "mpg": 30.2,
+      "g": 66,
+      "impact": 0.375,
+      "tier": "bpm"
+    },
+    "lebron james": {
+      "name": "LeBron James",
+      "team": "lal",
+      "bpm": 3.5,
+      "mpg": 33.1,
+      "g": 60,
+      "impact": 0.4375,
+      "tier": "bpm"
+    },
+    "ace bailey": {
+      "name": "Ace Bailey",
+      "team": "utah",
+      "bpm": -4.4,
+      "mpg": 27.6,
+      "g": 72,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "harrison barnes": {
+      "name": "Harrison Barnes",
+      "team": "sa",
+      "bpm": -0.1,
+      "mpg": 25.8,
+      "g": 77,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jalen duren": {
+      "name": "Jalen Duren",
+      "team": "det",
+      "bpm": 5.0,
+      "mpg": 28.2,
+      "g": 70,
+      "impact": 0.625,
+      "tier": "bpm"
+    },
+    "brandon miller": {
+      "name": "Brandon Miller",
+      "team": "cha",
+      "bpm": 1.6,
+      "mpg": 30.3,
+      "g": 65,
+      "impact": 0.2,
+      "tier": "bpm"
+    },
+    "maxime raynaud": {
+      "name": "Maxime Raynaud",
+      "team": "sac",
+      "bpm": -2.4,
+      "mpg": 26.5,
+      "g": 74,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "deandre ayton": {
+      "name": "Deandre Ayton",
+      "team": "lal",
+      "bpm": -0.9,
+      "mpg": 27.2,
+      "g": 72,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jarace walker": {
+      "name": "Jarace Walker",
+      "team": "ind",
+      "bpm": -2.4,
+      "mpg": 25.7,
+      "g": 76,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "sam hauser": {
+      "name": "Sam Hauser",
+      "team": "bos",
+      "bpm": 0.6,
+      "mpg": 24.8,
+      "g": 78,
+      "impact": 0.0664,
+      "tier": "bpm"
+    },
+    "rui hachimura": {
+      "name": "Rui Hachimura",
+      "team": "lal",
+      "bpm": -2.2,
+      "mpg": 28.3,
+      "g": 68,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "neemias queta": {
+      "name": "Neemias Queta",
+      "team": "bos",
+      "bpm": 2.8,
+      "mpg": 25.3,
+      "g": 76,
+      "impact": 0.3168,
+      "tier": "bpm"
+    },
+    "nic claxton": {
+      "name": "Nic Claxton",
+      "team": "bkn",
+      "bpm": 0.9,
+      "mpg": 27.8,
+      "g": 69,
+      "impact": 0.1118,
+      "tier": "bpm"
+    },
+    "myles turner": {
+      "name": "Myles Turner",
+      "team": "mil",
+      "bpm": -0.9,
+      "mpg": 26.9,
+      "g": 71,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "keldon johnson": {
+      "name": "Keldon Johnson",
+      "team": "sa",
+      "bpm": 0.9,
+      "mpg": 23.3,
+      "g": 82,
+      "impact": 0.0936,
+      "tier": "bpm"
+    },
+    "anthony black": {
+      "name": "Anthony Black",
+      "team": "orl",
+      "bpm": -0.6,
+      "mpg": 29.8,
+      "g": 64,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "tristan da silva": {
+      "name": "Tristan Da Silva",
+      "team": "orl",
+      "bpm": -0.6,
+      "mpg": 24.7,
+      "g": 77,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "moussa diabate": {
+      "name": "Moussa Diabat\u00e9",
+      "team": "cha",
+      "bpm": 1.7,
+      "mpg": 26.0,
+      "g": 73,
+      "impact": 0.1974,
+      "tier": "bpm"
+    },
+    "ausar thompson": {
+      "name": "Ausar Thompson",
+      "team": "det",
+      "bpm": 3.1,
+      "mpg": 26.0,
+      "g": 73,
+      "impact": 0.3594,
+      "tier": "bpm"
+    },
+    "nique clifford": {
+      "name": "Nique Clifford",
+      "team": "sac",
+      "bpm": -4.9,
+      "mpg": 25.1,
+      "g": 75,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "ayo dosunmu": {
+      "name": "Ayo Dosunmu",
+      "team": "min",
+      "bpm": 1.0,
+      "mpg": 27.3,
+      "g": 69,
+      "impact": 0.1217,
+      "tier": "bpm"
+    },
+    "john collins": {
+      "name": "John Collins",
+      "team": "lac",
+      "bpm": -0.5,
+      "mpg": 27.1,
+      "g": 69,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "draymond green": {
+      "name": "Draymond Green",
+      "team": "gs",
+      "bpm": -1.4,
+      "mpg": 27.5,
+      "g": 68,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "victor wembanyama": {
+      "name": "Victor Wembanyama",
+      "team": "sa",
+      "bpm": 10.7,
+      "mpg": 29.2,
+      "g": 64,
+      "impact": 1.0,
+      "tier": "bpm"
+    },
+    "russell westbrook": {
+      "name": "Russell Westbrook",
+      "team": "sac",
+      "bpm": -0.4,
+      "mpg": 29.0,
+      "g": 64,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jamal shead": {
+      "name": "Jamal Shead",
+      "team": "tor",
+      "bpm": -2.3,
+      "mpg": 22.6,
+      "g": 82,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "pelle larsson": {
+      "name": "Pelle Larsson",
+      "team": "mia",
+      "bpm": -1.2,
+      "mpg": 26.4,
+      "g": 70,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "luguentz dort": {
+      "name": "Luguentz Dort",
+      "team": "okc",
+      "bpm": -2.0,
+      "mpg": 26.8,
+      "g": 69,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "sion james": {
+      "name": "Sion James",
+      "team": "cha",
+      "bpm": -2.0,
+      "mpg": 22.5,
+      "g": 82,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "zion williamson": {
+      "name": "Zion Williamson",
+      "team": "no",
+      "bpm": 2.9,
+      "mpg": 29.7,
+      "g": 62,
+      "impact": 0.3625,
+      "tier": "bpm"
+    },
+    "jaylen wells": {
+      "name": "Jaylen Wells",
+      "team": "mem",
+      "bpm": -3.1,
+      "mpg": 26.4,
+      "g": 69,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "nikola vucevic": {
+      "name": "Nikola Vu\u010devi\u0107",
+      "team": "bos",
+      "bpm": 1.5,
+      "mpg": 28.4,
+      "g": 64,
+      "impact": 0.1875,
+      "tier": "bpm"
+    },
+    "oso ighodaro": {
+      "name": "Oso Ighodaro",
+      "team": "phx",
+      "bpm": 0.1,
+      "mpg": 22.0,
+      "g": 82,
+      "impact": 0.0098,
+      "tier": "bpm"
+    },
+    "kyle kuzma": {
+      "name": "Kyle Kuzma",
+      "team": "mil",
+      "bpm": -2.3,
+      "mpg": 26.2,
+      "g": 69,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "kyle filipowski": {
+      "name": "Kyle Filipowski",
+      "team": "utah",
+      "bpm": -1.1,
+      "mpg": 23.4,
+      "g": 77,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "andrew nembhard": {
+      "name": "Andrew Nembhard",
+      "team": "ind",
+      "bpm": -0.8,
+      "mpg": 31.3,
+      "g": 57,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "keyonte george": {
+      "name": "Keyonte George",
+      "team": "utah",
+      "bpm": 0.9,
+      "mpg": 33.1,
+      "g": 54,
+      "impact": 0.1125,
+      "tier": "bpm"
+    },
+    "noah clowney": {
+      "name": "Noah Clowney",
+      "team": "bkn",
+      "bpm": -3.4,
+      "mpg": 27.0,
+      "g": 66,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jaylon tyson": {
+      "name": "Jaylon Tyson",
+      "team": "cle",
+      "bpm": 0.1,
+      "mpg": 26.9,
+      "g": 66,
+      "impact": 0.012,
+      "tier": "bpm"
+    },
+    "marcus smart": {
+      "name": "Marcus Smart",
+      "team": "lal",
+      "bpm": -2.2,
+      "mpg": 28.5,
+      "g": 62,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "brice sensabaugh": {
+      "name": "Brice Sensabaugh",
+      "team": "utah",
+      "bpm": -2.6,
+      "mpg": 23.5,
+      "g": 75,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "austin reaves": {
+      "name": "Austin Reaves",
+      "team": "lal",
+      "bpm": 2.8,
+      "mpg": 34.5,
+      "g": 51,
+      "impact": 0.35,
+      "tier": "bpm"
+    },
+    "tre jones": {
+      "name": "Tre Jones",
+      "team": "chi",
+      "bpm": 1.3,
+      "mpg": 27.0,
+      "g": 65,
+      "impact": 0.1564,
+      "tier": "bpm"
+    },
+    "sandro mamukelashvili": {
+      "name": "Sandro Mamukelashvili",
+      "team": "tor",
+      "bpm": 2.8,
+      "mpg": 21.9,
+      "g": 80,
+      "impact": 0.2736,
+      "tier": "bpm"
+    },
+    "tobias harris": {
+      "name": "Tobias Harris",
+      "team": "det",
+      "bpm": 1.4,
+      "mpg": 27.7,
+      "g": 63,
+      "impact": 0.1732,
+      "tier": "bpm"
+    },
+    "precious achiuwa": {
+      "name": "Precious Achiuwa",
+      "team": "sac",
+      "bpm": -1.6,
+      "mpg": 23.9,
+      "g": 73,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "pj washington": {
+      "name": "P.J. Washington",
+      "team": "dal",
+      "bpm": -1.6,
+      "mpg": 31.0,
+      "g": 56,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "josh giddey": {
+      "name": "Josh Giddey",
+      "team": "chi",
+      "bpm": 2.7,
+      "mpg": 32.1,
+      "g": 54,
+      "impact": 0.3375,
+      "tier": "bpm"
+    },
+    "rj barrett": {
+      "name": "RJ Barrett",
+      "team": "tor",
+      "bpm": 0.2,
+      "mpg": 30.3,
+      "g": 57,
+      "impact": 0.025,
+      "tier": "bpm"
+    },
+    "jay huff": {
+      "name": "Jay Huff",
+      "team": "ind",
+      "bpm": 0.4,
+      "mpg": 21.0,
+      "g": 82,
+      "impact": 0.0374,
+      "tier": "bpm"
+    },
+    "norman powell": {
+      "name": "Norman Powell",
+      "team": "mia",
+      "bpm": 1.6,
+      "mpg": 29.6,
+      "g": 58,
+      "impact": 0.2,
+      "tier": "bpm"
+    },
+    "cam spencer": {
+      "name": "Cam Spencer",
+      "team": "mem",
+      "bpm": 2.2,
+      "mpg": 23.8,
+      "g": 72,
+      "impact": 0.2338,
+      "tier": "bpm"
+    },
+    "kel'el ware": {
+      "name": "Kel'el Ware",
+      "team": "mia",
+      "bpm": 2.1,
+      "mpg": 22.1,
+      "g": 77,
+      "impact": 0.2075,
+      "tier": "bpm"
+    },
+    "dillon brooks": {
+      "name": "Dillon Brooks",
+      "team": "phx",
+      "bpm": -2.3,
+      "mpg": 30.4,
+      "g": 56,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "dennis schroder": {
+      "name": "Dennis Schr\u00f6der",
+      "team": "cle",
+      "bpm": -2.2,
+      "mpg": 24.2,
+      "g": 70,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "isaac okoro": {
+      "name": "Isaac Okoro",
+      "team": "chi",
+      "bpm": -3.8,
+      "mpg": 26.9,
+      "g": 63,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jerami grant": {
+      "name": "Jerami Grant",
+      "team": "por",
+      "bpm": 0.0,
+      "mpg": 29.7,
+      "g": 57,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "dominick barlow": {
+      "name": "Dominick Barlow",
+      "team": "phi",
+      "bpm": -1.1,
+      "mpg": 23.8,
+      "g": 71,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "michael porter jr": {
+      "name": "Michael Porter Jr.",
+      "team": "bkn",
+      "bpm": 3.0,
+      "mpg": 32.5,
+      "g": 52,
+      "impact": 0.375,
+      "tier": "bpm"
+    },
+    "luke kennard": {
+      "name": "Luke Kennard",
+      "team": "lal",
+      "bpm": 0.1,
+      "mpg": 21.6,
+      "g": 78,
+      "impact": 0.0096,
+      "tier": "bpm"
+    },
+    "cameron johnson": {
+      "name": "Cameron Johnson",
+      "team": "den",
+      "bpm": -0.6,
+      "mpg": 30.5,
+      "g": 54,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "brook lopez": {
+      "name": "Brook Lopez",
+      "team": "lac",
+      "bpm": -0.9,
+      "mpg": 21.8,
+      "g": 75,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "will riley": {
+      "name": "Will Riley",
+      "team": "wsh",
+      "bpm": -4.5,
+      "mpg": 22.1,
+      "g": 74,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "cody williams": {
+      "name": "Cody Williams",
+      "team": "utah",
+      "bpm": -5.5,
+      "mpg": 24.3,
+      "g": 67,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "bennedict mathurin": {
+      "name": "Bennedict Mathurin",
+      "team": "lac",
+      "bpm": -2.5,
+      "mpg": 30.0,
+      "g": 54,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "bobby portis": {
+      "name": "Bobby Portis",
+      "team": "mil",
+      "bpm": 0.0,
+      "mpg": 24.2,
+      "g": 67,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "collin sexton": {
+      "name": "Collin Sexton",
+      "team": "chi",
+      "bpm": 0.6,
+      "mpg": 23.7,
+      "g": 68,
+      "impact": 0.0636,
+      "tier": "bpm"
+    },
+    "cedric coward": {
+      "name": "Cedric Coward",
+      "team": "mem",
+      "bpm": -0.2,
+      "mpg": 25.8,
+      "g": 62,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "peyton watson": {
+      "name": "Peyton Watson",
+      "team": "den",
+      "bpm": -1.2,
+      "mpg": 29.6,
+      "g": 54,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "herbert jones": {
+      "name": "Herbert Jones",
+      "team": "no",
+      "bpm": -3.1,
+      "mpg": 28.4,
+      "g": 56,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jalen suggs": {
+      "name": "Jalen Suggs",
+      "team": "orl",
+      "bpm": 2.5,
+      "mpg": 27.6,
+      "g": 57,
+      "impact": 0.3082,
+      "tier": "bpm"
+    },
+    "kelly oubre jr": {
+      "name": "Kelly Oubre Jr.",
+      "team": "phi",
+      "bpm": -1.4,
+      "mpg": 31.5,
+      "g": 50,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jordan goodwin": {
+      "name": "Jordan Goodwin",
+      "team": "phx",
+      "bpm": 1.8,
+      "mpg": 22.5,
+      "g": 70,
+      "impact": 0.1805,
+      "tier": "bpm"
+    },
+    "jrue holiday": {
+      "name": "Jrue Holiday",
+      "team": "por",
+      "bpm": 1.9,
+      "mpg": 29.4,
+      "g": 53,
+      "impact": 0.2375,
+      "tier": "bpm"
+    },
+    "dylan harper": {
+      "name": "Dylan Harper",
+      "team": "sa",
+      "bpm": 1.4,
+      "mpg": 22.6,
+      "g": 69,
+      "impact": 0.1411,
+      "tier": "bpm"
+    },
+    "tari eason": {
+      "name": "Tari Eason",
+      "team": "hou",
+      "bpm": -1.6,
+      "mpg": 25.8,
+      "g": 60,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "kevin huerter": {
+      "name": "Kevin Huerter",
+      "team": "det",
+      "bpm": -0.6,
+      "mpg": 22.4,
+      "g": 69,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "moses moody": {
+      "name": "Moses Moody",
+      "team": "gs",
+      "bpm": -0.1,
+      "mpg": 25.7,
+      "g": 60,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "terance mann": {
+      "name": "Terance Mann",
+      "team": "bkn",
+      "bpm": -3.4,
+      "mpg": 24.3,
+      "g": 63,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jarrett allen": {
+      "name": "Jarrett Allen",
+      "team": "cle",
+      "bpm": 2.6,
+      "mpg": 27.1,
+      "g": 56,
+      "impact": 0.3148,
+      "tier": "bpm"
+    },
+    "isaiah collier": {
+      "name": "Isaiah Collier",
+      "team": "utah",
+      "bpm": -2.4,
+      "mpg": 25.7,
+      "g": 59,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "isaiah joe": {
+      "name": "Isaiah Joe",
+      "team": "okc",
+      "bpm": 2.5,
+      "mpg": 21.2,
+      "g": 71,
+      "impact": 0.2369,
+      "tier": "bpm"
+    },
+    "jock landale": {
+      "name": "Jock Landale",
+      "team": "atl",
+      "bpm": -0.1,
+      "mpg": 22.1,
+      "g": 68,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "zaccharie risacher": {
+      "name": "Zaccharie Risacher",
+      "team": "atl",
+      "bpm": -2.5,
+      "mpg": 22.4,
+      "g": 67,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "klay thompson": {
+      "name": "Klay Thompson",
+      "team": "dal",
+      "bpm": -1.4,
+      "mpg": 21.7,
+      "g": 69,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "ryan kalkbrenner": {
+      "name": "Ryan Kalkbrenner",
+      "team": "cha",
+      "bpm": 1.8,
+      "mpg": 21.4,
+      "g": 69,
+      "impact": 0.1722,
+      "tier": "bpm"
+    },
+    "keon ellis": {
+      "name": "Keon Ellis",
+      "team": "cle",
+      "bpm": -0.5,
+      "mpg": 20.5,
+      "g": 72,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "ja'kobe walter": {
+      "name": "Ja'Kobe Walter",
+      "team": "tor",
+      "bpm": -0.3,
+      "mpg": 20.5,
+      "g": 72,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "patrick williams": {
+      "name": "Patrick Williams",
+      "team": "chi",
+      "bpm": -4.5,
+      "mpg": 20.5,
+      "g": 72,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "ajay mitchell": {
+      "name": "Ajay Mitchell",
+      "team": "okc",
+      "bpm": 1.9,
+      "mpg": 25.8,
+      "g": 57,
+      "impact": 0.2192,
+      "tier": "bpm"
+    },
+    "shaedon sharpe": {
+      "name": "Shaedon Sharpe",
+      "team": "por",
+      "bpm": -1.4,
+      "mpg": 29.4,
+      "g": 50,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "bilal coulibaly": {
+      "name": "Bilal Coulibaly",
+      "team": "wsh",
+      "bpm": -2.1,
+      "mpg": 26.2,
+      "g": 56,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "grayson allen": {
+      "name": "Grayson Allen",
+      "team": "phx",
+      "bpm": 2.1,
+      "mpg": 28.8,
+      "g": 51,
+      "impact": 0.2625,
+      "tier": "bpm"
+    },
+    "brandon williams": {
+      "name": "Brandon Williams",
+      "team": "dal",
+      "bpm": 0.4,
+      "mpg": 22.2,
+      "g": 66,
+      "impact": 0.0396,
+      "tier": "bpm"
+    },
+    "daniss jenkins": {
+      "name": "Daniss Jenkins",
+      "team": "det",
+      "bpm": -0.7,
+      "mpg": 20.2,
+      "g": 72,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jaren jackson jr": {
+      "name": "Jaren Jackson Jr.",
+      "team": "utah",
+      "bpm": -0.6,
+      "mpg": 30.3,
+      "g": 48,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "javonte green": {
+      "name": "Javonte Green",
+      "team": "det",
+      "bpm": 2.1,
+      "mpg": 17.6,
+      "g": 82,
+      "impact": 0.1653,
+      "tier": "bpm"
+    },
+    "ivica zubac": {
+      "name": "Ivica Zubac",
+      "team": "ind",
+      "bpm": -0.3,
+      "mpg": 30.1,
+      "g": 48,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "tre johnson": {
+      "name": "Tre Johnson",
+      "team": "wsh",
+      "bpm": -5.0,
+      "mpg": 24.1,
+      "g": 60,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "lauri markkanen": {
+      "name": "Lauri Markkanen",
+      "team": "utah",
+      "bpm": 2.6,
+      "mpg": 34.4,
+      "g": 42,
+      "impact": 0.325,
+      "tier": "bpm"
+    },
+    "khris middleton": {
+      "name": "Khris Middleton",
+      "team": "dal",
+      "bpm": -4.4,
+      "mpg": 22.8,
+      "g": 63,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "luke kornet": {
+      "name": "Luke Kornet",
+      "team": "sa",
+      "bpm": 3.6,
+      "mpg": 21.0,
+      "g": 68,
+      "impact": 0.338,
+      "tier": "bpm"
+    },
+    "baylor scheierman": {
+      "name": "Baylor Scheierman",
+      "team": "bos",
+      "bpm": 0.6,
+      "mpg": 18.6,
+      "g": 77,
+      "impact": 0.0497,
+      "tier": "bpm"
+    },
+    "spencer jones": {
+      "name": "Spencer Jones",
+      "team": "den",
+      "bpm": -2.4,
+      "mpg": 22.1,
+      "g": 64,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "mark williams": {
+      "name": "Mark Williams",
+      "team": "phx",
+      "bpm": 2.0,
+      "mpg": 23.6,
+      "g": 60,
+      "impact": 0.2107,
+      "tier": "bpm"
+    },
+    "aaron wiggins": {
+      "name": "Aaron Wiggins",
+      "team": "okc",
+      "bpm": -0.9,
+      "mpg": 21.8,
+      "g": 65,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "walter clayton": {
+      "name": "Walter Clayton",
+      "team": "mem",
+      "bpm": -4.3,
+      "mpg": 20.4,
+      "g": 69,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "christian braun": {
+      "name": "Christian Braun",
+      "team": "den",
+      "bpm": -1.2,
+      "mpg": 31.8,
+      "g": 44,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "gui santos": {
+      "name": "Gui Santos",
+      "team": "gs",
+      "bpm": -0.6,
+      "mpg": 20.5,
+      "g": 68,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "vit krejci": {
+      "name": "V\u00edt Krej\u010d\u00ed",
+      "team": "por",
+      "bpm": -1.6,
+      "mpg": 21.4,
+      "g": 65,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "kyshawn george": {
+      "name": "Kyshawn George",
+      "team": "wsh",
+      "bpm": -1.2,
+      "mpg": 29.0,
+      "g": 48,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "ben sheppard": {
+      "name": "Ben Sheppard",
+      "team": "ind",
+      "bpm": -3.0,
+      "mpg": 21.4,
+      "g": 65,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "gary trent jr": {
+      "name": "Gary Trent Jr.",
+      "team": "mil",
+      "bpm": -5.4,
+      "mpg": 21.2,
+      "g": 65,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "sam merrill": {
+      "name": "Sam Merrill",
+      "team": "cle",
+      "bpm": 0.1,
+      "mpg": 26.5,
+      "g": 52,
+      "impact": 0.0118,
+      "tier": "bpm"
+    },
+    "anfernee simons": {
+      "name": "Anfernee Simons",
+      "team": "chi",
+      "bpm": -0.1,
+      "mpg": 24.9,
+      "g": 55,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "malik monk": {
+      "name": "Malik Monk",
+      "team": "sac",
+      "bpm": -1.3,
+      "mpg": 22.0,
+      "g": 62,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "derrick jones jr": {
+      "name": "Derrick Jones Jr.",
+      "team": "lac",
+      "bpm": -0.7,
+      "mpg": 27.0,
+      "g": 50,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "darius garland": {
+      "name": "Darius Garland",
+      "team": "lac",
+      "bpm": -0.2,
+      "mpg": 29.9,
+      "g": 45,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "aaron nesmith": {
+      "name": "Aaron Nesmith",
+      "team": "ind",
+      "bpm": -3.4,
+      "mpg": 29.7,
+      "g": 45,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "kris murray": {
+      "name": "Kris Murray",
+      "team": "por",
+      "bpm": -1.5,
+      "mpg": 23.4,
+      "g": 57,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "stephen curry": {
+      "name": "Stephen Curry",
+      "team": "gs",
+      "bpm": 5.4,
+      "mpg": 30.9,
+      "g": 43,
+      "impact": 0.675,
+      "tier": "bpm"
+    },
+    "jordan miller": {
+      "name": "Jordan Miller",
+      "team": "lac",
+      "bpm": 0.2,
+      "mpg": 22.1,
+      "g": 60,
+      "impact": 0.0197,
+      "tier": "bpm"
+    },
+    "drake powell": {
+      "name": "Drake Powell",
+      "team": "bkn",
+      "bpm": -6.0,
+      "mpg": 21.0,
+      "g": 63,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "dean wade": {
+      "name": "Dean Wade",
+      "team": "cle",
+      "bpm": 0.2,
+      "mpg": 22.3,
+      "g": 59,
+      "impact": 0.0199,
+      "tier": "bpm"
+    },
+    "isaiah stewart": {
+      "name": "Isaiah Stewart",
+      "team": "det",
+      "bpm": 0.0,
+      "mpg": 22.7,
+      "g": 58,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "egor dmin": {
+      "name": "Egor D\u0451min",
+      "team": "bkn",
+      "bpm": -1.6,
+      "mpg": 25.2,
+      "g": 52,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "alex sarr": {
+      "name": "Alex Sarr",
+      "team": "wsh",
+      "bpm": 0.7,
+      "mpg": 27.2,
+      "g": 48,
+      "impact": 0.085,
+      "tier": "bpm"
+    },
+    "ziaire williams": {
+      "name": "Ziaire Williams",
+      "team": "bkn",
+      "bpm": -1.7,
+      "mpg": 22.9,
+      "g": 56,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jaylin williams": {
+      "name": "Jaylin Williams",
+      "team": "okc",
+      "bpm": 2.7,
+      "mpg": 19.6,
+      "g": 65,
+      "impact": 0.2368,
+      "tier": "bpm"
+    },
+    "kevin porter jr": {
+      "name": "Kevin Porter Jr.",
+      "team": "mil",
+      "bpm": 2.1,
+      "mpg": 33.2,
+      "g": 38,
+      "impact": 0.2625,
+      "tier": "bpm"
+    },
+    "coby white": {
+      "name": "Coby White",
+      "team": "cha",
+      "bpm": -1.3,
+      "mpg": 25.0,
+      "g": 50,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "collin murray boyles": {
+      "name": "Collin Murray-Boyles",
+      "team": "tor",
+      "bpm": 1.0,
+      "mpg": 21.9,
+      "g": 57,
+      "impact": 0.0976,
+      "tier": "bpm"
+    },
+    "nolan traore": {
+      "name": "Nolan Traor\u00e9",
+      "team": "bkn",
+      "bpm": -6.8,
+      "mpg": 22.2,
+      "g": 56,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "zach lavine": {
+      "name": "Zach LaVine",
+      "team": "sac",
+      "bpm": -1.5,
+      "mpg": 31.4,
+      "g": 39,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jordan walsh": {
+      "name": "Jordan Walsh",
+      "team": "bos",
+      "bpm": 0.2,
+      "mpg": 17.8,
+      "g": 68,
+      "impact": 0.0159,
+      "tier": "bpm"
+    },
+    "jaxson hayes": {
+      "name": "Jaxson Hayes",
+      "team": "lal",
+      "bpm": 1.2,
+      "mpg": 18.3,
+      "g": 66,
+      "impact": 0.098,
+      "tier": "bpm"
+    },
+    "joel embiid": {
+      "name": "Joel Embiid",
+      "team": "phi",
+      "bpm": 4.9,
+      "mpg": 31.6,
+      "g": 38,
+      "impact": 0.6125,
+      "tier": "bpm"
+    },
+    "marvin bagley iii": {
+      "name": "Marvin Bagley III",
+      "team": "dal",
+      "bpm": 0.8,
+      "mpg": 20.0,
+      "g": 60,
+      "impact": 0.0715,
+      "tier": "bpm"
+    },
+    "santi aldama": {
+      "name": "Santi Aldama",
+      "team": "mem",
+      "bpm": 1.7,
+      "mpg": 27.9,
+      "g": 43,
+      "impact": 0.2114,
+      "tier": "bpm"
+    },
+    "daniel gafford": {
+      "name": "Daniel Gafford",
+      "team": "dal",
+      "bpm": 0.7,
+      "mpg": 21.7,
+      "g": 55,
+      "impact": 0.0679,
+      "tier": "bpm"
+    },
+    "danny wolf": {
+      "name": "Danny Wolf",
+      "team": "bkn",
+      "bpm": -2.5,
+      "mpg": 20.8,
+      "g": 57,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jimmy butler": {
+      "name": "Jimmy Butler",
+      "team": "gs",
+      "bpm": 5.5,
+      "mpg": 31.1,
+      "g": 38,
+      "impact": 0.6875,
+      "tier": "bpm"
+    },
+    "gg jackson ii": {
+      "name": "GG Jackson II",
+      "team": "mem",
+      "bpm": -1.2,
+      "mpg": 21.4,
+      "g": 55,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "bones hyland": {
+      "name": "Bones Hyland",
+      "team": "min",
+      "bpm": 1.7,
+      "mpg": 16.6,
+      "g": 71,
+      "impact": 0.1258,
+      "tier": "bpm"
+    },
+    "de'andre hunter": {
+      "name": "De'Andre Hunter",
+      "team": "sac",
+      "bpm": -3.9,
+      "mpg": 26.1,
+      "g": 45,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "mitchell robinson": {
+      "name": "Mitchell Robinson",
+      "team": "ny",
+      "bpm": 3.5,
+      "mpg": 19.6,
+      "g": 60,
+      "impact": 0.306,
+      "tier": "bpm"
+    },
+    "simone fontecchio": {
+      "name": "Simone Fontecchio",
+      "team": "mia",
+      "bpm": 0.5,
+      "mpg": 16.8,
+      "g": 70,
+      "impact": 0.0374,
+      "tier": "bpm"
+    },
+    "landry shamet": {
+      "name": "Landry Shamet",
+      "team": "ny",
+      "bpm": -0.3,
+      "mpg": 23.0,
+      "g": 51,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "day'ron sharpe": {
+      "name": "Day'Ron Sharpe",
+      "team": "bkn",
+      "bpm": 1.4,
+      "mpg": 18.7,
+      "g": 62,
+      "impact": 0.1169,
+      "tier": "bpm"
+    },
+    "svi mykhailiuk": {
+      "name": "Svi Mykhailiuk",
+      "team": "utah",
+      "bpm": -1.7,
+      "mpg": 23.1,
+      "g": 50,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jakob poeltl": {
+      "name": "Jakob Poeltl",
+      "team": "tor",
+      "bpm": 1.6,
+      "mpg": 25.0,
+      "g": 46,
+      "impact": 0.1784,
+      "tier": "bpm"
+    },
+    "craig porter jr": {
+      "name": "Craig Porter Jr.",
+      "team": "cle",
+      "bpm": 2.0,
+      "mpg": 17.9,
+      "g": 64,
+      "impact": 0.1602,
+      "tier": "bpm"
+    },
+    "gary payton ii": {
+      "name": "Gary Payton II",
+      "team": "gs",
+      "bpm": 1.9,
+      "mpg": 15.6,
+      "g": 73,
+      "impact": 0.1327,
+      "tier": "bpm"
+    },
+    "dru smith": {
+      "name": "Dru Smith",
+      "team": "mia",
+      "bpm": 2.2,
+      "mpg": 16.3,
+      "g": 70,
+      "impact": 0.1601,
+      "tier": "bpm"
+    },
+    "isaiah hartenstein": {
+      "name": "Isaiah Hartenstein",
+      "team": "okc",
+      "bpm": 4.2,
+      "mpg": 24.2,
+      "g": 47,
+      "impact": 0.4536,
+      "tier": "bpm"
+    },
+    "paul george": {
+      "name": "Paul George",
+      "team": "phi",
+      "bpm": 1.7,
+      "mpg": 30.7,
+      "g": 37,
+      "impact": 0.2125,
+      "tier": "bpm"
+    },
+    "de'anthony melton": {
+      "name": "De'Anthony Melton",
+      "team": "gs",
+      "bpm": -2.5,
+      "mpg": 23.0,
+      "g": 49,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "luka garza": {
+      "name": "Luka Garza",
+      "team": "bos",
+      "bpm": 2.4,
+      "mpg": 16.2,
+      "g": 69,
+      "impact": 0.1736,
+      "tier": "bpm"
+    },
+    "john konchar": {
+      "name": "John Konchar",
+      "team": "utah",
+      "bpm": 0.9,
+      "mpg": 19.9,
+      "g": 56,
+      "impact": 0.08,
+      "tier": "bpm"
+    },
+    "jalen smith": {
+      "name": "Jalen Smith",
+      "team": "chi",
+      "bpm": -0.7,
+      "mpg": 20.7,
+      "g": 53,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "kentavious caldwell pope": {
+      "name": "Kentavious Caldwell-Pope",
+      "team": "mem",
+      "bpm": -2.5,
+      "mpg": 21.3,
+      "g": 51,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jusuf nurkic": {
+      "name": "Jusuf Nurki\u0107",
+      "team": "utah",
+      "bpm": 1.1,
+      "mpg": 26.4,
+      "g": 41,
+      "impact": 0.1297,
+      "tier": "bpm"
+    },
+    "miles mcbride": {
+      "name": "Miles McBride",
+      "team": "ny",
+      "bpm": 1.2,
+      "mpg": 26.3,
+      "g": 41,
+      "impact": 0.1411,
+      "tier": "bpm"
+    },
+    "giannis antetokounmpo": {
+      "name": "Giannis Antetokounmpo",
+      "team": "mil",
+      "bpm": 9.5,
+      "mpg": 28.9,
+      "g": 36,
+      "impact": 1.0,
+      "tier": "bpm"
+    },
+    "tyler herro": {
+      "name": "Tyler Herro",
+      "team": "mia",
+      "bpm": 2.0,
+      "mpg": 31.3,
+      "g": 33,
+      "impact": 0.25,
+      "tier": "bpm"
+    },
+    "jamir watkins": {
+      "name": "Jamir Watkins",
+      "team": "wsh",
+      "bpm": -3.3,
+      "mpg": 20.6,
+      "g": 50,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "alex caruso": {
+      "name": "Alex Caruso",
+      "team": "okc",
+      "bpm": 1.9,
+      "mpg": 18.2,
+      "g": 56,
+      "impact": 0.1545,
+      "tier": "bpm"
+    },
+    "franz wagner": {
+      "name": "Franz Wagner",
+      "team": "orl",
+      "bpm": 2.5,
+      "mpg": 30.0,
+      "g": 34,
+      "impact": 0.3125,
+      "tier": "bpm"
+    },
+    "caleb love": {
+      "name": "Caleb Love",
+      "team": "por",
+      "bpm": -3.1,
+      "mpg": 20.7,
+      "g": 49,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "robert williams": {
+      "name": "Robert Williams",
+      "team": "por",
+      "bpm": 4.5,
+      "mpg": 17.1,
+      "g": 59,
+      "impact": 0.3432,
+      "tier": "bpm"
+    },
+    "aaron gordon": {
+      "name": "Aaron Gordon",
+      "team": "den",
+      "bpm": 1.7,
+      "mpg": 27.9,
+      "g": 36,
+      "impact": 0.2119,
+      "tier": "bpm"
+    },
+    "goga bitadze": {
+      "name": "Goga Bitadze",
+      "team": "orl",
+      "bpm": 2.8,
+      "mpg": 15.2,
+      "g": 64,
+      "impact": 0.1898,
+      "tier": "bpm"
+    },
+    "al horford": {
+      "name": "Al Horford",
+      "team": "gs",
+      "bpm": 1.6,
+      "mpg": 21.5,
+      "g": 45,
+      "impact": 0.1538,
+      "tier": "bpm"
+    },
+    "tj mcconnell": {
+      "name": "T.J. McConnell",
+      "team": "ind",
+      "bpm": 2.5,
+      "mpg": 17.2,
+      "g": 56,
+      "impact": 0.1919,
+      "tier": "bpm"
+    },
+    "jalen williams": {
+      "name": "Jalen Williams",
+      "team": "okc",
+      "bpm": 2.1,
+      "mpg": 28.4,
+      "g": 33,
+      "impact": 0.2625,
+      "tier": "bpm"
+    },
+    "jordan poole": {
+      "name": "Jordan Poole",
+      "team": "no",
+      "bpm": -3.5,
+      "mpg": 23.9,
+      "g": 39,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "clint capela": {
+      "name": "Clint Capela",
+      "team": "hou",
+      "bpm": 0.4,
+      "mpg": 12.3,
+      "g": 75,
+      "impact": 0.022,
+      "tier": "bpm"
+    },
+    "ben saraf": {
+      "name": "Ben Saraf",
+      "team": "bkn",
+      "bpm": -7.3,
+      "mpg": 20.8,
+      "g": 44,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "karlo matkovic": {
+      "name": "Karlo Matkovi\u0107",
+      "team": "no",
+      "bpm": 0.7,
+      "mpg": 14.7,
+      "g": 62,
+      "impact": 0.046,
+      "tier": "bpm"
+    },
+    "micah potter": {
+      "name": "Micah Potter",
+      "team": "ind",
+      "bpm": 0.7,
+      "mpg": 19.3,
+      "g": 47,
+      "impact": 0.0604,
+      "tier": "bpm"
+    },
+    "dylan cardwell": {
+      "name": "Dylan Cardwell",
+      "team": "sac",
+      "bpm": -1.9,
+      "mpg": 20.6,
+      "g": 44,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "paul reed": {
+      "name": "Paul Reed",
+      "team": "det",
+      "bpm": 5.3,
+      "mpg": 13.9,
+      "g": 65,
+      "impact": 0.328,
+      "tier": "bpm"
+    },
+    "cam thomas": {
+      "name": "Cam Thomas",
+      "team": "mil",
+      "bpm": -5.2,
+      "mpg": 21.0,
+      "g": 42,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "bryce mcgowens": {
+      "name": "Bryce McGowens",
+      "team": "no",
+      "bpm": -2.8,
+      "mpg": 21.0,
+      "g": 42,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "kenrich williams": {
+      "name": "Kenrich Williams",
+      "team": "okc",
+      "bpm": 0.2,
+      "mpg": 15.3,
+      "g": 56,
+      "impact": 0.0136,
+      "tier": "bpm"
+    },
+    "kyle anderson": {
+      "name": "Kyle Anderson",
+      "team": "min",
+      "bpm": 0.4,
+      "mpg": 19.8,
+      "g": 43,
+      "impact": 0.0354,
+      "tier": "bpm"
+    },
+    "daeqwon plowden": {
+      "name": "Daeqwon Plowden",
+      "team": "sac",
+      "bpm": -4.4,
+      "mpg": 26.4,
+      "g": 32,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "josh minott": {
+      "name": "Josh Minott",
+      "team": "bkn",
+      "bpm": 2.5,
+      "mpg": 17.0,
+      "g": 49,
+      "impact": 0.19,
+      "tier": "bpm"
+    },
+    "javon small": {
+      "name": "Javon Small",
+      "team": "mem",
+      "bpm": 1.0,
+      "mpg": 20.2,
+      "g": 41,
+      "impact": 0.0904,
+      "tier": "bpm"
+    },
+    "jonathan kuminga": {
+      "name": "Jonathan Kuminga",
+      "team": "atl",
+      "bpm": -2.0,
+      "mpg": 23.1,
+      "g": 36,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jalen green": {
+      "name": "Jalen Green",
+      "team": "phx",
+      "bpm": -1.1,
+      "mpg": 25.9,
+      "g": 32,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "vince williams jr": {
+      "name": "Vince Williams Jr.",
+      "team": "utah",
+      "bpm": -1.0,
+      "mpg": 20.5,
+      "g": 40,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "keegan murray": {
+      "name": "Keegan Murray",
+      "team": "sac",
+      "bpm": -3.1,
+      "mpg": 34.5,
+      "g": 23,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "kristaps porzingis": {
+      "name": "Kristaps Porzi\u0146\u0123is",
+      "team": "gs",
+      "bpm": 1.9,
+      "mpg": 24.0,
+      "g": 32,
+      "impact": 0.2038,
+      "tier": "bpm"
+    },
+    "scoot henderson": {
+      "name": "Scoot Henderson",
+      "team": "por",
+      "bpm": -2.2,
+      "mpg": 24.9,
+      "g": 30,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "thomas bryant": {
+      "name": "Thomas Bryant",
+      "team": "cle",
+      "bpm": 0.1,
+      "mpg": 12.2,
+      "g": 60,
+      "impact": 0.0054,
+      "tier": "bpm"
+    },
+    "steven adams": {
+      "name": "Steven Adams",
+      "team": "hou",
+      "bpm": -0.5,
+      "mpg": 22.8,
+      "g": 32,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "lonzo ball": {
+      "name": "Lonzo Ball",
+      "team": "cle",
+      "bpm": -1.1,
+      "mpg": 20.8,
+      "g": 35,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "grant williams": {
+      "name": "Grant Williams",
+      "team": "cha",
+      "bpm": 1.6,
+      "mpg": 19.8,
+      "g": 36,
+      "impact": 0.1411,
+      "tier": "bpm"
+    },
+    "jahmai mashack": {
+      "name": "Jahmai Mashack",
+      "team": "mem",
+      "bpm": -7.0,
+      "mpg": 21.7,
+      "g": 31,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "ethan thompson": {
+      "name": "Ethan Thompson",
+      "team": "ind",
+      "bpm": -4.9,
+      "mpg": 20.4,
+      "g": 32,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "anthony davis": {
+      "name": "Anthony Davis",
+      "team": "dal",
+      "bpm": 2.4,
+      "mpg": 31.3,
+      "g": 20,
+      "impact": 0.3,
+      "tier": "bpm"
+    },
+    "kevin love": {
+      "name": "Kevin Love",
+      "team": "utah",
+      "bpm": 0.2,
+      "mpg": 16.6,
+      "g": 37,
+      "impact": 0.0148,
+      "tier": "bpm"
+    },
+    "taurean prince": {
+      "name": "Taurean Prince",
+      "team": "mil",
+      "bpm": -3.1,
+      "mpg": 23.5,
+      "g": 26,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "ja morant": {
+      "name": "Ja Morant",
+      "team": "mem",
+      "bpm": -1.5,
+      "mpg": 28.4,
+      "g": 20,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "domantas sabonis": {
+      "name": "Domantas Sabonis",
+      "team": "sac",
+      "bpm": 0.6,
+      "mpg": 29.7,
+      "g": 19,
+      "impact": 0.075,
+      "tier": "bpm"
+    },
+    "elijah harkless": {
+      "name": "Elijah Harkless",
+      "team": "utah",
+      "bpm": -5.6,
+      "mpg": 21.0,
+      "g": 26,
+      "impact": 0.1,
+      "tier": "floor"
+    },
+    "jayson tatum": {
+      "name": "Jayson Tatum",
+      "team": "bos",
+      "bpm": 4.8,
+      "mpg": 32.6,
+      "g": 16,
+      "impact": 0.6,
+      "tier": "bpm"
+    },
+    "branden carlson": {
+      "name": "Branden Carlson",
+      "team": "okc",
+      "bpm": 0.8,
+      "mpg": 11.6,
+      "g": 42,
+      "impact": 0.0415,
+      "tier": "bpm"
+    },
+    "matisse thybulle": {
+      "name": "Matisse Thybulle",
+      "team": "por",
+      "bpm": 4.4,
+      "mpg": 16.0,
+      "g": 30,
+      "impact": 0.3143,
+      "tier": "bpm"
+    },
+    "obi toppin": {
+      "name": "Obi Toppin",
+      "team": "ind",
+      "bpm": 3.0,
+      "mpg": 17.7,
+      "g": 24,
+      "impact": 0.2366,
+      "tier": "bpm"
+    },
+    "dejounte murray": {
+      "name": "Dejounte Murray",
+      "team": "no",
+      "bpm": 1.4,
+      "mpg": 27.8,
+      "g": 14,
+      "impact": 0.1737,
+      "tier": "bpm"
+    },
+    "trae young": {
+      "name": "Trae Young",
+      "team": "wsh",
+      "bpm": 2.8,
+      "mpg": 25.6,
+      "g": 15,
+      "impact": 0.32,
+      "tier": "bpm"
+    },
+    "cameron payne": {
+      "name": "Cameron Payne",
+      "team": "phi",
+      "bpm": 0.3,
+      "mpg": 17.0,
+      "g": 22,
+      "impact": 0.0228,
+      "tier": "bpm"
+    },
+    "chaney johnson": {
+      "name": "Chaney Johnson",
+      "team": "bkn",
+      "bpm": 0.1,
+      "mpg": 20.5,
+      "g": 17,
+      "impact": 0.0091,
+      "tier": "bpm"
+    },
+    "ty jerome": {
+      "name": "Ty Jerome",
+      "team": "mem",
+      "bpm": 7.7,
+      "mpg": 22.6,
+      "g": 15,
+      "impact": 0.7769,
+      "tier": "bpm"
+    },
+    "ron harper jr": {
+      "name": "Ron Harper Jr.",
+      "team": "bos",
+      "bpm": 1.1,
+      "mpg": 11.0,
+      "g": 29,
+      "impact": 0.0538,
+      "tier": "bpm"
+    },
+    "zach edey": {
+      "name": "Zach Edey",
+      "team": "mem",
+      "bpm": 0.5,
+      "mpg": 25.8,
+      "g": 11,
+      "impact": 0.0576,
+      "tier": "bpm"
+    },
+    "zach collins": {
+      "name": "Zach Collins",
+      "team": "chi",
+      "bpm": 0.2,
+      "mpg": 18.4,
+      "g": 10,
+      "impact": 0.0164,
+      "tier": "bpm"
+    },
+    "charles bassey": {
+      "name": "Charles Bassey",
+      "team": "gs",
+      "bpm": 1.9,
+      "mpg": 11.8,
+      "g": 13,
+      "impact": 0.0998,
+      "tier": "bpm"
+    },
+    "seth curry": {
+      "name": "Seth Curry",
+      "team": "gs",
+      "bpm": 0.2,
+      "mpg": 13.3,
+      "g": 10,
+      "impact": 0.0119,
+      "tier": "bpm"
+    }
+  }
+}

@@ -2,6 +2,7 @@
 node_modules/
 .env.local
 .env
+.DS_Store
 *.log
 dist/
 next-env.d.ts

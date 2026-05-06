@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -33,7 +33,39 @@ _LATE_ADD_COLUMNS: Dict[str, Any] = {
     "threshold_used": "",
     "injury_data_available": 0,
     "features_json": "",
+    # is_pinnacle_bet=1 → bet triggered by Pinnacle edge filter (has_pinnacle=True, direction+magnitude)
+    # is_pinnacle_bet=0 → bet triggered by confidence threshold only (no Pinnacle data available)
+    # is_pinnacle_bet="" → pre-migration rows (backfilled on first write)
+    "is_pinnacle_bet": "",
+    # Closing line from pregame Pinnacle snapshot (~7:15pm ET), populated at grading time
+    "closing_pinnacle_line": "",
+    # closing_pinnacle_line - home_line (positive = line moved toward home)
+    "line_movement": "",
+    # CLV in spread points: positive = you got a better number than close (value bet)
+    # Home pick: close - noon (line moved against you = you had value at noon)
+    # Away pick: noon - close (line moved against you = you had value at noon)
+    "bet_clv_pts": "",
+    # Human-readable matchup context from team archetype analysis
+    "matchup_context": "",
 }
+
+# NBA first-round start dates by season-end year.
+# Update once per season when the bracket is official (typically announced ~2 weeks before).
+_NBA_PLAYOFF_STARTS: Dict[int, pd.Timestamp] = {
+    2024: pd.Timestamp("2024-04-20"),
+    2025: pd.Timestamp("2025-04-19"),
+    2026: pd.Timestamp("2026-04-19"),
+}
+
+
+def _is_playoffs(game_date: pd.Timestamp) -> int:
+    """Return 1 if game_date falls on or after that season's playoff start."""
+    season_year = game_date.year + 1 if game_date.month >= 10 else game_date.year
+    start = _NBA_PLAYOFF_STARTS.get(season_year)
+    if start is not None:
+        return int(game_date.normalize() >= start.normalize())
+    # Fallback for unknown future seasons: approximate Apr 16+ / May / Jun
+    return int((game_date.month == 4 and game_date.day >= 16) or game_date.month in (5, 6))
 
 
 def _load_json(path: Path) -> Dict[str, Any]:
@@ -202,7 +234,7 @@ def prepare_features_for_model(api_data: Iterable[Dict[str, Any]]) -> pd.DataFra
             "season": season,
             "month": int(game_date.month),
             "day_of_week": int(game_date.dayofweek),
-            "is_playoffs": int((game_date.month == 4 and game_date.day >= 16) or game_date.month in (5, 6)),
+            "is_playoffs": _is_playoffs(game_date),
             "home_team": home_team,
             "away_team": away_team,
             "home_line": float(home_line),
@@ -299,7 +331,7 @@ def _extract_pinnacle_cover_prob(game: Dict[str, Any]) -> Optional[float]:
 
 
 def predict_games(api_data: Iterable[Dict[str, Any]], apply_injuries: bool = True) -> pd.DataFrame:
-    from .injuries import fetch_injuries, compute_team_impact, adjust_home_cover_prob
+    from .injuries import fetch_injuries, compute_team_impact, adjust_home_cover_prob, _load_player_values
 
     # Materialize so we can iterate twice: once for features, once for Pinnacle extraction
     games = list(api_data)
@@ -310,7 +342,7 @@ def predict_games(api_data: Iterable[Dict[str, Any]], apply_injuries: bool = Tru
     features = prepare_features_for_model(games)
     raw_probs = model.predict_proba(features[feature_columns])[:, 1]
 
-    output = features[["game_id", "commence_time", "home_team", "away_team", "home_line"]].copy()
+    output = features[["game_id", "commence_time", "season", "home_team", "away_team", "home_line"]].copy()
     output["raw_home_cover_prob"] = raw_probs
 
     # Capture features_json before DataFrame is filtered — permanent snapshot of
@@ -322,9 +354,11 @@ def predict_games(api_data: Iterable[Dict[str, Any]], apply_injuries: bool = Tru
 
     # --- Injury adjustment (post-hoc, not a trained feature) ---
     injury_data: Dict[str, Any] = {}
+    player_values: Dict[str, Any] = {}
     if apply_injuries:
         try:
             injury_data = fetch_injuries()
+            player_values = _load_player_values()  # load once, not per game
         except Exception:
             injury_data = {}
     injury_data_available = 1 if injury_data else 0
@@ -336,8 +370,8 @@ def predict_games(api_data: Iterable[Dict[str, Any]], apply_injuries: bool = Tru
     for i, row in output.iterrows():
         h_code = str(row["home_team"])
         a_code = str(row["away_team"])
-        h_imp = compute_team_impact(h_code, injury_data) if apply_injuries else 0.0
-        a_imp = compute_team_impact(a_code, injury_data) if apply_injuries else 0.0
+        h_imp = compute_team_impact(h_code, injury_data, player_values) if apply_injuries else 0.0
+        a_imp = compute_team_impact(a_code, injury_data, player_values) if apply_injuries else 0.0
         adj_p = adjust_home_cover_prob(float(raw_probs[output.index.get_loc(i)]), h_imp, a_imp)
         home_impacts.append(h_imp)
         away_impacts.append(a_imp)
@@ -370,6 +404,18 @@ def predict_games(api_data: Iterable[Dict[str, Any]], apply_injuries: bool = Tru
     output["model_version"] = MODEL_VERSION
     output["features_json"] = feature_jsons
     output["injury_data_available"] = injury_data_available
+
+    # Matchup context from team archetypes — enriches signal_detail and logs
+    try:
+        from .compute_archetypes import describe_matchup, load as load_archetypes
+        archetypes = load_archetypes()
+        output["matchup_context"] = [
+            describe_matchup(str(row["home_team"]), str(row["away_team"]), archetypes)
+            for _, row in output.iterrows()
+        ]
+    except Exception:
+        output["matchup_context"] = ""
+
     return output
 
 
@@ -383,6 +429,23 @@ def _migrate_late_columns() -> None:
         if col not in df.columns:
             df[col] = default
             changed = True
+
+    # Backfill is_pinnacle_bet for rows that existed before this column was added.
+    # Rule: is_bet=1 AND pinnacle_prob is populated AND direction consistent → 1, else 0.
+    if "is_pinnacle_bet" in df.columns:
+        missing = df["is_pinnacle_bet"].replace("", np.nan).isna()
+        if missing.any():
+            sub = df[missing].copy()
+            has_pin = pd.to_numeric(sub["pinnacle_prob"], errors="coerce").notna()
+            is_bet = pd.to_numeric(sub["is_bet"], errors="coerce") == 1
+            edge = pd.to_numeric(sub["edge_vs_pinnacle"], errors="coerce")
+            pick = sub["pick_side"].astype(str)
+            direction_ok = ((pick == "home") & (edge > 0)) | ((pick == "away") & (edge < 0))
+            df.loc[missing, "is_pinnacle_bet"] = (
+                (has_pin & is_bet & direction_ok).astype(int)
+            )
+            changed = True
+
     if changed:
         df.to_csv(MODEL_PERFORMANCE_PATH, index=False)
 
@@ -391,6 +454,7 @@ def log_prediction(
     prediction: Dict[str, Any],
     notes: str = "",
     is_bet: bool = False,
+    is_pinnacle_bet: bool = False,
     threshold_used: Optional[float] = None,
 ) -> None:
     from .signal_logger import log_prediction_db
@@ -398,7 +462,7 @@ def log_prediction(
     MODEL_PERFORMANCE_PATH.parent.mkdir(parents=True, exist_ok=True)
     _migrate_late_columns()
 
-    logged_at = datetime.utcnow().isoformat()
+    logged_at = datetime.now(timezone.utc).isoformat()
 
     pinnacle_prob = prediction.get("pinnacle_prob")
     edge = prediction.get("edge_vs_pinnacle")
@@ -434,6 +498,8 @@ def log_prediction(
         "threshold_used": threshold_used if threshold_used is not None else "",
         "injury_data_available": injury_available,
         "features_json": features_json_val,
+        "is_pinnacle_bet": int(is_pinnacle_bet),
+        "matchup_context": prediction.get("matchup_context") or "",
     }
 
     with MODEL_PERFORMANCE_PATH.open("a", newline="") as fh:
@@ -471,6 +537,7 @@ def log_prediction(
         "pinnacle_prob":         pinnacle_prob if not (isinstance(pinnacle_prob, float) and np.isnan(pinnacle_prob)) else None,
         "edge_vs_pinnacle":      edge if not (isinstance(edge, float) and np.isnan(edge)) else None,
         "features_json":         features_json_val or None,
+        "matchup_context":       prediction.get("matchup_context") or "",
     })
 
 

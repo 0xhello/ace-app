@@ -123,7 +123,8 @@ def fetch_season(season_start: date, today: date) -> List[Dict[str, Any]]:
 
 def build_state(games: List[Dict[str, Any]], existing: Dict[str, Any],
                 efficiency: Optional[Dict[str, Dict[str, float]]] = None,
-                advanced: Optional[Dict[str, Dict[str, float]]] = None) -> Dict[str, Any]:
+                advanced: Optional[Dict[str, Dict[str, float]]] = None,
+                db_covers: Optional[Dict[str, Dict[str, float]]] = None) -> Dict[str, Any]:
     sorted_games = sorted(games, key=lambda g: g["date"])
 
     # Build per-team game log
@@ -162,6 +163,7 @@ def build_state(games: List[Dict[str, Any]], existing: Dict[str, Any],
         old = existing.get(team, {})
         eff = (efficiency or {}).get(team, {})
         adv = (advanced or {}).get(team, {})
+        cov = (db_covers or {}).get(team, {})
         state[team] = {
             "season": season,
             "last_game_date": last["date"],
@@ -171,8 +173,10 @@ def build_state(games: List[Dict[str, Any]], existing: Dict[str, Any],
             "margin_avg_5": float(sum(margins[-5:]) / len(margins[-5:])),
             "points_for_avg_5": float(sum(pts_for[-5:]) / len(pts_for[-5:])),
             "points_against_avg_5": float(sum(pts_against[-5:]) / len(pts_against[-5:])),
-            "cover_rate_5": float(old.get("cover_rate_5", 0.5)),
-            "cover_rate_10": float(old.get("cover_rate_10", 0.5)),
+            # Prefer live DB cover rates (from graded predictions) over stale training priors.
+            # Falls back to old state when fewer than 5 graded games are available for a team.
+            "cover_rate_5": cov.get("cover_rate_5", float(old.get("cover_rate_5", 0.5))),
+            "cover_rate_10": cov.get("cover_rate_10", float(old.get("cover_rate_10", 0.5))),
             "games_played": len(log),
             # Rolling efficiency from nba_api box scores
             "ortg_avg5": eff.get("ortg_avg5", old.get("ortg_avg5", 0.0)),
@@ -202,6 +206,57 @@ def build_state(games: List[Dict[str, Any]], existing: Dict[str, Any],
             state[team] = s
 
     return state
+
+
+def _load_cover_rates_from_db() -> Dict[str, Dict[str, float]]:
+    """
+    Compute per-team rolling cover rates from graded predictions in signal_log.db.
+
+    Returns {team_code: {"cover_rate_5": float, "cover_rate_10": float}} for teams
+    with >= 5 graded games. Teams with fewer games are omitted so callers fall back
+    to the existing state value (the 0.5 neutral prior from training).
+
+    cover_rate_5  = fraction of last 5 games team covered the spread
+    cover_rate_10 = fraction of last 10 games (only set when >= 10 games available)
+    """
+    try:
+        import sqlite3
+        from .signal_logger import DB_PATH
+        if not DB_PATH.exists():
+            return {}
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            """
+            SELECT home_team, away_team, actual_home_covered, commence_time
+            FROM predictions
+            WHERE result_status = 'graded'
+              AND actual_home_covered IS NOT NULL
+            ORDER BY commence_time ASC
+            """
+        ).fetchall()
+        conn.close()
+    except Exception:
+        return {}
+
+    team_covers: Dict[str, List[int]] = {}
+    for home, away, covered, _ in rows:
+        try:
+            c = int(covered)
+        except (ValueError, TypeError):
+            continue
+        if home:
+            team_covers.setdefault(home, []).append(c)
+        if away:
+            team_covers.setdefault(away, []).append(1 - c)
+
+    result: Dict[str, Dict[str, float]] = {}
+    for team, covers in team_covers.items():
+        if len(covers) >= 5:
+            entry: Dict[str, float] = {"cover_rate_5": round(sum(covers[-5:]) / 5, 4)}
+            if len(covers) >= 10:
+                entry["cover_rate_10"] = round(sum(covers[-10:]) / 10, 4)
+            result[team] = entry
+    return result
 
 
 def _load_latest_efficiency() -> Dict[str, Dict[str, float]]:
@@ -303,7 +358,14 @@ def run(season_year: int) -> None:
     advanced = _load_latest_advanced()
     print(f"  Advanced features loaded for {len(advanced)} teams")
 
-    new_state = build_state(games, existing, efficiency, advanced)
+    print("  Loading cover rates from prediction DB...")
+    db_covers = _load_cover_rates_from_db()
+    if db_covers:
+        print(f"  Cover rates updated for {len(db_covers)} team(s) from graded predictions")
+    else:
+        print("  Cover rates: using prior from last training run (no graded predictions yet)")
+
+    new_state = build_state(games, existing, efficiency, advanced, db_covers)
     TEAM_STATE_PATH.write_text(json.dumps(new_state, indent=2))
 
     print(f"  Saved {len(new_state)} teams → {TEAM_STATE_PATH}")

@@ -94,6 +94,9 @@ FEATURE_COLUMNS: List[str] = [
     # crew_total_pts_avg excluded: referee data only covers 2021+ (~28% of rows).
     # Sparse coverage degrades the model vs the baseline. Re-add once multi-season
     # historical referee data is available.
+    # Experiment 1 (2026-05-01): added home_line, spread_abs, home_favorite, total_line.
+    # Result: ROC AUC -0.0073, ROI -0.26pp worse across all thresholds. FAILED.
+    # Hypothesis falsified. Spread context does not improve this model on this dataset.
 ]
 
 TEAM_NAME_TO_CODE: Dict[str, str] = {

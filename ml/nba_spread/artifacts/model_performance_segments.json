@@ -1,0 +1,267 @@
+{
+  "generated_at": "2026-05-06T19:05:25.533940+00:00",
+  "features_coverage": {
+    "total": 30,
+    "has_features": 16,
+    "missing": 14
+  },
+  "sample_note": "n=30 total graded, n_bets=21 \u2014 treat as directional only until n\u2265100 | WARN: 14 rows missing features_json (53% coverage) \u2014 regime/rest segments for those rows default to regular_season/rest_even",
+  "overall": {
+    "n": 30,
+    "wins": 16,
+    "win_rate": 0.533,
+    "avg_conf": 0.565,
+    "avg_edge": 0.0291,
+    "n_with_edge": 24
+  },
+  "bets_only": {
+    "n": 21,
+    "wins": 11,
+    "win_rate": 0.524,
+    "avg_conf": 0.582,
+    "avg_edge": 0.0394,
+    "n_with_edge": 17
+  },
+  "by_regime": {
+    "playoffs": {
+      "n": 16,
+      "wins": 7,
+      "win_rate": 0.438,
+      "avg_conf": 0.568,
+      "avg_edge": 0.0435,
+      "n_with_edge": 16
+    },
+    "regular_season": {
+      "n": 14,
+      "wins": 9,
+      "win_rate": 0.643,
+      "avg_conf": 0.561,
+      "avg_edge": 0.0002,
+      "n_with_edge": 8
+    }
+  },
+  "by_direction": {
+    "away": {
+      "n": 15,
+      "wins": 7,
+      "win_rate": 0.467,
+      "avg_conf": 0.555,
+      "avg_edge": -0.0488,
+      "n_with_edge": 9
+    },
+    "home": {
+      "n": 15,
+      "wins": 9,
+      "win_rate": 0.6,
+      "avg_conf": 0.574,
+      "avg_edge": 0.0758,
+      "n_with_edge": 15
+    }
+  },
+  "by_dog_fav": {
+    "dog_large_spread_7+": {
+      "n": 2,
+      "wins": 1,
+      "win_rate": 0.5,
+      "avg_conf": 0.552,
+      "avg_edge": -0.0531,
+      "n_with_edge": 2
+    },
+    "dog_mid_spread_3.5-7": {
+      "n": 1,
+      "wins": 1,
+      "win_rate": 1.0,
+      "avg_conf": 0.562,
+      "avg_edge": 0.0795,
+      "n_with_edge": 1
+    },
+    "fav_large_spread_7+": {
+      "n": 12,
+      "wins": 7,
+      "win_rate": 0.583,
+      "avg_conf": 0.554,
+      "avg_edge": 0.0569,
+      "n_with_edge": 10
+    },
+    "fav_mid_spread_3.5-7": {
+      "n": 6,
+      "wins": 3,
+      "win_rate": 0.5,
+      "avg_conf": 0.578,
+      "avg_edge": 0.0249,
+      "n_with_edge": 6
+    },
+    "fav_small_spread_1-3.5": {
+      "n": 9,
+      "wins": 4,
+      "win_rate": 0.444,
+      "avg_conf": 0.573,
+      "avg_edge": 0.0013,
+      "n_with_edge": 5
+    }
+  },
+  "by_rest": {
+    "bet_side_b2b": {
+      "n": 3,
+      "wins": 1,
+      "win_rate": 0.333,
+      "avg_conf": 0.553,
+      "avg_edge": 0.0027,
+      "n_with_edge": 3
+    },
+    "rest_advantage_2+": {
+      "n": 2,
+      "wins": 1,
+      "win_rate": 0.5,
+      "avg_conf": 0.615,
+      "avg_edge": 0.1279,
+      "n_with_edge": 2
+    },
+    "rest_disadvantage_2+": {
+      "n": 1,
+      "wins": 0,
+      "win_rate": 0.0,
+      "avg_conf": 0.517,
+      "avg_edge": -0.0167,
+      "n_with_edge": 1
+    },
+    "rest_even": {
+      "n": 24,
+      "wins": 14,
+      "win_rate": 0.583,
+      "avg_conf": 0.564,
+      "avg_edge": 0.0251,
+      "n_with_edge": 18
+    }
+  },
+  "by_conf_tier": {
+    "conf_55-57.5": {
+      "n": 19,
+      "wins": 10,
+      "win_rate": 0.526,
+      "avg_conf": 0.54,
+      "avg_edge": 0.0128,
+      "n_with_edge": 15
+    },
+    "conf_57.5-60": {
+      "n": 6,
+      "wins": 5,
+      "win_rate": 0.833,
+      "avg_conf": 0.586,
+      "avg_edge": -0.0138,
+      "n_with_edge": 5
+    },
+    "conf_60-65": {
+      "n": 4,
+      "wins": 1,
+      "win_rate": 0.25,
+      "avg_conf": 0.623,
+      "avg_edge": 0.1348,
+      "n_with_edge": 3
+    },
+    "conf_65+": {
+      "n": 1,
+      "wins": 0,
+      "win_rate": 0.0,
+      "avg_conf": 0.677,
+      "avg_edge": 0.1703,
+      "n_with_edge": 1
+    }
+  },
+  "by_edge_tier": {
+    "edge_10+": {
+      "n": 4,
+      "wins": 1,
+      "win_rate": 0.25,
+      "avg_conf": 0.637,
+      "avg_edge": 0.1437,
+      "n_with_edge": 4
+    },
+    "edge_4-6": {
+      "n": 6,
+      "wins": 3,
+      "win_rate": 0.5,
+      "avg_conf": 0.555,
+      "avg_edge": 0.0033,
+      "n_with_edge": 6
+    },
+    "edge_6-10": {
+      "n": 7,
+      "wins": 6,
+      "win_rate": 0.857,
+      "avg_conf": 0.581,
+      "avg_edge": 0.0108,
+      "n_with_edge": 7
+    },
+    "no_pinnacle": {
+      "n": 4,
+      "wins": 1,
+      "win_rate": 0.25,
+      "avg_conf": 0.572
+    }
+  },
+  "calibration": [
+    {
+      "conf_bucket": "50-55",
+      "n": 12,
+      "predicted_avg": 0.527,
+      "actual_win_rate": 0.5,
+      "delta": -0.027
+    },
+    {
+      "conf_bucket": "55-57.5",
+      "n": 7,
+      "predicted_avg": 0.56,
+      "actual_win_rate": 0.571,
+      "delta": 0.011
+    },
+    {
+      "conf_bucket": "57.5-60",
+      "n": 6,
+      "predicted_avg": 0.586,
+      "actual_win_rate": 0.833,
+      "delta": 0.247
+    },
+    {
+      "conf_bucket": "60-62.5",
+      "n": 3,
+      "predicted_avg": 0.617,
+      "actual_win_rate": 0.333,
+      "delta": -0.283
+    },
+    {
+      "conf_bucket": "62.5-65",
+      "n": 1,
+      "predicted_avg": 0.642,
+      "actual_win_rate": 0.0,
+      "delta": -0.642
+    },
+    {
+      "conf_bucket": "65-70",
+      "n": 1,
+      "predicted_avg": 0.677,
+      "actual_win_rate": 0.0,
+      "delta": -0.677
+    }
+  ],
+  "weak_spots": [
+    {
+      "segment": "by_conf_tier/conf_60-65",
+      "n": 4,
+      "wins": 1,
+      "win_rate": 0.25,
+      "avg_conf": 0.623,
+      "avg_edge": 0.1348,
+      "n_with_edge": 3
+    },
+    {
+      "segment": "by_rest/bet_side_b2b",
+      "n": 3,
+      "wins": 1,
+      "win_rate": 0.333,
+      "avg_conf": 0.553,
+      "avg_edge": 0.0027,
+      "n_with_edge": 3
+    }
+  ]
+}
