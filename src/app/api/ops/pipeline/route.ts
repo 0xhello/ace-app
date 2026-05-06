@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { promises as fs } from "fs";
+import { spawnSync } from "child_process";
 import path from "path";
 
 export const dynamic = "force-dynamic";
@@ -81,60 +82,69 @@ function parseCsv(text: string): CsvRow[] {
   });
 }
 
+function readWorkerMeta(dbPath: string): { lastPollAt: string | null; lastPollOk: boolean | null } {
+  const script = `
+import sqlite3, json
+try:
+    conn = sqlite3.connect(${JSON.stringify(dbPath)})
+    r1 = conn.execute("SELECT value FROM meta WHERE key='last_poll_at'").fetchone()
+    r2 = conn.execute("SELECT value FROM meta WHERE key='last_poll_ok'").fetchone()
+    conn.close()
+    print(json.dumps({'last_poll_at': r1[0] if r1 else None, 'last_poll_ok': r2[0] if r2 else None}))
+except Exception as e:
+    print(json.dumps({'last_poll_at': None, 'last_poll_ok': None}))
+`;
+  const result = spawnSync("python3", ["-c", script], { encoding: "utf-8", timeout: 5_000 });
+  try {
+    const d = JSON.parse(result.stdout);
+    // Normalize to "YYYY-MM-DD HH:MM:SS" UTC — same format as log-file timestamps
+    // so staleness() / timeAgo() work correctly without timezone ambiguity.
+    const rawTs = d.last_poll_at as string | null;
+    const lastPollAt = rawTs ? new Date(rawTs).toISOString().replace("T", " ").slice(0, 19) : null;
+    return {
+      lastPollAt,
+      lastPollOk: d.last_poll_ok === null ? null : d.last_poll_ok === "1",
+    };
+  } catch {
+    return { lastPollAt: null, lastPollOk: null };
+  }
+}
+
 export async function GET() {
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
   const logDir = path.join(appRoot, "ml", "logs");
   const csvPath = path.join(appRoot, "ml", "nba_spread", "data", "model_performance.csv");
+  const dbPath  = path.join(appRoot, "ml", "nba_spread", "data", "signal_log.db");
 
   const segmentsPath   = path.join(appRoot, "ml", "nba_spread", "artifacts", "model_performance_segments.json");
   const archetypesPath = path.join(appRoot, "ml", "nba_spread", "artifacts", "team_archetypes.json");
 
-  const [stateMeta, gradeMeta, fetchMeta, snapshotMeta, pregameMeta, morningMeta, middayMeta, closingEarlyMeta, closingLateMeta, csvText, segmentsRaw, archetypesRaw] = await Promise.all([
+  const [stateMeta, gradeMeta, fetchMeta, csvText, segmentsRaw, archetypesRaw] = await Promise.all([
     readLogWithMtime(path.join(logDir, "state.log")),
     readLogWithMtime(path.join(logDir, "grade.log")),
     readLogWithMtime(path.join(logDir, "fetch.log")),
-    readLogWithMtime(path.join(logDir, "snapshot.log")),
-    readLogWithMtime(path.join(logDir, "pregame.log")),
-    readLogWithMtime(path.join(logDir, "snapshot_morning.log")),
-    readLogWithMtime(path.join(logDir, "snapshot_midday.log")),
-    readLogWithMtime(path.join(logDir, "snapshot_closing_early.log")),
-    readLogWithMtime(path.join(logDir, "snapshot_closing_late.log")),
     fs.readFile(csvPath, "utf-8").catch(() => ""),
     fs.readFile(segmentsPath, "utf-8").catch(() => ""),
     fs.readFile(archetypesPath, "utf-8").catch(() => ""),
   ]);
 
-  const stateJob        = parseLog(stateMeta.content);
-  const gradeJob        = parseLog(gradeMeta.content);
-  const fetchJob        = parseLog(fetchMeta.content);
-  const snapshotJob     = parseLog(snapshotMeta.content);
-  const pregameJob      = parseLog(pregameMeta.content);
-  const morningJob      = parseLog(morningMeta.content);
-  const middayJob       = parseLog(middayMeta.content);
-  const closingEarlyJob = parseLog(closingEarlyMeta.content);
-  const closingLateJob  = parseLog(closingLateMeta.content);
+  const stateJob = parseLog(stateMeta.content);
+  const gradeJob = parseLog(gradeMeta.content);
+  const fetchJob = parseLog(fetchMeta.content);
 
   // state.log has no inline timestamp — use file mtime as fallback
   if (!stateJob.lastRunAt && stateMeta.mtimeMs) stateJob.lastRunAt = mtimeToTs(stateMeta.mtimeMs);
 
-  const jobs = {
-    state: stateJob, grade: gradeJob, fetch: fetchJob,
-    snapshot: snapshotJob, pregame: pregameJob,
-    morning: morningJob, midday: middayJob,
-    closing_early: closingEarlyJob, closing_late: closingLateJob,
-  };
+  // Worker daemon status from meta table
+  const workerMeta = readWorkerMeta(dbPath);
 
-  // Latest quota = from the job whose log was modified most recently AND has a quota reading
+  const jobs = { state: stateJob, grade: gradeJob, fetch: fetchJob };
+
+  // Latest quota from whichever log file was written most recently
   const jobsWithQuota = [
-    { quota: closingLateJob.quotaRemaining,  mtime: closingLateMeta.mtimeMs },
-    { quota: closingEarlyJob.quotaRemaining, mtime: closingEarlyMeta.mtimeMs },
-    { quota: pregameJob.quotaRemaining,      mtime: pregameMeta.mtimeMs },
-    { quota: snapshotJob.quotaRemaining,     mtime: snapshotMeta.mtimeMs },
-    { quota: middayJob.quotaRemaining,       mtime: middayMeta.mtimeMs },
-    { quota: morningJob.quotaRemaining,      mtime: morningMeta.mtimeMs },
-    { quota: fetchJob.quotaRemaining,        mtime: fetchMeta.mtimeMs },
-    { quota: gradeJob.quotaRemaining,        mtime: gradeMeta.mtimeMs },
-    { quota: stateJob.quotaRemaining,        mtime: stateMeta.mtimeMs },
+    { quota: fetchJob.quotaRemaining, mtime: fetchMeta.mtimeMs },
+    { quota: gradeJob.quotaRemaining, mtime: gradeMeta.mtimeMs },
+    { quota: stateJob.quotaRemaining, mtime: stateMeta.mtimeMs },
   ].filter((j): j is { quota: number; mtime: number } => j.quota !== null);
   jobsWithQuota.sort((a, b) => b.mtime - a.mtime);
   const latestQuota = jobsWithQuota[0]?.quota ?? null;
@@ -211,6 +221,7 @@ export async function GET() {
 
   return NextResponse.json({
     jobs,
+    worker: workerMeta,
     latestQuota,
     model: {
       total: rows.length,

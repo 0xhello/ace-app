@@ -30,6 +30,7 @@ from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from .fetch_and_predict import run as _snapshot_run
+from .signal_logger import update_meta
 
 _TZ_ET = ZoneInfo("America/New_York")
 _RUNNING = True
@@ -212,8 +213,15 @@ def run_loop(once: bool = False) -> None:
         try:
             upcoming = _snapshot_run(snapshot_only=True)
             _cache_tips(upcoming)
+            update_meta("last_poll_at", datetime.now(timezone.utc).isoformat())
+            update_meta("last_poll_ok", "1")
         except Exception as e:
             print(f"  [worker] Snapshot error: {e}", file=sys.stderr, flush=True)
+            try:
+                update_meta("last_poll_at", datetime.now(timezone.utc).isoformat())
+                update_meta("last_poll_ok", "0")
+            except Exception:
+                pass
 
         if once:
             break

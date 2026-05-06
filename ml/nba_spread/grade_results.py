@@ -25,8 +25,8 @@ import httpx
 import pandas as pd
 from dotenv import load_dotenv
 
-from .inference import MODEL_PERFORMANCE_PATH, update_prediction_result
-from .signal_logger import grade_signal, void_stale_signals
+from .inference import MODEL_PERFORMANCE_PATH, update_prediction_result, _migrate_late_columns
+from .signal_logger import grade_signal, grade_executions, void_stale_signals, DB_PATH
 from .train_spread_model import TEAM_NAME_TO_CODE
 
 _ENV_PATH = Path(__file__).resolve().parents[2] / ".env.local"
@@ -95,6 +95,7 @@ def report_only() -> None:
     if not MODEL_PERFORMANCE_PATH.exists():
         print("  No model_performance.csv found. Run fetch_and_predict first.")
         return
+    _migrate_late_columns()
     df = pd.read_csv(MODEL_PERFORMANCE_PATH)
     _print_summary(df)
 
@@ -109,6 +110,7 @@ def run(days_back: int = 3, void_stale: bool = False, stale_days: int = 3) -> No
         print("  No model_performance.csv found. Run fetch_and_predict first.")
         return
 
+    _migrate_late_columns()
     log_df = pd.read_csv(MODEL_PERFORMANCE_PATH)
     pending = log_df[log_df["result_status"] == "pending"]
     print(f"  Pending predictions: {len(pending)}")
@@ -153,7 +155,7 @@ def run(days_back: int = 3, void_stale: bool = False, stale_days: int = 3) -> No
                 if pred_dt is not None:
                     try:
                         game_dt = datetime.fromisoformat(g["commence_time"].replace("Z", "+00:00"))
-                        if abs((game_dt - pred_dt).total_seconds()) > 43200:  # 12 hours
+                        if abs((game_dt - pred_dt).total_seconds()) > 43200:  # 12h window
                             continue
                     except Exception:
                         pass
@@ -176,10 +178,12 @@ def run(days_back: int = 3, void_stale: bool = False, stale_days: int = 3) -> No
         if actual is None:
             # Push — mark as void, not a win or loss
             _mark_void(game_id, home_score, away_score)
+            _stamp_closing_line(game_id, home_line)
             pushed += 1
             print(f"  PUSH  {away_team} @ {home_team}  {away_score}-{home_score}  line={home_line:+.1f}")
         else:
             update_prediction_result(game_id, actual)
+            _stamp_closing_line(game_id, home_line)
             graded += 1
 
             pick_side = str(pred["pick_side"])
@@ -198,6 +202,7 @@ def run(days_back: int = 3, void_stale: bool = False, stale_days: int = 3) -> No
             clv_str = f"{r['clv_points']:+.1f}" if r["clv_points"] is not None else "n/a"
             cov_str = {1: "covered", 0: "missed", None: "push"}.get(r["covered"], "?")
             print(f"         CLV signal #{r['id']}  clv={clv_str}pts  result={cov_str}")
+            grade_executions(r["id"], r["covered"])
 
     print()
     print(f"  Graded: {graded}  Pushed: {pushed}  Not found yet: {not_found}  CLV signals graded: {clv_graded}")
@@ -237,6 +242,51 @@ def _teams_match(game: Dict[str, Any], home_team: str, away_team: str) -> bool:
     return (ht in g_home.lower() and at in g_away.lower()) or (
         g_home.lower().endswith(ht) and g_away.lower().endswith(at)
     )
+
+
+def _get_closing_line(game_id: str) -> Optional[float]:
+    """Look up the pregame (or 6pm_proxy) Pinnacle spread from line_snapshots."""
+    try:
+        import sqlite3
+        con = sqlite3.connect(DB_PATH)
+        row = con.execute(
+            """
+            SELECT home_line FROM line_snapshots
+            WHERE game_id = ?
+            ORDER BY
+                CASE snapshot_label
+                    WHEN 'pregame'   THEN 1
+                    WHEN '6pm_proxy' THEN 2
+                    ELSE 3
+                END
+            LIMIT 1
+            """,
+            (game_id,),
+        ).fetchone()
+        con.close()
+        return float(row[0]) if row else None
+    except Exception:
+        return None
+
+
+def _stamp_closing_line(game_id: str, noon_line: float) -> None:
+    """Write closing_pinnacle_line, line_movement, and bet_clv_pts into model_performance.csv."""
+    closing = _get_closing_line(game_id)
+    if closing is None:
+        return
+    df = pd.read_csv(MODEL_PERFORMANCE_PATH)
+    mask = df["game_id"].astype(str) == str(game_id)
+    if not mask.any():
+        return
+    df.loc[mask, "closing_pinnacle_line"] = closing
+    df.loc[mask, "line_movement"] = round(closing - noon_line, 2)
+    pick = str(df.loc[mask, "pick_side"].iloc[0])
+    # Home bet: positive CLV = you got an easier line than close (noon < close in abs terms)
+    # Away bet: positive CLV = line moved against home (noon > close in abs terms)
+    # Formula matches compute_clv_points: direction * (signal - close)
+    clv = round(noon_line - closing, 2) if pick == "home" else round(closing - noon_line, 2)
+    df.loc[mask, "bet_clv_pts"] = clv
+    df.to_csv(MODEL_PERFORMANCE_PATH, index=False)
 
 
 def _mark_void(game_id: str, home_score: int, away_score: int) -> None:
@@ -285,9 +335,27 @@ def _print_summary(df: pd.DataFrame) -> None:
     print()
 
     _stats(graded, "All predictions    ")
-    if "is_bet" in graded.columns:
+
+    if "is_pinnacle_bet" in graded.columns:
+        pin_bets = graded[pd.to_numeric(graded["is_pinnacle_bet"], errors="coerce") == 1]
+        _stats(pin_bets, "Pinnacle-edge bets ")
+
+        conf_bets = graded[
+            (pd.to_numeric(graded["is_bet"], errors="coerce") == 1) &
+            (pd.to_numeric(graded["is_pinnacle_bet"], errors="coerce") != 1)
+        ]
+        if not conf_bets.empty:
+            _stats(conf_bets, "Confidence-only bets")
+    elif "is_bet" in graded.columns:
         bets_only = graded[pd.to_numeric(graded["is_bet"], errors="coerce") == 1]
         _stats(bets_only, "High-conf bets only")
+
+    # Passed games — what would have happened if we'd bet them anyway
+    if "is_bet" in graded.columns:
+        passed = graded[pd.to_numeric(graded["is_bet"], errors="coerce") == 0]
+        if not passed.empty:
+            _stats(passed, "Passed games       ")
+
     print(f"  (break-even at -110 is 52.4%)")
 
 

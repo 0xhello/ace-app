@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import {
   Activity, AlertTriangle, CheckCircle2, XCircle, Clock,
   Database, TrendingUp, Zap, RefreshCw, Terminal, Info, Brain,
+  BookMarked, PlusCircle, Wifi,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -43,8 +44,14 @@ interface ArchetypeEntry {
   pct_ranks: { offense: number | null; defense: number | null; pace: number | null };
 }
 
+interface WorkerStatus {
+  lastPollAt: string | null;
+  lastPollOk: boolean | null;
+}
+
 interface PipelineData {
-  jobs: { state: JobStatus; grade: JobStatus; fetch: JobStatus; snapshot: JobStatus; pregame: JobStatus; morning: JobStatus; midday: JobStatus; closing_early: JobStatus; closing_late: JobStatus };
+  jobs: { state: JobStatus; grade: JobStatus; fetch: JobStatus };
+  worker: WorkerStatus;
   latestQuota: number | null;
   picks: Pick[];
   model: {
@@ -92,6 +99,20 @@ interface SignalsData {
   edgeStatus: string;
   needFor30: number;
   error?: string;
+}
+
+interface Execution {
+  id: number; signal_id: number; mode: "paper" | "real";
+  book: string; signal_line: number; fill_line: number | null;
+  bet_side: string; stake: number; outcome: 1 | 0 | null;
+  pnl_units: number | null; notes: string; created_at: string;
+  graded_at: string | null;
+  home_team?: string; away_team?: string; game_date?: string; signal_type?: string;
+}
+interface ExecSummary { total: number; graded: number; wins: number; losses: number; pnl_units: number | null }
+interface ExecutionData {
+  executions: Execution[];
+  summary: { paper: ExecSummary; real: ExecSummary };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -345,32 +366,54 @@ function sigTypeBadgeColor(t: string): string {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function OpsPage() {
-  const [pipeline, setPipeline] = useState<PipelineData | null>(null);
-  const [signals,  setSignals]  = useState<SignalsData | null>(null);
-  const [loading,  setLoading]  = useState(true);
+  const [pipeline,   setPipeline]   = useState<PipelineData | null>(null);
+  const [signals,    setSignals]    = useState<SignalsData | null>(null);
+  const [execData,   setExecData]   = useState<ExecutionData | null>(null);
+  const [loading,    setLoading]    = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [perfTab, setPerfTab] = useState<"all" | "bets" | "conf" | "source">("all");
+  const [loggingBet, setLoggingBet] = useState<number | null>(null);
+
+  async function loadAll() {
+    try {
+      const [p, s, e] = await Promise.all([
+        fetch("/api/ops/pipeline").then((r) => r.json()),
+        fetch("/api/ops/signals").then((r) => r.json()),
+        fetch("/api/ops/execution").then((r) => r.json()),
+      ]);
+      setPipeline(p);
+      setSignals(s);
+      setExecData(e);
+      setLastRefresh(new Date());
+    } catch (e) {
+      console.error("ops load error", e);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function load() {
-      try {
-        const [p, s] = await Promise.all([
-          fetch("/api/ops/pipeline").then((r) => r.json()),
-          fetch("/api/ops/signals").then((r) => r.json()),
-        ]);
-        setPipeline(p);
-        setSignals(s);
-        setLastRefresh(new Date());
-      } catch (e) {
-        console.error("ops load error", e);
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-    const t = setInterval(load, 60_000);
+    loadAll();
+    const t = setInterval(loadAll, 60_000);
     return () => clearInterval(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function logRealBet(signalId: number) {
+    setLoggingBet(signalId);
+    try {
+      const resp = await fetch("/api/ops/execution", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signal_id: signalId, notes: "manual from ops" }),
+      });
+      const data = await resp.json();
+      if (data.ok) await loadAll();
+      else console.error("log bet failed", data);
+    } finally {
+      setLoggingBet(null);
+    }
+  }
 
   // Build alerts
   const alerts: Array<{ icon: React.ElementType; msg: string; color: string }> = [];
@@ -380,18 +423,19 @@ export default function OpsPage() {
     else if (pipeline.latestQuota !== null && pipeline.latestQuota < 150)
       alerts.push({ icon: AlertTriangle, msg: `API quota low — ${pipeline.latestQuota} requests remaining`, color: "#f5c062" });
     const jobs = pipeline.jobs;
-    if (jobs.state.hasError)    alerts.push({ icon: XCircle, msg: `Team state errored: ${jobs.state.errorSnippet}`, color: "#ef4444" });
-    if (jobs.grade.hasError)    alerts.push({ icon: XCircle, msg: `Grade job errored: ${jobs.grade.errorSnippet}`, color: "#ef4444" });
-    if (jobs.fetch.hasError)    alerts.push({ icon: XCircle, msg: `Fetch/predict errored: ${jobs.fetch.errorSnippet}`, color: "#ef4444" });
-    if (jobs.snapshot.hasError) alerts.push({ icon: XCircle, msg: `Snapshot errored: ${jobs.snapshot.errorSnippet}`, color: "#ef4444" });
-    if (jobs.snapshot.truncated && !jobs.snapshot.hasError)
-      alerts.push({ icon: AlertTriangle, msg: "Snapshot output truncated — possible crash or power loss", color: "#f5c062" });
+    if (jobs.state.hasError) alerts.push({ icon: XCircle, msg: `Team state errored: ${jobs.state.errorSnippet}`, color: "#ef4444" });
+    if (jobs.grade.hasError) alerts.push({ icon: XCircle, msg: `Grade job errored: ${jobs.grade.errorSnippet}`, color: "#ef4444" });
+    if (jobs.fetch.hasError) alerts.push({ icon: XCircle, msg: `Fetch/predict errored: ${jobs.fetch.errorSnippet}`, color: "#ef4444" });
     if (jobs.fetch.truncated && !jobs.fetch.hasError)
       alerts.push({ icon: AlertTriangle, msg: "Fetch/predict output truncated", color: "#f5c062" });
     Object.entries(jobs).forEach(([key, j]) => {
       if (staleness(j.lastRunAt) === "stale")
         alerts.push({ icon: Clock, msg: `${key} job hasn't run in >2 days`, color: "#f5c062" });
     });
+    if (pipeline.worker.lastPollOk === false)
+      alerts.push({ icon: XCircle, msg: "Worker daemon last poll failed", color: "#ef4444" });
+    if (pipeline.worker.lastPollAt && staleness(pipeline.worker.lastPollAt) === "stale")
+      alerts.push({ icon: AlertTriangle, msg: "Worker daemon hasn't polled in >2 days", color: "#f5c062" });
   }
   if (signals && !signals.error) {
     if (signals.stale.length > 0)
@@ -414,8 +458,19 @@ export default function OpsPage() {
   const m = pipeline?.model;
   const sig = signals;
   const jobs = pipeline?.jobs;
+  const worker = pipeline?.worker;
 
   const emptyJob: JobStatus = { lastRunAt: null, quotaRemaining: null, hasError: false, errorSnippet: null, truncated: false };
+
+  function workerHealthColor(w: WorkerStatus | undefined): string {
+    if (!w) return "#6b7068";
+    if (w.lastPollOk === false) return "#ef4444";
+    if (!w.lastPollAt) return "#6b7068";
+    const age = staleness(w.lastPollAt);
+    if (age === "ok") return "#3ee68a";
+    if (age === "warn") return "#f5c062";
+    return "#ef4444";
+  }
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
@@ -443,15 +498,10 @@ export default function OpsPage() {
 
         {/* ── System status strip ── */}
         <div className="flex items-center gap-4 rounded-xl border border-[#1a1e1a] bg-[#0d0f0d] px-4 py-3 flex-wrap">
-          <StatusDot label="Morning"      color={jobHealthColor(jobs?.morning       ?? emptyJob)} />
-          <StatusDot label="Midday"       color={jobHealthColor(jobs?.midday        ?? emptyJob)} />
-          <StatusDot label="State"        color={jobHealthColor(jobs?.state         ?? emptyJob)} />
-          <StatusDot label="Grade"        color={jobHealthColor(jobs?.grade         ?? emptyJob)} />
-          <StatusDot label="Fetch"        color={jobHealthColor(jobs?.fetch         ?? emptyJob)} />
-          <StatusDot label="Snapshot"     color={jobHealthColor(jobs?.snapshot      ?? emptyJob)} />
-          <StatusDot label="Pregame"      color={jobHealthColor(jobs?.pregame       ?? emptyJob)} />
-          <StatusDot label="Close Early"  color={jobHealthColor(jobs?.closing_early ?? emptyJob)} />
-          <StatusDot label="Close Late"   color={jobHealthColor(jobs?.closing_late  ?? emptyJob)} />
+          <StatusDot label="Worker"  color={workerHealthColor(worker)} />
+          <StatusDot label="State"   color={jobHealthColor(jobs?.state ?? emptyJob)} />
+          <StatusDot label="Grade"   color={jobHealthColor(jobs?.grade ?? emptyJob)} />
+          <StatusDot label="Fetch"   color={jobHealthColor(jobs?.fetch ?? emptyJob)} />
           <div className="h-3 w-px bg-[#22251f]" />
           <span className="text-[10px] text-[#6b7068]">
             Quota <span className="font-mono text-[#9ca39a]">{pipeline?.latestQuota ?? "—"} / 500</span>
@@ -477,16 +527,47 @@ export default function OpsPage() {
         {/* ── A. Pipeline Health ── */}
         <div className="ace-panel p-5">
           <SectionHead title="Pipeline Health" icon={Activity} />
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <JobCard name="snapshot --morning"        cronPdt="6:00am"  cron="daily" cronUtcHour={13}                   job={jobs?.morning       ?? emptyJob} />
-            <JobCard name="update_team_state"         cronPdt="8:00am"  cron="daily" cronUtcHour={15}                   job={jobs?.state         ?? emptyJob} />
-            <JobCard name="snapshot --midday"         cronPdt="9:00am"  cron="daily" cronUtcHour={16}                   job={jobs?.midday        ?? emptyJob} />
-            <JobCard name="grade_results"             cronPdt="9:00am"  cron="daily" cronUtcHour={16}                   job={jobs?.grade         ?? emptyJob} />
-            <JobCard name="fetch_and_predict"         cronPdt="12:00pm" cron="daily" cronUtcHour={19}                   job={jobs?.fetch         ?? emptyJob} />
-            <JobCard name="snapshot --6pm_proxy"      cronPdt="3:00pm"  cron="daily" cronUtcHour={22}                   job={jobs?.snapshot      ?? emptyJob} />
-            <JobCard name="snapshot --pregame"        cronPdt="4:15pm"  cron="daily" cronUtcHour={23} cronUtcMinute={15} job={jobs?.pregame       ?? emptyJob} />
-            <JobCard name="snapshot --closing_early"  cronPdt="5:15pm"  cron="daily" cronUtcHour={0}  cronUtcMinute={15} job={jobs?.closing_early ?? emptyJob} />
-            <JobCard name="snapshot --closing_late"   cronPdt="7:00pm"  cron="daily" cronUtcHour={2}                   job={jobs?.closing_late  ?? emptyJob} />
+
+          {/* Worker Daemon card */}
+          {(() => {
+            const w = worker;
+            const color = workerHealthColor(w);
+            const pollTs = w?.lastPollAt ? w.lastPollAt.replace("T", " ").slice(0, 19) : null;
+            const hasError = w?.lastPollOk === false;
+            return (
+              <div className={cn(
+                "rounded-xl border bg-[#121412] p-4 mb-3",
+                hasError ? "border-[#ef4444]/25" : "border-[#3ee68a]/15"
+              )}>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Wifi className="h-3.5 w-3.5 shrink-0" style={{ color }} />
+                      <p className="text-[11px] font-semibold text-white">Worker Daemon</p>
+                      <span className="text-[8px] font-bold text-[#3ee68a] border border-[#3ee68a]/30 rounded px-1 py-0.5 uppercase tracking-widest">supervisord</span>
+                    </div>
+                    <p className="text-[9px] text-[#6b7068] font-mono mt-0.5">continuous poll · 60s near tip · 10min otherwise</p>
+                  </div>
+                  {hasError
+                    ? <XCircle className="h-3.5 w-3.5 text-[#ef4444] shrink-0" />
+                    : pollTs
+                    ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" style={{ color }} />
+                    : <Clock className="h-3.5 w-3.5 text-[#6b7068] shrink-0" />}
+                </div>
+                <p className="text-[10px] font-mono leading-tight" style={{ color }}>
+                  {pollTs
+                    ? `last poll: ${pollTs.slice(0, 10)} ${pollTs.slice(11, 16)} · ${timeAgo(pollTs)}`
+                    : "no poll recorded yet"}
+                </p>
+                {hasError && <p className="text-[9px] text-[#ef4444] mt-1.5">last poll failed — check Railway logs</p>}
+              </div>
+            );
+          })()}
+
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <JobCard name="update_team_state" cronPdt="8:00am ET" cron="daily" cronUtcHour={13} job={jobs?.state ?? emptyJob} />
+            <JobCard name="grade_results"     cronPdt="9:00am ET" cron="daily" cronUtcHour={14} job={jobs?.grade ?? emptyJob} />
+            <JobCard name="fetch_and_predict" cronPdt="12:00pm ET" cron="daily" cronUtcHour={17} job={jobs?.fetch ?? emptyJob} />
           </div>
           {pipeline?.latestQuota != null && (
             <div className="flex items-center gap-3">
@@ -561,35 +642,192 @@ export default function OpsPage() {
             </div>
           )}
 
-          {/* Open signals */}
+          {/* Open signals with Log Bet button */}
           {sig?.open_signals && sig.open_signals.length > 0 && (
             <div>
               <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-2">Open signals</p>
               <div className="space-y-1.5">
-                {sig.open_signals.map((s) => (
-                  <div key={s.id} className="flex items-center gap-3 rounded-lg border border-[#22251f] bg-[#0d0f0d] px-3 py-2">
-                    <span className="text-[9px] text-[#6b7068] font-mono shrink-0">#{s.id}</span>
-                    <span className="text-[10px] text-[#6b7068] shrink-0">{s.game_date}</span>
-                    <span className="text-[10px] text-white flex-1">{abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}</span>
-                    <span className="text-[9px] font-mono text-[#3ee68a]">{s.bet_side.toUpperCase()} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}</span>
-                    <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded border border-[#2e332a]"
-                          style={{ color: sigTypeBadgeColor(s.signal_type) }}>
-                      {sigTypeLabel(s.signal_type)}
-                    </span>
-                    <span className={cn(
-                      "text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border",
-                      s.status === "proxy_captured"
-                        ? "text-[#f5c062] border-[#f5c062]/20 bg-[#f5c062]/5"
-                        : "text-[#6b7068] border-[#2e332a]"
-                    )}>{s.status === "proxy_captured" ? "proxy ✓" : "open"}</span>
-                  </div>
-                ))}
+                {sig.open_signals.map((s) => {
+                  const alreadyLogged = execData?.executions.some(
+                    (e) => e.signal_id === s.id && e.mode === "real"
+                  );
+                  return (
+                    <div key={s.id} className="flex items-center gap-3 rounded-lg border border-[#22251f] bg-[#0d0f0d] px-3 py-2">
+                      <span className="text-[9px] text-[#6b7068] font-mono shrink-0">#{s.id}</span>
+                      <span className="text-[10px] text-[#6b7068] shrink-0">{s.game_date}</span>
+                      <span className="text-[10px] text-white flex-1">{abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}</span>
+                      <span className="text-[9px] font-mono text-[#3ee68a]">{s.bet_side.toUpperCase()} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}</span>
+                      <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded border border-[#2e332a]"
+                            style={{ color: sigTypeBadgeColor(s.signal_type) }}>
+                        {sigTypeLabel(s.signal_type)}
+                      </span>
+                      <span className={cn(
+                        "text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border",
+                        s.status === "proxy_captured"
+                          ? "text-[#f5c062] border-[#f5c062]/20 bg-[#f5c062]/5"
+                          : "text-[#6b7068] border-[#2e332a]"
+                      )}>{s.status === "proxy_captured" ? "proxy ✓" : "open"}</span>
+                      {alreadyLogged ? (
+                        <span className="text-[8px] font-bold text-[#3ee68a] shrink-0">BET ✓</span>
+                      ) : (
+                        <button
+                          onClick={() => logRealBet(s.id)}
+                          disabled={loggingBet === s.id}
+                          className="flex items-center gap-1 text-[8px] font-bold text-[#f5c062] border border-[#f5c062]/30 rounded px-1.5 py-0.5 hover:bg-[#f5c062]/10 transition-colors disabled:opacity-50 shrink-0"
+                        >
+                          <PlusCircle className="h-3 w-3" />
+                          {loggingBet === s.id ? "..." : "Log Bet"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
           {!sig?.today?.games?.length && !sig?.open_signals?.length && (
             <p className="text-[11px] text-[#6b7068]">No game or signal data for today yet. Noon cron may not have run.</p>
+          )}
+        </div>
+
+        {/* ── B2. Execution Tracker ── */}
+        <div className="ace-panel p-5">
+          <SectionHead title="Execution Tracker" icon={BookMarked} />
+          <p className="text-[10px] text-[#6b7068] mb-4">
+            Paper trades auto-log on every divergence signal · use "Log Bet" above to record real money bets
+          </p>
+
+          {execData?.summary ? (
+            <div>
+              {/* Summary KPIs */}
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                {/* Paper */}
+                <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4">
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <p className="text-[9px] font-bold text-[#9ca39a] uppercase tracking-widest">Paper trades</p>
+                    <span className="text-[7px] text-[#4a524a] border border-[#22251f] rounded px-1 py-0.5 uppercase">auto</span>
+                  </div>
+                  {execData.summary.paper.total === 0 ? (
+                    <p className="text-[11px] text-[#4a524a]">None yet — fires on next divergence signal</p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex gap-3">
+                        <div>
+                          <p className="text-[8px] text-[#4a524a] mb-0.5">total</p>
+                          <p className="text-[20px] font-black font-mono text-[#9ca39a] leading-none">{execData.summary.paper.total}</p>
+                        </div>
+                        <div>
+                          <p className="text-[8px] text-[#4a524a] mb-0.5">graded</p>
+                          <p className="text-[20px] font-black font-mono text-[#9ca39a] leading-none">{execData.summary.paper.graded}</p>
+                        </div>
+                        {execData.summary.paper.graded > 0 && (
+                          <>
+                            <div>
+                              <p className="text-[8px] text-[#4a524a] mb-0.5">record</p>
+                              <p className="text-[20px] font-black font-mono leading-none"
+                                 style={{ color: winRateColor(execData.summary.paper.wins / execData.summary.paper.graded) }}>
+                                {execData.summary.paper.wins}–{execData.summary.paper.losses}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-[8px] text-[#4a524a] mb-0.5">P&L (units)</p>
+                              <p className="text-[20px] font-black font-mono leading-none"
+                                 style={{ color: roiColor(execData.summary.paper.pnl_units) }}>
+                                {execData.summary.paper.pnl_units !== null
+                                  ? (execData.summary.paper.pnl_units >= 0 ? "+" : "") + execData.summary.paper.pnl_units.toFixed(2)
+                                  : "—"}
+                              </p>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Real */}
+                <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4">
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <p className="text-[9px] font-bold text-[#f5c062] uppercase tracking-widest">Real bets</p>
+                    <span className="text-[7px] text-[#4a524a] border border-[#22251f] rounded px-1 py-0.5 uppercase">manual</span>
+                  </div>
+                  {execData.summary.real.total === 0 ? (
+                    <p className="text-[11px] text-[#4a524a]">None logged yet — click "Log Bet" on an open signal above</p>
+                  ) : (
+                    <div className="flex gap-3">
+                      <div>
+                        <p className="text-[8px] text-[#4a524a] mb-0.5">total</p>
+                        <p className="text-[20px] font-black font-mono text-[#f5c062] leading-none">{execData.summary.real.total}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] text-[#4a524a] mb-0.5">graded</p>
+                        <p className="text-[20px] font-black font-mono text-[#9ca39a] leading-none">{execData.summary.real.graded}</p>
+                      </div>
+                      {execData.summary.real.graded > 0 && (
+                        <>
+                          <div>
+                            <p className="text-[8px] text-[#4a524a] mb-0.5">record</p>
+                            <p className="text-[20px] font-black font-mono leading-none"
+                               style={{ color: winRateColor(execData.summary.real.wins / execData.summary.real.graded) }}>
+                              {execData.summary.real.wins}–{execData.summary.real.losses}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] text-[#4a524a] mb-0.5">P&L (units)</p>
+                            <p className="text-[20px] font-black font-mono leading-none"
+                               style={{ color: roiColor(execData.summary.real.pnl_units) }}>
+                              {execData.summary.real.pnl_units !== null
+                                ? (execData.summary.real.pnl_units >= 0 ? "+" : "") + execData.summary.real.pnl_units.toFixed(2)
+                                : "—"}
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Execution log table */}
+              {execData.executions.length > 0 && (
+                <div>
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-2">Recent executions</p>
+                  <div className="rounded-xl border border-[#1a1e1a] bg-[#0d0f0d] overflow-hidden">
+                    <div className="grid grid-cols-[28px_56px_1fr_56px_60px_52px_44px_44px] gap-2 px-3 py-2 border-b border-[#22251f]">
+                      {["#", "Date", "Game", "Side", "Book", "Mode", "Line", "Result"].map((h) => (
+                        <span key={h} className="text-[8px] font-bold text-[#3a4033] uppercase tracking-widest">{h}</span>
+                      ))}
+                    </div>
+                    {execData.executions.slice(0, 20).map((e) => {
+                      const isPush = e.graded_at !== null && e.outcome === null;
+                      const outcomeColor = e.outcome === 1 ? "#3ee68a" : e.outcome === 0 ? "#ef4444" : isPush ? "#6b7068" : "#3a4033";
+                      const outcomeLabel = e.outcome === 1 ? "WIN" : e.outcome === 0 ? "LOSS" : isPush ? "PUSH" : "—";
+                      return (
+                        <div key={e.id} className="grid grid-cols-[28px_56px_1fr_56px_60px_52px_44px_44px] gap-2 items-center px-3 py-2 border-b border-[#0f110f] last:border-0">
+                          <span className="text-[9px] text-[#3a4033] font-mono">#{e.signal_id}</span>
+                          <span className="text-[9px] text-[#6b7068]">{e.game_date ? fmtDate(e.game_date) : "—"}</span>
+                          <span className="text-[10px] text-[#9ca39a] truncate">
+                            {e.away_team && e.home_team ? `${abbrevTeam(e.away_team)} @ ${abbrevTeam(e.home_team)}` : "—"}
+                          </span>
+                          <span className="text-[9px] font-mono text-[#9ca39a]">{e.bet_side?.toUpperCase()} {e.signal_line > 0 ? "+" : ""}{e.signal_line}</span>
+                          <span className="text-[9px] text-[#6b7068] truncate">{e.book || "—"}</span>
+                          <span className={cn("text-[8px] font-bold uppercase tracking-widest",
+                            e.mode === "real" ? "text-[#f5c062]" : "text-[#6b7068]"
+                          )}>{e.mode}</span>
+                          <span className="text-[9px] font-mono text-[#6b7068]">
+                            {e.fill_line !== null ? `${e.fill_line > 0 ? "+" : ""}${e.fill_line}` : `${e.signal_line > 0 ? "+" : ""}${e.signal_line}`}
+                          </span>
+                          <span className="text-[9px] font-bold text-right" style={{ color: outcomeColor }}>{outcomeLabel}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-[11px] text-[#6b7068]">Loading execution data...</p>
           )}
         </div>
 

@@ -36,7 +36,7 @@ from .signal_logger import (
     get_signal_execution_source, save_book_lines, get_book_divergences,
     check_and_save_divergence_alerts, log_signal, get_model_probs,
     get_divergence_first_seen, _rest_days_for_code, _regime_for_date,
-    get_db, DB_PATH,
+    get_db, DB_PATH, log_paper_execution,
 )
 from .train_spread_model import BACKTEST_METRICS_PATH
 
@@ -163,6 +163,18 @@ def _log_divergence_signals(alerts: List[Dict[str, Any]]) -> None:
             bet_rest_days=b_rest,
             opp_rest_days=o_rest,
         )
+
+        # Auto-log paper trade for every new signal (row_id > 0 = freshly inserted)
+        if row_id > 0:
+            try:
+                log_paper_execution(
+                    signal_id=row_id,
+                    book=book,
+                    signal_line=book_line,
+                    bet_side=bet_side,
+                )
+            except Exception:
+                pass
 
         direction   = "HOME" if bet_side == "home" else "AWAY"
         status_flag = " [model veto]" if veto_note else " *** PAPER BET"

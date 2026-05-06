@@ -271,6 +271,31 @@ def init_db(path: Path = DB_PATH) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_div_alerts_game
             ON divergence_alerts(game_id, book, game_date);
+
+        CREATE TABLE IF NOT EXISTS execution_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_id     INTEGER NOT NULL REFERENCES signal_log(id),
+            mode          TEXT NOT NULL CHECK(mode IN ('paper', 'real')),
+            book          TEXT NOT NULL,
+            signal_line   REAL NOT NULL,
+            fill_line     REAL,
+            fill_slippage REAL DEFAULT 0.0,
+            stake         REAL NOT NULL DEFAULT 1.0,
+            bet_side      TEXT NOT NULL,
+            outcome       INTEGER,
+            pnl_units     REAL,
+            notes         TEXT DEFAULT '',
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            graded_at     TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_exec_signal ON execution_log(signal_id);
+        CREATE INDEX IF NOT EXISTS idx_exec_mode   ON execution_log(mode);
+
+        CREATE TABLE IF NOT EXISTS meta (
+            key        TEXT PRIMARY KEY,
+            value      TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
     """)
     # Migrate existing DBs that predate these columns
     _migrate(conn)
@@ -1213,6 +1238,171 @@ def get_open_signals(db_path: Path = DB_PATH) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Execution logging
+# ---------------------------------------------------------------------------
+
+def log_paper_execution(
+    signal_id: int,
+    book: str,
+    signal_line: float,
+    bet_side: str,
+    stake: float = 1.0,
+    notes: str = "",
+    db_path: Path = DB_PATH,
+) -> int:
+    """
+    Auto-log a paper trade when a divergence signal fires.
+    Idempotent: returns existing id if a paper execution already exists for this signal.
+    Returns the execution row id (0 on failure).
+    """
+    init_db(db_path)
+    conn = get_db(db_path)
+    existing = conn.execute(
+        "SELECT id FROM execution_log WHERE signal_id = ? AND mode = 'paper'", (signal_id,)
+    ).fetchone()
+    if existing:
+        conn.close()
+        return existing["id"]
+    cursor = conn.execute(
+        """INSERT INTO execution_log (signal_id, mode, book, signal_line, bet_side, stake, notes)
+           VALUES (?, 'paper', ?, ?, ?, ?, ?)""",
+        (signal_id, book, signal_line, bet_side, stake, notes),
+    )
+    exec_id = cursor.lastrowid or 0
+    conn.commit()
+    conn.close()
+    return exec_id
+
+
+def log_real_execution(
+    signal_id: int,
+    book: str,
+    signal_line: float,
+    bet_side: str,
+    fill_line: Optional[float] = None,
+    fill_slippage: float = 0.0,
+    stake: float = 1.0,
+    notes: str = "",
+    db_path: Path = DB_PATH,
+) -> int:
+    """Log a manually confirmed real bet. Returns the new execution row id."""
+    init_db(db_path)
+    conn = get_db(db_path)
+    cursor = conn.execute(
+        """INSERT INTO execution_log
+           (signal_id, mode, book, signal_line, fill_line, fill_slippage, bet_side, stake, notes)
+           VALUES (?, 'real', ?, ?, ?, ?, ?, ?, ?)""",
+        (signal_id, book, signal_line, fill_line, fill_slippage, bet_side, stake, notes),
+    )
+    exec_id = cursor.lastrowid or 0
+    conn.commit()
+    conn.close()
+    return exec_id
+
+
+def grade_executions(
+    signal_id: int,
+    covered: Optional[int],
+    db_path: Path = DB_PATH,
+) -> int:
+    """
+    Grade all pending (outcome IS NULL) executions for a signal.
+    covered = 1 (home covered), 0 (away covered), None (push).
+    Returns number of executions updated.
+    """
+    init_db(db_path)
+    conn = get_db(db_path)
+
+    sig = conn.execute("SELECT bet_side FROM signal_log WHERE id = ?", (signal_id,)).fetchone()
+    if not sig:
+        conn.close()
+        return 0
+
+    bet_side = sig["bet_side"]
+    graded_at = datetime.now(timezone.utc).isoformat()
+
+    if covered is None:
+        outcome: Optional[int] = None
+    elif (bet_side == "home" and covered == 1) or (bet_side == "away" and covered == 0):
+        outcome = 1
+    else:
+        outcome = 0
+
+    execs = conn.execute(
+        "SELECT id, stake FROM execution_log WHERE signal_id = ? AND outcome IS NULL",
+        (signal_id,),
+    ).fetchall()
+
+    for ex in execs:
+        if outcome == 1:
+            pnl = round(ex["stake"] * 100.0 / 110.0, 4)
+        elif outcome == 0:
+            pnl = -ex["stake"]
+        else:
+            pnl = 0.0
+        conn.execute(
+            "UPDATE execution_log SET outcome = ?, pnl_units = ?, graded_at = ? WHERE id = ?",
+            (outcome, pnl, graded_at, ex["id"]),
+        )
+
+    conn.commit()
+    conn.close()
+    return len(execs)
+
+
+def get_executions(
+    signal_id: Optional[int] = None,
+    mode: Optional[str] = None,
+    limit: int = 200,
+    db_path: Path = DB_PATH,
+) -> List[Dict[str, Any]]:
+    """Return executions, optionally filtered by signal_id and/or mode."""
+    init_db(db_path)
+    conn = get_db(db_path)
+    clauses: List[str] = []
+    params: List[Any] = []
+    if signal_id is not None:
+        clauses.append("signal_id = ?")
+        params.append(signal_id)
+    if mode is not None:
+        clauses.append("mode = ?")
+        params.append(mode)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    params.append(limit)
+    rows = conn.execute(
+        f"SELECT * FROM execution_log {where} ORDER BY id DESC LIMIT ?", params
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Meta key-value store
+# ---------------------------------------------------------------------------
+
+def update_meta(key: str, value: str, db_path: Path = DB_PATH) -> None:
+    """Upsert a key-value pair into the meta table."""
+    init_db(db_path)
+    conn = get_db(db_path)
+    conn.execute(
+        "INSERT INTO meta (key, value, updated_at) VALUES (?, ?, datetime('now')) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        (key, str(value)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_meta(key: str, db_path: Path = DB_PATH) -> Optional[str]:
+    """Return the value for a meta key, or None if not set."""
+    init_db(db_path)
+    conn = get_db(db_path)
+    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return row["value"] if row else None
 
 
 def void_stale_signals(days: int = 3, db_path: Path = DB_PATH) -> list[dict]:
