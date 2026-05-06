@@ -39,7 +39,10 @@ import math
 import sqlite3
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
+
+_TZ_ET = ZoneInfo("America/New_York")
 
 DB_PATH = Path(__file__).resolve().parent / "data" / "signal_log.db"
 
@@ -165,6 +168,11 @@ def init_db(path: Path = DB_PATH) -> None:
             -- CLV (computed once closing_line is known)
             clv_points       REAL,               -- positive = beat the close
 
+            -- Situational context (tagged at signal fire time)
+            regime           TEXT DEFAULT '',   -- 'regular_season' | 'playoffs'
+            bet_rest_days    INTEGER,           -- rest days for the bet side
+            opp_rest_days    INTEGER,           -- rest days for the opponent
+
             -- Lifecycle
             status           TEXT NOT NULL DEFAULT 'open',
             -- 'open' | 'proxy_captured' | 'graded' | 'no_action'
@@ -221,11 +229,48 @@ def init_db(path: Path = DB_PATH) -> None:
             pinnacle_prob         REAL,
             edge_vs_pinnacle      REAL,
             features_json         TEXT,
+            matchup_context       TEXT DEFAULT '',
             created_at            TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
         CREATE INDEX IF NOT EXISTS idx_pred_game_id ON predictions(game_id);
         CREATE INDEX IF NOT EXISTS idx_pred_status  ON predictions(result_status);
+
+        CREATE TABLE IF NOT EXISTS book_lines (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id        TEXT NOT NULL,
+            game_date      DATE NOT NULL,
+            home_team      TEXT NOT NULL,
+            away_team      TEXT NOT NULL,
+            book           TEXT NOT NULL,
+            home_line      REAL NOT NULL,
+            home_price     REAL,
+            away_price     REAL,
+            over_under     REAL,
+            snapshot_label TEXT NOT NULL,
+            captured_at    TEXT NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS uidx_book_lines
+            ON book_lines(game_id, book, captured_at);
+        CREATE INDEX IF NOT EXISTS idx_book_lines_date
+            ON book_lines(game_date, captured_at);
+
+        CREATE TABLE IF NOT EXISTS divergence_alerts (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id        TEXT NOT NULL,
+            game_date      DATE NOT NULL,
+            home_team      TEXT NOT NULL,
+            away_team      TEXT NOT NULL,
+            book           TEXT NOT NULL,
+            divergence     REAL NOT NULL,      -- signed: book_line - pinnacle_line
+            pinnacle_line  REAL NOT NULL,
+            book_line      REAL NOT NULL,
+            snapshot_label TEXT NOT NULL,      -- which cron label fired this
+            fired_at       TEXT NOT NULL       -- ISO-8601 UTC
+        );
+        CREATE INDEX IF NOT EXISTS idx_div_alerts_game
+            ON divergence_alerts(game_id, book, game_date);
     """)
     # Migrate existing DBs that predate these columns
     _migrate(conn)
@@ -238,15 +283,82 @@ def _migrate(conn: sqlite3.Connection) -> None:
     migrations = [
         "ALTER TABLE signal_log      ADD COLUMN execution_source TEXT DEFAULT ''",
         "ALTER TABLE line_snapshots  ADD COLUMN book TEXT DEFAULT 'unknown'",
+        "ALTER TABLE predictions     ADD COLUMN matchup_context TEXT DEFAULT ''",
+        "ALTER TABLE signal_log      ADD COLUMN regime TEXT DEFAULT ''",
+        "ALTER TABLE signal_log      ADD COLUMN bet_rest_days INTEGER",
+        "ALTER TABLE signal_log      ADD COLUMN opp_rest_days INTEGER",
         # Prevents duplicate snapshots for the same game + label (e.g. running
         # the cron twice). First write wins; subsequent inserts are silently ignored.
         "CREATE UNIQUE INDEX IF NOT EXISTS uidx_snap_game_label ON line_snapshots(game_id, snapshot_label)",
+        # One signal per (game, type) — prevents duplicate rows from repeated cron runs
+        # or multiple books on the same game firing _log_divergence_signals.
+        "CREATE UNIQUE INDEX IF NOT EXISTS uidx_signal_game_type ON signal_log(game_id, signal_type)",
     ]
     for sql in migrations:
         try:
             conn.execute(sql)
         except sqlite3.OperationalError:
             pass  # column/index already exists
+
+    # Fix book_lines unique index: old DBs used (game_id, book, snapshot_label) which
+    # blocked multiple intraday captures with the same label. New index uses captured_at
+    # so full time-series is preserved (only same-second exact duplicates are blocked).
+    idx = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='uidx_book_lines'"
+    ).fetchone()
+    if idx and "snapshot_label" in idx[0]:
+        conn.execute("DROP INDEX uidx_book_lines")
+        conn.execute(
+            "CREATE UNIQUE INDEX uidx_book_lines ON book_lines(game_id, book, captured_at)"
+        )
+        conn.execute("DROP INDEX IF EXISTS idx_book_lines_date")
+        conn.execute(
+            "CREATE INDEX idx_book_lines_date ON book_lines(game_date, captured_at)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Situational context helpers
+# ---------------------------------------------------------------------------
+
+_MODULE_DIR    = Path(__file__).resolve().parent
+_STATE_PATH    = _MODULE_DIR / "artifacts" / "latest_team_state.json"
+
+# NBA first-round playoff start dates by season-end year (keep in sync with inference.py)
+_PLAYOFF_STARTS: Dict[int, str] = {
+    2024: "2024-04-20",
+    2025: "2025-04-19",
+    2026: "2026-04-19",
+}
+
+
+def _regime_for_date(game_date: str) -> str:
+    """Return 'playoffs' or 'regular_season' for a YYYY-MM-DD game date."""
+    try:
+        gd = datetime.strptime(game_date, "%Y-%m-%d")
+        year = gd.year + 1 if gd.month >= 10 else gd.year
+        start_str = _PLAYOFF_STARTS.get(year)
+        if start_str:
+            start = datetime.strptime(start_str, "%Y-%m-%d")
+            if gd.date() >= start.date():
+                return "playoffs"
+        elif gd.month in (4, 5, 6) and (gd.month != 4 or gd.day >= 16):
+            return "playoffs"
+    except Exception:
+        pass
+    return "regular_season"
+
+
+def _rest_days_for_code(team_code: str) -> Optional[int]:
+    """Look up current rest days for a team code from latest_team_state.json."""
+    try:
+        import json as _json
+        state = _json.loads(_STATE_PATH.read_text())
+        entry = state.get(team_code, {})
+        rd = entry.get("rest_days")
+        return int(rd) if rd is not None else None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +380,9 @@ def log_signal(
     opening_line: Optional[float] = None,
     bet_odds: float = -110.0,
     notes: str = "",
+    regime: Optional[str] = None,
+    bet_rest_days: Optional[int] = None,
+    opp_rest_days: Optional[int] = None,
     db_path: Path = DB_PATH,
 ) -> int:
     """
@@ -275,30 +390,37 @@ def log_signal(
     Automatically sets detected_at to now (UTC).
 
     execution_source — which bookmaker provided line_at_signal (e.g. 'pinnacle').
+    regime / bet_rest_days / opp_rest_days — situational context; auto-derived from
+        game_date and team_state if not provided.
     """
     if bet_side not in ("home", "away"):
         raise ValueError(f"bet_side must be 'home' or 'away', got {bet_side!r}")
+
+    if regime is None:
+        regime = _regime_for_date(game_date)
 
     init_db(db_path)
     conn = get_db(db_path)
     detected_at = datetime.now(timezone.utc).isoformat()
     cursor = conn.execute(
         """
-        INSERT INTO signal_log
+        INSERT OR IGNORE INTO signal_log
             (game_id, game_date, home_team, away_team, commence_time,
              signal_type, signal_detail, detected_at,
              opening_line, line_at_signal, execution_source,
-             bet_side, bet_odds, notes, status)
-        VALUES (?,?,?,?,?,  ?,?,?,  ?,?,?,  ?,?,?, 'open')
+             bet_side, bet_odds, notes, status,
+             regime, bet_rest_days, opp_rest_days)
+        VALUES (?,?,?,?,?,  ?,?,?,  ?,?,?,  ?,?,?, 'open',  ?,?,?)
         """,
         (
             game_id, game_date, home_team, away_team, commence_time,
             signal_type, signal_detail, detected_at,
             opening_line, line_at_signal, execution_source,
             bet_side, bet_odds, notes,
+            regime, bet_rest_days, opp_rest_days,
         ),
     )
-    row_id = cursor.lastrowid
+    row_id = cursor.lastrowid or 0
     conn.commit()
     conn.close()
     return row_id
@@ -377,6 +499,173 @@ def save_snapshot(
     conn.close()
 
 
+def save_book_lines(
+    game_id: str,
+    game_date: str,
+    home_team: str,
+    away_team: str,
+    snapshot_label: str,
+    lines: List[Dict[str, Any]],
+    db_path: Path = DB_PATH,
+) -> int:
+    """
+    Persist all books' spread lines for a single game snapshot.
+
+    Each element of `lines` should have:
+      book (str), home_line (float), home_price (float|None),
+      away_price (float|None), over_under (float|None)
+
+    Duplicate (game_id, book, captured_at) rows are silently ignored —
+    first write wins. Different captured_at timestamps (separate cron runs)
+    produce separate rows, enabling a full intraday time series.
+
+    Returns number of rows inserted.
+    """
+    if not lines:
+        return 0
+    init_db(db_path)
+    conn = get_db(db_path)
+    captured_at = datetime.now(timezone.utc).isoformat()
+    inserted = 0
+    for entry in lines:
+        cursor = conn.execute(
+            """
+            INSERT OR IGNORE INTO book_lines
+                (game_id, game_date, home_team, away_team,
+                 book, home_line, home_price, away_price, over_under,
+                 snapshot_label, captured_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                game_id, game_date, home_team, away_team,
+                entry["book"], float(entry["home_line"]),
+                _null_float(entry.get("home_price")),
+                _null_float(entry.get("away_price")),
+                _null_float(entry.get("over_under")),
+                snapshot_label, captured_at,
+            ),
+        )
+        inserted += cursor.rowcount
+    conn.commit()
+    conn.close()
+    return inserted
+
+
+def get_book_divergences(
+    game_date: Optional[str] = None,
+    min_divergence: float = 0.5,
+    db_path: Path = DB_PATH,
+) -> List[Dict[str, Any]]:
+    """
+    For each game on game_date, compare the most recent soft-book line against
+    Pinnacle's most recent line (per game per book, latest captured_at wins).
+    Returns rows where a book diverges from Pinnacle by >= min_divergence points,
+    sorted by abs(divergence) descending.
+
+    Each row: game_id, game_date, home_team, away_team,
+              pinnacle_line, book, book_line, divergence (book_line - pinnacle_line)
+
+    Positive divergence: book_line > pinnacle_line → home is LESS favored at soft book
+                         → home bettors get an easier number there.
+    Negative divergence: soft book has home as bigger favorite
+                         → away bettors get a better number there.
+
+    Returns empty list if Pinnacle has no line for a game.
+    """
+    if game_date is None:
+        game_date = (datetime.now(_TZ_ET)).strftime("%Y-%m-%d")
+    init_db(db_path)
+    conn = get_db(db_path)
+    rows = conn.execute(
+        """
+        WITH latest AS (
+            SELECT game_id, book, home_line, game_date, home_team, away_team, snapshot_label,
+                   ROW_NUMBER() OVER (PARTITION BY game_id, book ORDER BY captured_at DESC) AS rn
+            FROM book_lines
+            WHERE game_date = ?
+        )
+        SELECT l.game_id, l.game_date, l.home_team, l.away_team,
+               p.home_line     AS pinnacle_line,
+               l.book          AS book,
+               l.home_line     AS book_line,
+               ROUND(l.home_line - p.home_line, 2) AS divergence,
+               l.snapshot_label
+        FROM latest l
+        JOIN latest p ON l.game_id = p.game_id AND p.book = 'pinnacle' AND p.rn = 1
+        WHERE l.book  != 'pinnacle'
+          AND l.rn     = 1
+          AND ABS(l.home_line - p.home_line) >= ?
+        ORDER BY ABS(l.home_line - p.home_line) DESC
+        """,
+        (game_date, min_divergence),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def check_and_save_divergence_alerts(
+    divergences: List[Dict[str, Any]],
+    snapshot_label: str,
+    widen_pts: float = 1.0,
+    db_path: Path = DB_PATH,
+) -> List[Dict[str, Any]]:
+    """
+    For each divergence, fire an alert if:
+      - No alert exists yet for this (game_id, book, game_date), OR
+      - The divergence has grown by >= widen_pts since the last alert for that pair.
+
+    Persists fired alerts to divergence_alerts table (dedup across cron runs).
+    Returns list of newly fired alert dicts; each dict has all divergence fields
+    plus "is_new" (bool) and "is_widened" (bool).
+    """
+    if not divergences:
+        return []
+
+    init_db(db_path)
+    conn = get_db(db_path)
+
+    new_alerts: List[Dict[str, Any]] = []
+    for d in divergences:
+        game_id  = d["game_id"]
+        book     = d["book"]
+        gdate    = d["game_date"]
+
+        last = conn.execute(
+            """
+            SELECT divergence FROM divergence_alerts
+            WHERE game_id = ? AND book = ? AND game_date = ?
+            ORDER BY fired_at DESC LIMIT 1
+            """,
+            (game_id, book, gdate),
+        ).fetchone()
+
+        is_new     = last is None
+        is_widened = (
+            last is not None
+            and abs(d["divergence"]) >= abs(last["divergence"]) + widen_pts
+        )
+
+        if is_new or is_widened:
+            conn.execute(
+                """
+                INSERT INTO divergence_alerts
+                    (game_id, game_date, home_team, away_team, book,
+                     divergence, pinnacle_line, book_line, snapshot_label, fired_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    game_id, gdate, d["home_team"], d["away_team"],
+                    book, d["divergence"], d["pinnacle_line"], d["book_line"],
+                    snapshot_label, datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            new_alerts.append({**d, "is_new": is_new, "is_widened": is_widened})
+
+    conn.commit()
+    conn.close()
+    return new_alerts
+
+
 def log_prediction_db(row: Dict[str, Any], db_path: Path = DB_PATH) -> None:
     """
     INSERT OR IGNORE a prediction row into the predictions table.
@@ -400,7 +689,7 @@ def log_prediction_db(row: Dict[str, Any], db_path: Path = DB_PATH) -> None:
             home_cover_prob, away_cover_prob, pick_side, pick_confidence,
             is_bet, model_version, threshold_used,
             home_injury_impact, away_injury_impact, injury_data_available,
-            pinnacle_prob, edge_vs_pinnacle, features_json,
+            pinnacle_prob, edge_vs_pinnacle, features_json, matchup_context,
             result_status
         ) VALUES (
             :logged_at, :game_id, :commence_time, :season,
@@ -408,7 +697,7 @@ def log_prediction_db(row: Dict[str, Any], db_path: Path = DB_PATH) -> None:
             :home_cover_prob, :away_cover_prob, :pick_side, :pick_confidence,
             :is_bet, :model_version, :threshold_used,
             :home_injury_impact, :away_injury_impact, :injury_data_available,
-            :pinnacle_prob, :edge_vs_pinnacle, :features_json,
+            :pinnacle_prob, :edge_vs_pinnacle, :features_json, :matchup_context,
             'pending'
         )
         """,
@@ -433,6 +722,7 @@ def log_prediction_db(row: Dict[str, Any], db_path: Path = DB_PATH) -> None:
             "pinnacle_prob":         _null_float(row.get("pinnacle_prob")),
             "edge_vs_pinnacle":      _null_float(row.get("edge_vs_pinnacle")),
             "features_json":         row.get("features_json"),
+            "matchup_context":       row.get("matchup_context") or "",
         },
     )
     conn.commit()
@@ -643,10 +933,10 @@ def detect_line_movements(
     Returns list of dicts for each new signal created.
     """
     if game_date is None:
-        # Use ET date (UTC-5 conservative) so late games (9:30pm/10pm ET)
-        # aren't silently missed because their commence_time rolls into the
+        # Use ET calendar date so late games (9:30pm/10pm ET) aren't
+        # silently missed because their commence_time rolls into the
         # next UTC calendar day.
-        game_date = (datetime.now(timezone.utc) - timedelta(hours=5)).strftime("%Y-%m-%d")
+        game_date = (datetime.now(_TZ_ET)).strftime("%Y-%m-%d")
 
     init_db(db_path)
     conn = get_db(db_path)
@@ -722,6 +1012,31 @@ def detect_line_movements(
             f"({movement:+.1f} pts, morning→{row['proxy_label']}, book={proxy_book})"
         )
 
+        # Resolve team codes for rest-day lookup (suffix matching on full names)
+        def _to_code(name: str) -> Optional[str]:
+            lower = name.lower().rstrip("*").strip()
+            _suffixes = {
+                "hawks": "atl", "celtics": "bos", "nets": "bkn", "hornets": "cha",
+                "bulls": "chi", "cavaliers": "cle", "mavericks": "dal", "nuggets": "den",
+                "pistons": "det", "warriors": "gs", "rockets": "hou", "pacers": "ind",
+                "clippers": "lac", "lakers": "lal", "grizzlies": "mem", "heat": "mia",
+                "bucks": "mil", "timberwolves": "min", "pelicans": "no", "knicks": "ny",
+                "thunder": "okc", "magic": "orl", "76ers": "phi", "suns": "phx",
+                "trail blazers": "por", "kings": "sac", "spurs": "sa", "raptors": "tor",
+                "jazz": "utah", "wizards": "wsh",
+            }
+            for suffix, code in _suffixes.items():
+                if lower.endswith(suffix):
+                    return code
+            return None
+
+        h_code = _to_code(row["home_team"])
+        a_code = _to_code(row["away_team"])
+        h_rest = _rest_days_for_code(h_code) if h_code else None
+        a_rest = _rest_days_for_code(a_code) if a_code else None
+        b_rest = h_rest if bet_side == "home" else a_rest
+        o_rest = a_rest if bet_side == "home" else h_rest
+
         conn.close()
         row_id = log_signal(
             game_id=game_id,
@@ -734,6 +1049,9 @@ def detect_line_movements(
             bet_side=bet_side,
             signal_detail=detail,
             opening_line=morning_line,
+            regime=_regime_for_date(row["game_date"]),
+            bet_rest_days=b_rest,
+            opp_rest_days=o_rest,
             db_path=db_path,
         )
         conn = get_db(db_path)
@@ -803,6 +1121,25 @@ def get_report(db_path: Path = DB_PATH) -> list[dict]:
     conn = get_db(db_path)
     rows = conn.execute(
         """
+        WITH deduped_div AS (
+            -- soft_book_divergence: treat each unique (game_id, bet_side, game_date) as
+            -- one market observation. Multiple soft books moving together are the same
+            -- bet opportunity, not independent signals. CLV is averaged across books;
+            -- MAX(covered) works because all books track the same game outcome.
+            SELECT 'soft_book_divergence' AS signal_type,
+                   game_id, bet_side, game_date,
+                   AVG(clv_points) AS clv_points,
+                   MAX(covered)    AS covered
+            FROM signal_log
+            WHERE status = 'graded' AND signal_type = 'soft_book_divergence'
+            GROUP BY game_id, bet_side, game_date
+        ),
+        other AS (
+            SELECT signal_type, game_id, bet_side, game_date, clv_points, covered
+            FROM signal_log
+            WHERE status = 'graded' AND signal_type != 'soft_book_divergence'
+        ),
+        combined AS (SELECT * FROM deduped_div UNION ALL SELECT * FROM other)
         SELECT
             signal_type,
             COUNT(*)                                                     AS n,
@@ -821,8 +1158,7 @@ def get_report(db_path: Path = DB_PATH) -> list[dict]:
             , 3)                                                         AS roi_per_unit,
             MIN(game_date)                                               AS first_signal,
             MAX(game_date)                                               AS last_signal
-        FROM signal_log
-        WHERE status = 'graded'
+        FROM combined
         GROUP BY signal_type
         ORDER BY avg_clv DESC NULLS LAST
         """,
@@ -888,7 +1224,7 @@ def void_stale_signals(days: int = 3, db_path: Path = DB_PATH) -> list[dict]:
     """
     init_db(db_path)
     conn = get_db(db_path)
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=5, days=days)).strftime("%Y-%m-%d")
+    cutoff = (datetime.now(_TZ_ET) - timedelta(days=days)).strftime("%Y-%m-%d")
     rows = conn.execute(
         """
         SELECT id, game_id, game_date, signal_type, home_team, away_team
@@ -925,7 +1261,7 @@ def get_snapshots(game_date: Optional[str] = None, db_path: Path = DB_PATH) -> l
     Sorted by snapshot_label priority then captured_at.
     """
     if game_date is None:
-        game_date = (datetime.now(timezone.utc) - timedelta(hours=5)).strftime("%Y-%m-%d")
+        game_date = (datetime.now(_TZ_ET)).strftime("%Y-%m-%d")
     init_db(db_path)
     conn = get_db(db_path)
     rows = conn.execute(
@@ -1007,6 +1343,46 @@ def print_report(db_path: Path = DB_PATH) -> None:
     print()
 
 
+def get_model_probs(game_id: str, db_path: Path = DB_PATH) -> Optional[Dict[str, Any]]:
+    """
+    Return the model's cover probabilities for game_id from the predictions table.
+    Returns None if no prediction exists yet for this game.
+    """
+    init_db(db_path)
+    conn = get_db(db_path)
+    row = conn.execute(
+        "SELECT home_cover_prob, away_cover_prob FROM predictions WHERE game_id = ?",
+        (game_id,),
+    ).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return None
+
+
+def get_divergence_first_seen(
+    game_id: str,
+    book: str,
+    game_date: str,
+    db_path: Path = DB_PATH,
+) -> Optional[datetime]:
+    """
+    Return the UTC datetime of the FIRST divergence alert for (game_id, book, game_date).
+    Used to compute gap age at signal logging time.
+    Returns None if no alert exists (shouldn't happen if called after check_and_save_divergence_alerts).
+    """
+    init_db(db_path)
+    conn = get_db(db_path)
+    row = conn.execute(
+        "SELECT MIN(fired_at) AS first_seen FROM divergence_alerts WHERE game_id=? AND book=? AND game_date=?",
+        (game_id, book, game_date),
+    ).fetchone()
+    conn.close()
+    if row and row["first_seen"]:
+        return datetime.fromisoformat(row["first_seen"])
+    return None
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -1079,7 +1455,7 @@ def _cmd_report(_args: argparse.Namespace) -> None:
 
 
 def _cmd_snapshots(args: argparse.Namespace) -> None:
-    date = args.date or (datetime.now(timezone.utc) - timedelta(hours=5)).strftime("%Y-%m-%d")
+    date = args.date or (datetime.now(_TZ_ET)).strftime("%Y-%m-%d")
     rows = get_snapshots(game_date=date)
     if not rows:
         print(f"\n  No snapshots found for {date}.")
@@ -1103,7 +1479,7 @@ def _cmd_snapshots(args: argparse.Namespace) -> None:
 
 
 def _cmd_detect(args: argparse.Namespace) -> None:
-    date = args.date or (datetime.now(timezone.utc) - timedelta(hours=5)).strftime("%Y-%m-%d")
+    date = args.date or (datetime.now(_TZ_ET)).strftime("%Y-%m-%d")
     created = detect_line_movements(game_date=date, threshold=args.threshold)
     if not created:
         print(f"  No new line movements >= {args.threshold} pts on {date}.")
@@ -1132,7 +1508,7 @@ def main() -> None:
     p_log.add_argument("--home",         required=True, help="3-letter team code")
     p_log.add_argument("--away",         required=True, help="3-letter team code")
     p_log.add_argument("--type",         required=True,
-                       choices=["line_movement", "reverse_line", "manual"],
+                       choices=["line_movement", "reverse_line", "manual", "soft_book_divergence"],
                        help="Signal type")
     p_log.add_argument("--line",         required=True, type=float,
                        help="home_line at signal time (negative = home favored)")
