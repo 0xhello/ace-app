@@ -11,9 +11,7 @@ tsconfig.tsbuildinfo
 # ML — runtime data (lives on Railway volumes, not in git)
 ml/**/__pycache__/
 ml/**/*.pyc
-ml/nba_spread/data/*
-# Seed file committed explicitly so Railway has historical predictions to display
-!ml/nba_spread/data/model_performance.csv
+ml/nba_spread/data/
 
 # Model binary is committed — it needs to ship with the Railway image.
 # Revisit only if it grows beyond ~50MB.
