@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   Activity, AlertTriangle, CheckCircle2, XCircle, Clock,
-  Database, TrendingUp, Zap, RefreshCw, Terminal, Info,
+  Database, TrendingUp, Zap, RefreshCw, Terminal, Info, Brain,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -23,8 +23,28 @@ interface Pick {
   edge: number | null; version: string;
 }
 
+interface SegStats { n: number; wins?: number; win_rate: number | null; avg_conf?: number; avg_edge?: number | null }
+interface SegReport {
+  sample_note: string;
+  overall: SegStats;
+  bets_only: SegStats;
+  by_regime: Record<string, SegStats>;
+  by_direction: Record<string, SegStats>;
+  by_rest: Record<string, SegStats>;
+  by_conf_tier: Record<string, SegStats>;
+  by_edge_tier: Record<string, SegStats>;
+  calibration: Array<{ conf_bucket: string; n: number; predicted_avg: number; actual_win_rate: number; delta: number }>;
+  weak_spots: Array<{ segment: string; n: number; win_rate: number }>;
+}
+interface ArchetypeEntry {
+  pace_tier: string; offense_style: string; defense_tier: string;
+  ball_movement: string; clutch: string; home_skew: string;
+  raw: { ortg: number | null; drtg: number | null; pace: number | null; fg3a_pct: number | null; net_rtg: number | null };
+  pct_ranks: { offense: number | null; defense: number | null; pace: number | null };
+}
+
 interface PipelineData {
-  jobs: { state: JobStatus; grade: JobStatus; fetch: JobStatus; snapshot: JobStatus; pregame: JobStatus };
+  jobs: { state: JobStatus; grade: JobStatus; fetch: JobStatus; snapshot: JobStatus; pregame: JobStatus; morning: JobStatus; midday: JobStatus; closing_early: JobStatus; closing_late: JobStatus };
   latestQuota: number | null;
   picks: Pick[];
   model: {
@@ -38,6 +58,8 @@ interface PipelineData {
     buckets: Array<{ label: string; graded: number; wins: number; winRate: number | null }>;
     todayLogged: number;
   };
+  segments: SegReport | null;
+  archetypes: Record<string, ArchetypeEntry> | null;
   etToday: string;
   refreshedAt: string;
 }
@@ -48,16 +70,24 @@ interface RecentSignal {
   src: string | null;
 }
 
+interface BookDivergence {
+  game_date: string; home: string; away: string;
+  pinnacle_line: number; book: string; book_line: number;
+  divergence: number; snapshot_label: string;
+}
+
 interface SignalsData {
   by_status: Record<string, number>;
   total: number;
   clv: { avg: number | null; median: number | null; pct_positive: number | null; n: number; wins: number; total_graded: number };
-  same_book: { clv: number | null; n: number };
-  fallback:  { clv: number | null; n: number };
+  pinnacle_close:     { clv: number | null; n: number };
+  non_pinnacle_close: { clv: number | null; n: number };
   today: { signals: number; snapshots: number; games: Array<{ home: string; away: string }> };
   stale: Array<{ id: number; game_date: string; home_team: string; away_team: string }>;
-  open_signals: Array<{ id: number; game_date: string; home_team: string; away_team: string; bet_side: string; line_at_signal: number; status: string }>;
+  open_signals: Array<{ id: number; game_date: string; home_team: string; away_team: string; bet_side: string; line_at_signal: number; status: string; signal_type: string }>;
   recent_graded: RecentSignal[];
+  book_lines: { total: number; game_days: number; divergences: BookDivergence[] };
+  by_type: Record<string, { n: number; avg_clv: number | null; pct_pos: number | null; graded: number }>;
   et_today: string;
   edgeStatus: string;
   needFor30: number;
@@ -86,11 +116,11 @@ function staleness(ts: string | null): "ok" | "warn" | "stale" | "unknown" {
   return "stale";
 }
 
-// cronUtcHour: when the cron fires in UTC
-function nextRun(cronUtcHour: number): string {
+// cronUtcHour / cronUtcMinute: when the cron fires in UTC
+function nextRun(cronUtcHour: number, cronUtcMinute: number = 0): string {
   const nowMs = Date.now();
   const now = new Date();
-  const todayRun = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), cronUtcHour, 0, 0));
+  const todayRun = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), cronUtcHour, cronUtcMinute, 0));
   const target = todayRun.getTime() > nowMs ? todayRun.getTime() : todayRun.getTime() + 86_400_000;
   const diffMs = target - nowMs;
   const h = Math.floor(diffMs / 3_600_000);
@@ -141,7 +171,8 @@ function edgeStatusColor(s: string): string {
 }
 
 function abbrevTeam(full: string): string {
-  const last = full.split(" ").at(-1) ?? full;
+  const parts = full.split(" ");
+  const last = parts.length > 0 ? parts[parts.length - 1] : full;
   return last.length > 6 ? last.slice(0, 3).toUpperCase() : last.toUpperCase();
 }
 
@@ -188,8 +219,8 @@ function StatusDot({ label, color }: { label: string; color: string }) {
   );
 }
 
-function JobCard({ name, cron, cronPdt, cronUtcHour, job }: {
-  name: string; cron: string; cronPdt: string; cronUtcHour: number; job: JobStatus;
+function JobCard({ name, cron, cronPdt, cronUtcHour, cronUtcMinute = 0, job }: {
+  name: string; cron: string; cronPdt: string; cronUtcHour: number; cronUtcMinute?: number; job: JobStatus;
 }) {
   const age = staleness(job.lastRunAt);
   const color = jobHealthColor(job);
@@ -218,7 +249,7 @@ function JobCard({ name, cron, cronPdt, cronUtcHour, job }: {
           ? `last: ${job.lastRunAt.slice(0, 10)}  ${job.lastRunAt.slice(11, 16)}  ·  ${timeAgo(job.lastRunAt)}`
           : "no run recorded"}
       </p>
-      <p className="text-[9px] text-[#4a524a] mt-1">next: {nextRun(cronUtcHour)}</p>
+      <p className="text-[9px] text-[#4a524a] mt-1">next: {nextRun(cronUtcHour, cronUtcMinute)}</p>
       {job.quotaRemaining !== null && (
         <p className="text-[9px] text-[#6b7068] mt-1">quota after run: {job.quotaRemaining}</p>
       )}
@@ -274,7 +305,7 @@ function FunnelStep({ label, count, color, arrow }: { label: string; count: numb
 }
 
 function RecentSignalRow({ s }: { s: RecentSignal }) {
-  const isFallback = s.src?.includes("fallback");
+  const isFallback = s.src && s.src !== "pinnacle";
   return (
     <div className="grid grid-cols-[28px_52px_1fr_52px_44px_52px_40px] gap-2 items-center py-2 border-b border-[#161a16] last:border-0">
       <span className="text-[9px] text-[#3a4033] font-mono">#{s.id}</span>
@@ -288,6 +319,27 @@ function RecentSignalRow({ s }: { s: RecentSignal }) {
       </span>
     </div>
   );
+}
+
+function computeEdgeStatus(n: number, avgClv: number | null, pctPos: number | null): string {
+  if (n < 30 || avgClv === null) return "accumulating";
+  if (avgClv < 0) return "bad";
+  const suffix = pctPos !== null && pctPos <= 50 ? "?" : "";
+  if (avgClv < 0.5) return `inconclusive${suffix}`;
+  if (avgClv < 1.0) return `promising${suffix}`;
+  return `strong${suffix}`;
+}
+
+function sigTypeLabel(t: string): string {
+  if (t === "soft_book_divergence") return "divergence";
+  if (t === "line_movement")        return "line move";
+  return t.replace(/_/g, " ");
+}
+
+function sigTypeBadgeColor(t: string): string {
+  if (t === "soft_book_divergence") return "#3ee68a";
+  if (t === "line_movement")        return "#f5c062";
+  return "#9ca39a";
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -391,11 +443,15 @@ export default function OpsPage() {
 
         {/* ── System status strip ── */}
         <div className="flex items-center gap-4 rounded-xl border border-[#1a1e1a] bg-[#0d0f0d] px-4 py-3 flex-wrap">
-          <StatusDot label="State"    color={jobHealthColor(jobs?.state    ?? emptyJob)} />
-          <StatusDot label="Grade"    color={jobHealthColor(jobs?.grade    ?? emptyJob)} />
-          <StatusDot label="Fetch"    color={jobHealthColor(jobs?.fetch    ?? emptyJob)} />
-          <StatusDot label="Snapshot" color={jobHealthColor(jobs?.snapshot ?? emptyJob)} />
-          <StatusDot label="Pregame"  color={jobHealthColor(jobs?.pregame  ?? emptyJob)} />
+          <StatusDot label="Morning"      color={jobHealthColor(jobs?.morning       ?? emptyJob)} />
+          <StatusDot label="Midday"       color={jobHealthColor(jobs?.midday        ?? emptyJob)} />
+          <StatusDot label="State"        color={jobHealthColor(jobs?.state         ?? emptyJob)} />
+          <StatusDot label="Grade"        color={jobHealthColor(jobs?.grade         ?? emptyJob)} />
+          <StatusDot label="Fetch"        color={jobHealthColor(jobs?.fetch         ?? emptyJob)} />
+          <StatusDot label="Snapshot"     color={jobHealthColor(jobs?.snapshot      ?? emptyJob)} />
+          <StatusDot label="Pregame"      color={jobHealthColor(jobs?.pregame       ?? emptyJob)} />
+          <StatusDot label="Close Early"  color={jobHealthColor(jobs?.closing_early ?? emptyJob)} />
+          <StatusDot label="Close Late"   color={jobHealthColor(jobs?.closing_late  ?? emptyJob)} />
           <div className="h-3 w-px bg-[#22251f]" />
           <span className="text-[10px] text-[#6b7068]">
             Quota <span className="font-mono text-[#9ca39a]">{pipeline?.latestQuota ?? "—"} / 500</span>
@@ -422,11 +478,15 @@ export default function OpsPage() {
         <div className="ace-panel p-5">
           <SectionHead title="Pipeline Health" icon={Activity} />
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <JobCard name="update_team_state"    cronPdt="8:00am"  cron="daily" cronUtcHour={15} job={jobs?.state    ?? emptyJob} />
-            <JobCard name="grade_results"        cronPdt="9:00am"  cron="daily" cronUtcHour={16} job={jobs?.grade    ?? emptyJob} />
-            <JobCard name="fetch_and_predict"    cronPdt="12:00pm" cron="daily" cronUtcHour={19} job={jobs?.fetch    ?? emptyJob} />
-            <JobCard name="snapshot --6pm_proxy" cronPdt="3:00pm"  cron="daily" cronUtcHour={22} job={jobs?.snapshot ?? emptyJob} />
-            <JobCard name="snapshot --pregame"   cronPdt="4:15pm"  cron="daily" cronUtcHour={23} job={jobs?.pregame  ?? emptyJob} />
+            <JobCard name="snapshot --morning"        cronPdt="6:00am"  cron="daily" cronUtcHour={13}                   job={jobs?.morning       ?? emptyJob} />
+            <JobCard name="update_team_state"         cronPdt="8:00am"  cron="daily" cronUtcHour={15}                   job={jobs?.state         ?? emptyJob} />
+            <JobCard name="snapshot --midday"         cronPdt="9:00am"  cron="daily" cronUtcHour={16}                   job={jobs?.midday        ?? emptyJob} />
+            <JobCard name="grade_results"             cronPdt="9:00am"  cron="daily" cronUtcHour={16}                   job={jobs?.grade         ?? emptyJob} />
+            <JobCard name="fetch_and_predict"         cronPdt="12:00pm" cron="daily" cronUtcHour={19}                   job={jobs?.fetch         ?? emptyJob} />
+            <JobCard name="snapshot --6pm_proxy"      cronPdt="3:00pm"  cron="daily" cronUtcHour={22}                   job={jobs?.snapshot      ?? emptyJob} />
+            <JobCard name="snapshot --pregame"        cronPdt="4:15pm"  cron="daily" cronUtcHour={23} cronUtcMinute={15} job={jobs?.pregame       ?? emptyJob} />
+            <JobCard name="snapshot --closing_early"  cronPdt="5:15pm"  cron="daily" cronUtcHour={0}  cronUtcMinute={15} job={jobs?.closing_early ?? emptyJob} />
+            <JobCard name="snapshot --closing_late"   cronPdt="7:00pm"  cron="daily" cronUtcHour={2}                   job={jobs?.closing_late  ?? emptyJob} />
           </div>
           {pipeline?.latestQuota != null && (
             <div className="flex items-center gap-3">
@@ -512,6 +572,10 @@ export default function OpsPage() {
                     <span className="text-[10px] text-[#6b7068] shrink-0">{s.game_date}</span>
                     <span className="text-[10px] text-white flex-1">{abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}</span>
                     <span className="text-[9px] font-mono text-[#3ee68a]">{s.bet_side.toUpperCase()} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}</span>
+                    <span className="text-[8px] font-semibold px-1.5 py-0.5 rounded border border-[#2e332a]"
+                          style={{ color: sigTypeBadgeColor(s.signal_type) }}>
+                      {sigTypeLabel(s.signal_type)}
+                    </span>
                     <span className={cn(
                       "text-[8px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border",
                       s.status === "proxy_captured"
@@ -575,7 +639,7 @@ export default function OpsPage() {
                 <Kpi label="Win rate"     value={fmtPct(m.betsWinRate)} color={winRateColor(m.betsWinRate)} />
                 <Kpi label="ROI"          value={fmtRoiPct(m.betsRoi)} color={roiColor(m.betsRoi)} />
               </div>
-              <p className="text-[9px] text-[#3a4033]">High-confidence bets = Pinnacle edge ≥4pp, or conf ≥ threshold when Pinnacle unavailable.</p>
+              <p className="text-[9px] text-[#3a4033]">Pinnacle-edge bets only — model must disagree with Pinnacle by ≥4pp in the pick direction.</p>
             </div>
           )}
 
@@ -651,13 +715,67 @@ export default function OpsPage() {
                 )}
               </div>
 
-              {/* CLV KPIs */}
+              {/* CLV KPIs — aggregate across all signal types */}
               <div className="flex gap-3 mb-4">
-                <Kpi label="Avg CLV"      value={fmtClv(sig.clv.avg)}    color={sig.clv.avg    !== null ? roiColor(sig.clv.avg)    : "#6b7068"} sub="pts vs closing" />
+                <Kpi label="Avg CLV"      value={fmtClv(sig.clv.avg)}    color={sig.clv.avg    !== null ? roiColor(sig.clv.avg)    : "#6b7068"} sub="all types" />
                 <Kpi label="Median CLV"   value={fmtClv(sig.clv.median)} color={sig.clv.median !== null ? roiColor(sig.clv.median) : "#6b7068"} />
                 <Kpi label="% Positive"   value={sig.clv.pct_positive !== null ? `${sig.clv.pct_positive}%` : "—"} color={sig.clv.pct_positive !== null ? winRateColor(sig.clv.pct_positive / 100) : "#6b7068"} />
                 <Kpi label="CLV W/L"      value={`${sig.clv.wins}–${sig.clv.total_graded - sig.clv.wins}`} color={winRateColor(sig.clv.wins / (sig.clv.total_graded || 1))} />
               </div>
+
+              {/* Per-signal-type CLV breakdown */}
+              {sig.by_type && Object.keys(sig.by_type).length > 0 && (
+                <div className="mb-4">
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-2">CLV by signal type</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {(["soft_book_divergence", "line_movement"] as const).map((type) => {
+                      const stats = sig.by_type[type];
+                      const edgeSt = stats ? computeEdgeStatus(stats.graded, stats.avg_clv, stats.pct_pos) : "accumulating";
+                      return (
+                        <div key={type} className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-[9px] font-bold uppercase tracking-widest"
+                               style={{ color: sigTypeBadgeColor(type) }}>
+                              {sigTypeLabel(type)}
+                            </p>
+                            <p className="text-[8px] font-bold uppercase tracking-widest"
+                               style={{ color: edgeStatusColor(edgeSt) }}>
+                              {edgeSt}
+                            </p>
+                          </div>
+                          {stats ? (
+                            <div className="flex gap-4">
+                              <div>
+                                <p className="text-[8px] text-[#4a524a] mb-0.5">avg CLV</p>
+                                <p className="text-[18px] font-black font-mono leading-none"
+                                   style={{ color: roiColor(stats.avg_clv) }}>
+                                  {fmtClv(stats.avg_clv)}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[8px] text-[#4a524a] mb-0.5">graded</p>
+                                <p className="text-[18px] font-black font-mono leading-none text-[#9ca39a]">
+                                  {stats.graded}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[8px] text-[#4a524a] mb-0.5">% pos</p>
+                                <p className="text-[18px] font-black font-mono leading-none"
+                                   style={{ color: stats.pct_pos !== null ? winRateColor(stats.pct_pos / 100) : "#6b7068" }}>
+                                  {stats.pct_pos !== null ? `${stats.pct_pos}%` : "—"}
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-[#4a524a] font-mono mt-1">no graded signals yet</p>
+                          )}
+                          {stats && <p className="text-[9px] text-[#3a4033] mt-1.5">n={stats.n} total</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Recent graded signals */}
               {sig.recent_graded && sig.recent_graded.length > 0 && (
@@ -679,17 +797,17 @@ export default function OpsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-3">
                   <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Same-book CLV</p>
-                  <p className="text-[20px] font-black font-mono" style={{ color: sig.same_book.clv !== null ? roiColor(sig.same_book.clv) : "#6b7068" }}>
-                    {fmtClv(sig.same_book.clv)}
+                  <p className="text-[20px] font-black font-mono" style={{ color: sig.pinnacle_close.clv !== null ? roiColor(sig.pinnacle_close.clv) : "#6b7068" }}>
+                    {fmtClv(sig.pinnacle_close.clv)}
                   </p>
-                  <p className="text-[9px] text-[#6b7068] mt-1">n={sig.same_book.n} · signal and close from same book</p>
+                  <p className="text-[9px] text-[#6b7068] mt-1">n={sig.pinnacle_close.n} · close from Pinnacle (canonical)</p>
                 </div>
                 <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-3">
                   <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Fallback CLV</p>
-                  <p className="text-[20px] font-black font-mono" style={{ color: sig.fallback.clv !== null ? roiColor(sig.fallback.clv) : "#6b7068" }}>
-                    {fmtClv(sig.fallback.clv)}
+                  <p className="text-[20px] font-black font-mono" style={{ color: sig.non_pinnacle_close.clv !== null ? roiColor(sig.non_pinnacle_close.clv) : "#6b7068" }}>
+                    {fmtClv(sig.non_pinnacle_close.clv)}
                   </p>
-                  <p className="text-[9px] text-[#6b7068] mt-1">n={sig.fallback.n} · different book used at close</p>
+                  <p className="text-[9px] text-[#6b7068] mt-1">n={sig.non_pinnacle_close.n} · no Pinnacle at close</p>
                 </div>
               </div>
               <p className="text-[9px] text-[#3a4033] mt-3">CLV = direction × (line_at_signal − closing_line). Positive = beat the close.</p>
@@ -702,10 +820,55 @@ export default function OpsPage() {
         {/* ── E. Strategy Breakdown ── */}
         <div className="ace-panel p-5">
           <SectionHead title="Strategy Breakdown" icon={TrendingUp} />
+          <p className="text-[10px] text-[#6b7068] mb-4">
+            Primary signal: soft book divergence from Pinnacle. Model and line movement are comparison signals.
+          </p>
           <div className="grid grid-cols-3 gap-3">
+            {/* PRIMARY: Soft Book Divergence */}
+            <div className="rounded-xl border border-[#3ee68a]/20 bg-[#0d0f0d] p-4">
+              <div className="flex items-center gap-1.5 mb-1">
+                <p className="text-[9px] text-[#3a4033] uppercase tracking-widest">Soft Book Divergence</p>
+                <span className="text-[7px] font-bold text-[#3ee68a] border border-[#3ee68a]/30 rounded px-1 py-0.5 uppercase tracking-widest">Primary</span>
+              </div>
+              <p className="text-[10px] text-[#6b7068] mb-3">Soft book lags Pinnacle · bet in pin's direction</p>
+              {sig && !sig.error && sig.by_type?.["soft_book_divergence"] ? (() => {
+                const st = sig.by_type["soft_book_divergence"];
+                const es = computeEdgeStatus(st.graded, st.avg_clv, st.pct_pos);
+                return (
+                  <>
+                    <p className="text-[22px] font-black font-mono mb-1"
+                       style={{ color: edgeStatusColor(es) }}>{es.toUpperCase()}</p>
+                    <p className="text-[10px] text-[#6b7068]">{st.n} total · {st.graded} graded</p>
+                    <p className="text-[10px] text-[#6b7068] mt-1">avg CLV: <span className="font-mono">{fmtClv(st.avg_clv)}</span></p>
+                  </>
+                );
+              })() : (
+                <p className="text-[11px] text-[#4a524a] font-mono">accumulating</p>
+              )}
+            </div>
+
+            {/* SECONDARY: Line Movement */}
+            <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4">
+              <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Line Movement</p>
+              <p className="text-[10px] text-[#6b7068] mb-3">Auto-detected ≥1.5pt moves · 3pm cron</p>
+              {sig && !sig.error && sig.by_type?.["line_movement"] ? (() => {
+                const st = sig.by_type["line_movement"];
+                const es = computeEdgeStatus(st.graded, st.avg_clv, st.pct_pos);
+                return (
+                  <>
+                    <p className="text-[22px] font-black font-mono mb-1"
+                       style={{ color: edgeStatusColor(es) }}>{es.toUpperCase()}</p>
+                    <p className="text-[10px] text-[#6b7068]">{st.n} total · {st.graded} graded</p>
+                    <p className="text-[10px] text-[#6b7068] mt-1">avg CLV: <span className="font-mono">{fmtClv(st.avg_clv)}</span></p>
+                  </>
+                );
+              })() : <p className="text-[11px] text-[#6b7068]">—</p>}
+            </div>
+
+            {/* REFERENCE: Model Predictions */}
             <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4">
               <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Model Predictions</p>
-              <p className="text-[10px] text-[#6b7068] mb-3">All predictions logged by noon cron</p>
+              <p className="text-[10px] text-[#6b7068] mb-3">Reference · noon cron · not primary signal</p>
               {m ? (
                 <>
                   <p className="text-[22px] font-black font-mono mb-1" style={{ color: winRateColor(m.winRate) }}>
@@ -716,31 +879,236 @@ export default function OpsPage() {
                 </>
               ) : <p className="text-[11px] text-[#6b7068]">—</p>}
             </div>
-
-            <div className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-4">
-              <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">Line Movement</p>
-              <p className="text-[10px] text-[#6b7068] mb-3">Auto-detected ≥1.5pt moves · 3pm cron</p>
-              {sig && !sig.error ? (
-                <>
-                  <p className="text-[22px] font-black font-mono mb-1" style={{ color: edgeStatusColor(sig.edgeStatus) }}>
-                    {sig.edgeStatus.toUpperCase()}
-                  </p>
-                  <p className="text-[10px] text-[#6b7068]">{sig.total} total · {sig.by_status["graded"] ?? 0} graded</p>
-                  <p className="text-[10px] text-[#6b7068] mt-1">avg CLV: <span className="font-mono">{fmtClv(sig.clv.avg)}</span></p>
-                </>
-              ) : <p className="text-[11px] text-[#6b7068]">—</p>}
-            </div>
-
-            <div className="rounded-xl border border-dashed border-[#2e332a] bg-transparent p-4">
-              <p className="text-[9px] text-[#3a4033] uppercase tracking-widest mb-1">Hybrid / Aligned</p>
-              <p className="text-[10px] text-[#3a4033] mb-3">Model bet + line move on same game</p>
-              <p className="text-[11px] text-[#3a4033] font-mono">TODO</p>
-              <p className="text-[9px] text-[#3a4033] mt-2">Needs cross-ref of game_id across CSV and signal DB. Enable once signal volume warrants it.</p>
-            </div>
           </div>
         </div>
 
-        {/* ── F. Picks Log ── */}
+        {/* ── E2. Model Intelligence ── */}
+        {(pipeline?.segments || pipeline?.archetypes) && (
+          <div className="ace-panel p-5">
+            <SectionHead title="Model Intelligence" icon={Brain} />
+
+            {/* Segmentation summary */}
+            {pipeline.segments && (() => {
+              const seg = pipeline.segments;
+              const reg  = seg.by_regime?.["regular_season"];
+              const play = seg.by_regime?.["playoffs"];
+              const home = seg.by_direction?.["home"];
+              const away = seg.by_direction?.["away"];
+              return (
+                <div>
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-3">
+                    Model segmentation · {seg.sample_note}
+                  </p>
+
+                  {/* Regime split */}
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    {[
+                      { label: "Regular Season", s: reg },
+                      { label: "Playoffs", s: play },
+                    ].map(({ label, s }) => s && (
+                      <div key={label} className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-3">
+                        <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-2">{label}</p>
+                        <div className="flex gap-4 items-end">
+                          <div>
+                            <p className="text-[8px] text-[#4a524a] mb-0.5">win rate</p>
+                            <p className="text-[22px] font-black font-mono leading-none"
+                               style={{ color: winRateColor(s.win_rate) }}>
+                              {s.win_rate !== null ? `${(s.win_rate * 100).toFixed(0)}%` : "—"}
+                            </p>
+                          </div>
+                          <p className="text-[10px] text-[#4a524a] pb-0.5">n={s.n}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Direction + calibration highlights */}
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    {[
+                      { label: "Home bets", s: home },
+                      { label: "Away bets", s: away },
+                      { label: "Bets only", s: seg.bets_only },
+                    ].map(({ label, s }) => s && s.n > 0 && (
+                      <div key={label} className="rounded-xl border border-[#22251f] bg-[#0d0f0d] p-3">
+                        <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-1">{label}</p>
+                        <p className="text-[18px] font-black font-mono"
+                           style={{ color: winRateColor(s.win_rate) }}>
+                          {s.win_rate !== null ? `${(s.win_rate * 100).toFixed(0)}%` : "—"}
+                        </p>
+                        <p className="text-[9px] text-[#4a524a]">n={s.n}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Weak spots */}
+                  {seg.weak_spots && seg.weak_spots.length > 0 && (
+                    <div className="rounded-xl border border-[#ef4444]/15 bg-[#ef4444]/[0.03] p-3 mb-4">
+                      <p className="text-[9px] font-bold text-[#ef4444] uppercase tracking-widest mb-2">Weak spots (win rate &lt; 40%)</p>
+                      <div className="space-y-1">
+                        {seg.weak_spots.map((w) => (
+                          <div key={w.segment} className="flex items-center justify-between">
+                            <span className="text-[10px] text-[#9ca39a] font-mono">{w.segment.replace("by_", "").replace(/_/g, " → ")}</span>
+                            <span className="text-[10px] font-bold text-[#ef4444]">{(w.win_rate * 100).toFixed(0)}% <span className="text-[#4a524a] font-normal">n={w.n}</span></span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Calibration table */}
+                  {seg.calibration && seg.calibration.length > 0 && (
+                    <div>
+                      <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-2">Calibration — predicted vs actual win rate</p>
+                      <div className="rounded-xl border border-[#1a1e1a] bg-[#0d0f0d] overflow-hidden">
+                        <div className="grid grid-cols-[80px_40px_64px_72px_64px] gap-2 px-3 py-2 border-b border-[#22251f]">
+                          {["Bucket","n","Predicted","Actual","Delta"].map(h => (
+                            <span key={h} className="text-[8px] font-bold text-[#3a4033] uppercase tracking-widest">{h}</span>
+                          ))}
+                        </div>
+                        {seg.calibration.map((r) => {
+                          const over = r.delta < -0.05;
+                          const under = r.delta > 0.05;
+                          return (
+                            <div key={r.conf_bucket} className="grid grid-cols-[80px_40px_64px_72px_64px] gap-2 items-center px-3 py-2 border-b border-[#0f110f] last:border-0">
+                              <span className="text-[9px] font-mono text-[#9ca39a]">{r.conf_bucket}%</span>
+                              <span className="text-[9px] text-[#6b7068]">{r.n}</span>
+                              <span className="text-[9px] font-mono text-[#6b7068]">{(r.predicted_avg * 100).toFixed(1)}%</span>
+                              <span className="text-[9px] font-mono font-bold"
+                                    style={{ color: winRateColor(r.actual_win_rate) }}>
+                                {(r.actual_win_rate * 100).toFixed(1)}%
+                              </span>
+                              <span className="text-[9px] font-mono font-bold"
+                                    style={{ color: over ? "#ef4444" : under ? "#f5c062" : "#6b7068" }}>
+                                {r.delta > 0 ? "+" : ""}{(r.delta * 100).toFixed(1)}%
+                                {over && " ↑over"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[9px] text-[#3a4033] mt-2">Overconfident = predicted higher than actual (↑over). Meaningful at n≥100.</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Team archetypes table */}
+            {pipeline.archetypes && (() => {
+              const teams = Object.entries(pipeline.archetypes).sort(([a], [b]) => a.localeCompare(b));
+              const tierColor = (t: string) => {
+                if (t === "elite" || t === "fast" || t === "high" || t === "high_assist" || t === "three_heavy" || t === "strong" || t === "road_capable") return "#3ee68a";
+                if (t === "good" || t === "medium" || t === "balanced") return "#9ca39a";
+                return "#ef4444";
+              };
+              return (
+                <div className="mt-5">
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-3">Team archetypes — current season</p>
+                  <div className="rounded-xl border border-[#1a1e1a] bg-[#0d0f0d] overflow-hidden">
+                    <div className="grid grid-cols-[40px_72px_88px_64px_80px_56px_52px_52px] gap-1 px-3 py-2 border-b border-[#22251f]">
+                      {["Team","Pace","Offense","Defense","Movement","Clutch","oRtg","dRtg"].map(h => (
+                        <span key={h} className="text-[8px] font-bold text-[#3a4033] uppercase tracking-widest">{h}</span>
+                      ))}
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {teams.map(([code, a]) => (
+                        <div key={code} className="grid grid-cols-[40px_72px_88px_64px_80px_56px_52px_52px] gap-1 items-center px-3 py-1.5 border-b border-[#0f110f] last:border-0">
+                          <span className="text-[10px] font-bold text-white uppercase">{code}</span>
+                          <span className="text-[9px] font-mono" style={{ color: tierColor(a.pace_tier) }}>{a.pace_tier}</span>
+                          <span className="text-[9px] font-mono" style={{ color: tierColor(a.offense_style) }}>{a.offense_style.replace("_", " ")}</span>
+                          <span className="text-[9px] font-mono" style={{ color: tierColor(a.defense_tier) }}>{a.defense_tier}</span>
+                          <span className="text-[9px] font-mono" style={{ color: tierColor(a.ball_movement) }}>{a.ball_movement.replace("_", " ")}</span>
+                          <span className="text-[9px] font-mono" style={{ color: tierColor(a.clutch) }}>{a.clutch}</span>
+                          <span className="text-[9px] font-mono text-[#9ca39a]">{a.raw.ortg ?? "—"}</span>
+                          <span className="text-[9px] font-mono text-[#9ca39a]">{a.raw.drtg ?? "—"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ── F. Multi-Book Line Tracking ── */}
+        <div className="ace-panel p-5">
+          <SectionHead title="Multi-Book Line Tracking" icon={Database} />
+
+          {sig && !sig.error ? (
+            <div>
+              {/* Collection stats */}
+              <div className="flex gap-3 mb-5">
+                <Kpi
+                  label="Book lines collected"
+                  value={String(sig.book_lines?.total ?? 0)}
+                  sub={`across ${sig.book_lines?.game_days ?? 0} game day(s)`}
+                  color={(sig.book_lines?.total ?? 0) > 0 ? "#3ee68a" : "#6b7068"}
+                />
+                <Kpi
+                  label="Divergences today/tomorrow"
+                  value={String(sig.book_lines?.divergences?.length ?? 0)}
+                  sub="soft book vs Pinnacle ≥0.5 pts"
+                  color={(sig.book_lines?.divergences?.length ?? 0) > 0 ? "#f5c062" : "#6b7068"}
+                />
+              </div>
+
+              {/* Divergence table */}
+              {(sig.book_lines?.divergences?.length ?? 0) > 0 ? (
+                <div>
+                  <p className="text-[9px] text-[#4a524a] uppercase tracking-widest mb-2">
+                    Current divergences vs Pinnacle
+                  </p>
+                  <div className="rounded-xl border border-[#1a1e1a] bg-[#0d0f0d] overflow-hidden">
+                    {/* Header */}
+                    <div className="grid grid-cols-[64px_1fr_90px_72px_72px_56px_60px] gap-2 px-3 py-2 border-b border-[#22251f]">
+                      {["Date","Game","Pinnacle","Book","Line","Diff","Edge"].map(h => (
+                        <span key={h} className="text-[8px] font-bold text-[#3a4033] uppercase tracking-widest">{h}</span>
+                      ))}
+                    </div>
+                    {sig.book_lines.divergences.map((d, i) => {
+                      const isPos = d.divergence > 0;
+                      const edgeSide = isPos ? "home" : "away";
+                      const diffColor = Math.abs(d.divergence) >= 1.0 ? "#f5c062" : "#9ca39a";
+                      return (
+                        <div key={i} className="grid grid-cols-[64px_1fr_90px_72px_72px_56px_60px] gap-2 items-center px-3 py-2 border-b border-[#0f110f] last:border-0">
+                          <span className="text-[9px] text-[#6b7068]">{fmtDate(d.game_date)}</span>
+                          <span className="text-[10px] text-[#9ca39a] truncate">{abbrevTeam(d.away)} @ {abbrevTeam(d.home)}</span>
+                          <span className="text-[9px] font-mono text-[#6b7068]">{d.pinnacle_line > 0 ? "+" : ""}{d.pinnacle_line}</span>
+                          <span className="text-[9px] text-[#6b7068] truncate">{d.book}</span>
+                          <span className="text-[9px] font-mono text-[#9ca39a]">{d.book_line > 0 ? "+" : ""}{d.book_line}</span>
+                          <span className="text-[9px] font-mono font-bold" style={{ color: diffColor }}>
+                            {d.divergence > 0 ? "+" : ""}{d.divergence}
+                          </span>
+                          <span className="text-[8px] font-bold uppercase" style={{ color: diffColor }}>
+                            {edgeSide}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[9px] text-[#3a4033] mt-2">
+                    Edge = side with better number at soft book vs Pinnacle.
+                    Positive diff = home is easier to cover at soft book.
+                    Data accumulates over time — more signal after 2–3 weeks.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-[#22251f] bg-transparent p-4">
+                  <p className="text-[11px] text-[#4a524a]">
+                    {(sig.book_lines?.total ?? 0) === 0
+                      ? "No book lines collected yet — will populate on next cron run."
+                      : "No divergences ≥0.5 pts for today or tomorrow's games."}
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-[11px] text-[#6b7068]">Signal data unavailable.</p>
+          )}
+        </div>
+
+        {/* ── G. Picks Log ── */}
         {pipeline?.picks && pipeline.picks.length > 0 && (
           <div className="ace-panel p-5">
             <SectionHead title="Picks Log" icon={Database} />
