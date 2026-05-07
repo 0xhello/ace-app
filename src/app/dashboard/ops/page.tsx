@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import {
   Activity, AlertTriangle, CheckCircle2, XCircle, Clock,
   Database, TrendingUp, Zap, RefreshCw, Terminal, Brain,
-  BookMarked, PlusCircle, Target, BarChart2, Info,
+  BookMarked, PlusCircle, Target, BarChart2, Info, Users, Copy, Check,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -271,6 +271,48 @@ export default function OpsPage() {
   const [perfTab,     setPerfTab]     = useState<"all" | "bets" | "conf" | "source">("all");
   const [loggingBet,  setLoggingBet]  = useState<number | null>(null);
 
+  // ── Invite codes state ────────────────────────────────────────────────────────
+  interface InviteCode {
+    id: number; code: string; label: string | null;
+    used_by_email: string | null; used_at: string | null; created_at: string;
+  }
+  const [inviteCodes,    setInviteCodes]    = useState<InviteCode[]>([]);
+  const [inviteLoading,  setInviteLoading]  = useState(false);
+  const [newCodeLabel,   setNewCodeLabel]   = useState("");
+  const [copiedCode,     setCopiedCode]     = useState<string | null>(null);
+
+  async function loadInviteCodes() {
+    try {
+      const r = await fetch("/api/auth/invite");
+      const d = await r.json();
+      if (d.codes) setInviteCodes(d.codes);
+    } catch { /* silent */ }
+  }
+
+  async function generateCode() {
+    setInviteLoading(true);
+    try {
+      const r = await fetch("/api/auth/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: newCodeLabel || undefined }),
+      });
+      const d = await r.json();
+      if (d.ok) { setNewCodeLabel(""); await loadInviteCodes(); }
+    } finally {
+      setInviteLoading(false);
+    }
+  }
+
+  function copyCode(code: string) {
+    const base = typeof window !== "undefined" ? window.location.origin : "";
+    navigator.clipboard.writeText(`${base}/register?code=${code}`).catch(() => {
+      navigator.clipboard.writeText(code);
+    });
+    setCopiedCode(code);
+    setTimeout(() => setCopiedCode(null), 2000);
+  }
+
   async function loadAll() {
     try {
       const [p, s, e] = await Promise.all([
@@ -285,6 +327,7 @@ export default function OpsPage() {
     } finally {
       setLoading(false);
     }
+    loadInviteCodes();
   }
 
   useEffect(() => {
@@ -1188,6 +1231,63 @@ export default function OpsPage() {
                 <div className="h-full rounded-full" style={{ width: `${(pipeline.latestQuota / 500) * 100}%`, background: quotaColor }} />
               </div>
               <p className="text-[10px] font-mono shrink-0" style={{ color: quotaColor }}>{pipeline.latestQuota} / 500</p>
+            </div>
+          )}
+        </div>
+
+        {/* ── Invite Code Manager ─────────────────────────────────────────── */}
+        <div className="rounded-xl border border-[#1e2220] bg-[#0d0f0d] p-5 mb-6">
+          <SectionHead title="Beta Access · Invite Codes" icon={Users} />
+
+          {/* Generate new code */}
+          <div className="flex items-center gap-2 mb-4">
+            <input
+              type="text"
+              value={newCodeLabel}
+              onChange={e => setNewCodeLabel(e.target.value)}
+              placeholder="Label (optional — e.g. friend name)"
+              className="flex-1 rounded-lg border border-[#1e2220] bg-[#121412] text-white text-[11px] px-3 py-2 placeholder:text-[#3a4033] focus:outline-none focus:border-[#3ee68a]/40 transition-colors"
+            />
+            <button
+              onClick={generateCode}
+              disabled={inviteLoading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#3ee68a]/10 border border-[#3ee68a]/20 text-[#3ee68a] text-[11px] font-bold hover:bg-[#3ee68a]/15 disabled:opacity-50 transition-colors whitespace-nowrap"
+            >
+              <PlusCircle className="h-3.5 w-3.5" />
+              {inviteLoading ? "Generating…" : "Generate Code"}
+            </button>
+          </div>
+
+          {/* Code list */}
+          {inviteCodes.length === 0 ? (
+            <p className="text-[11px] text-[#3a4033] text-center py-4">No invite codes yet</p>
+          ) : (
+            <div className="space-y-2">
+              {inviteCodes.map(c => (
+                <div key={c.id} className="flex items-center gap-3 rounded-lg border border-[#1a1e1a] bg-[#0f110f] px-3 py-2">
+                  <span className={cn(
+                    "h-1.5 w-1.5 rounded-full shrink-0",
+                    c.used_by_email ? "bg-[#3a4033]" : "bg-[#3ee68a]"
+                  )} />
+                  <span className="font-mono text-[11px] text-[#c4c7c0] tracking-widest flex-1">{c.code}</span>
+                  {c.label && <span className="text-[10px] text-[#4a524a] truncate max-w-[120px]">{c.label}</span>}
+                  {c.used_by_email
+                    ? <span className="text-[9px] text-[#3a4033] shrink-0">used · {c.used_by_email}</span>
+                    : (
+                      <button
+                        onClick={() => copyCode(c.code)}
+                        className="flex items-center gap-1 text-[10px] text-[#6b7068] hover:text-[#3ee68a] transition-colors shrink-0"
+                        title="Copy invite link"
+                      >
+                        {copiedCode === c.code
+                          ? <><Check className="h-3 w-3 text-[#3ee68a]" /><span className="text-[#3ee68a]">Copied</span></>
+                          : <><Copy className="h-3 w-3" />Copy link</>
+                        }
+                      </button>
+                    )
+                  }
+                </div>
+              ))}
             </div>
           )}
         </div>
