@@ -11,7 +11,6 @@ import { impliedProbability, edgePct } from "@/lib/edge";
 import { SignalChip, SignalSummaryLine } from "@/components/SignalBadge";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getTeamStyle } from "@/lib/team-style";
-import { saveAlert } from "@/lib/alerts";
 
 function TeamIcon({ team, sport }: { team: string; sport: string }) {
   const logoUrl = getTeamLogoUrl(team, sport);
@@ -120,9 +119,9 @@ function OddsCell({
     setAlertMenu((v) => !v);
   }
 
-  function createAlert(condition: "drops_below" | "rises_above") {
+  async function createAlert(condition: "drops_below" | "rises_above") {
     if (!alertMeta || !leg) return;
-    saveAlert({
+    const alert = {
       id: `alert-${Date.now()}`,
       gameId: alertMeta.gameId,
       matchup: leg.matchup,
@@ -134,7 +133,12 @@ function OddsCell({
       book: "any",
       status: "active",
       createdAt: new Date().toISOString(),
-    });
+    };
+    await fetch("/api/alerts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alert }),
+    }).catch(() => {});
     setAlertMenu(false);
     setAlertDone(true);
     setTimeout(() => setAlertDone(false), 1500);

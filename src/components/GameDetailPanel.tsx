@@ -7,7 +7,6 @@ import { bookMeta, bookLogoUrl } from "@/lib/books";
 import { impliedProbability, edgePct, noVigProb } from "@/lib/edge";
 import type { GameIntel } from "@/lib/live-signals";
 import { bookDeepLink } from "@/lib/deeplinks";
-import { saveAlert } from "@/lib/alerts";
 import { Game } from "@/types/game";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 
@@ -211,11 +210,11 @@ export default function GameDetailPanel({
     setAlertForm((f) => ({ ...f, side, threshold: getDefaultThreshold(f.market, side) }));
   }
 
-  function handleCreateAlert() {
+  async function handleCreateAlert() {
     const team = alertForm.side === "away" ? away
                : alertForm.side === "home" ? home
                : alertForm.side === "over" ? "Over" : "Under";
-    saveAlert({
+    const alert = {
       id: `alert-${Date.now()}`,
       gameId: game.id,
       matchup: `${away} @ ${home}`,
@@ -227,7 +226,12 @@ export default function GameDetailPanel({
       book: "any",
       status: "active",
       createdAt: new Date().toISOString(),
-    });
+    };
+    await fetch("/api/alerts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alert }),
+    }).catch(() => {});
     setAlertSaved(true);
     setTimeout(() => setAlertSaved(false), 2500);
   }

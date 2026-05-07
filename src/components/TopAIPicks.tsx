@@ -3,7 +3,6 @@
 import { cn, teamAbbr } from "@/lib/utils";
 import { Sparkles, Plus, TrendingUp } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
-import { generateAIPicks } from "@/lib/signals";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 
 const TYPE_COLOR: Record<string, { text: string; bg: string }> = {
@@ -58,7 +57,7 @@ function displayType(pick: any) {
 }
 
 export default function TopAIPicks({ onAddLeg, picks }: { onAddLeg?: (leg: SlipLeg) => void; picks?: any[] }) {
-  const resolvedPicks = picks && picks.length > 0 ? picks : generateAIPicks();
+  const resolvedPicks = picks ?? [];
 
   return (
     <div className="shrink-0 border-b border-[#1b201a] bg-[linear-gradient(180deg,rgba(11,13,11,0.96),rgba(9,10,9,0.98))]">
@@ -81,6 +80,11 @@ export default function TopAIPicks({ onAddLeg, picks }: { onAddLeg?: (leg: SlipL
             </div>
           </div>
 
+          {resolvedPicks.length === 0 ? (
+            <div className="py-6 text-center">
+              <p className="text-[11px] text-[#3a4033]">No edge signals detected yet — check back closer to tip-off</p>
+            </div>
+          ) : (
           <div className="flex gap-3 pt-3 overflow-x-auto scrollbar-hide">
         {resolvedPicks.map((pick) => {
           const resolvedType = displayType(pick);
@@ -156,6 +160,7 @@ export default function TopAIPicks({ onAddLeg, picks }: { onAddLeg?: (leg: SlipL
           );
         })}
           </div>
+          )}
         </div>
       </div>
     </div>
