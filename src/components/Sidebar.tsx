@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { LayoutGrid, Sparkles, Bell, Terminal, Settings, LogOut } from "lucide-react";
 import { signOut } from "next-auth/react";
+import Image from "next/image";
 
 interface SidebarProps {
   role?: string;
@@ -31,15 +32,9 @@ export default function Sidebar({ role, email }: SidebarProps) {
     <aside className="flex flex-col w-[56px] lg:w-[208px] shrink-0 h-screen border-r border-[#22251f] bg-[#0a0b0a]">
 
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-3 lg:px-4 h-14 border-b border-[#22251f] shrink-0">
-        <img src="/favicon.png" alt="ACE" className="h-7 w-7 shrink-0" />
-        <div className="hidden lg:flex items-center gap-2">
-          <span className="text-[15px] font-extrabold tracking-[0.25em] text-white">ACE</span>
-          <span className="text-[8px] font-bold text-[#3ee68a] border border-[#3ee68a]/20 bg-[#3ee68a]/8 rounded px-1 py-[1px] tracking-widest uppercase">
-            Beta
-          </span>
-        </div>
-      </div>
+      <Link href="/" className="flex items-center gap-2.5 px-3 lg:px-4 h-14 border-b border-[#22251f] shrink-0 hover:opacity-80 transition-opacity">
+        <Image src="/ace-logo.png" alt="ACE" width={28} height={28} className="shrink-0" />
+      </Link>
 
       {/* Nav */}
       <nav className="flex flex-col gap-px px-2 py-3 shrink-0">

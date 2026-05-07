@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Bell, AlertTriangle, Info, ChevronRight } from "lucide-react";
 import type { Game } from "@/types/game";
 import type { NotificationItem } from "@/types/notification";
 import { generateNotifications } from "@/lib/notifications";
-import { loadAlerts } from "@/lib/alerts";
 import type { PriceAlert } from "@/lib/alerts";
 import { cn } from "@/lib/utils";
 
@@ -16,13 +15,10 @@ function timeAgo(iso: string) {
   return `${mins}m ago`;
 }
 
-export default function NotificationBell({ games }: { games: Game[] }) {
+export default function NotificationBell({ games, serverAlerts = [] }: { games: Game[]; serverAlerts?: PriceAlert[] }) {
   const [open, setOpen] = useState(false);
-  const [triggeredAlerts, setTriggeredAlerts] = useState<PriceAlert[]>([]);
 
-  useEffect(() => {
-    setTriggeredAlerts(loadAlerts().filter((a) => a.status === "triggered"));
-  }, [open]); // refresh when bell is opened
+  const triggeredAlerts = serverAlerts.filter((a) => a.status === "triggered");
 
   const signalNotifs = useMemo(() => generateNotifications(games), [games]);
 

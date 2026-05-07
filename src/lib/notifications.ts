@@ -32,16 +32,16 @@ export function generateNotifications(games: Game[]): NotificationItem[] {
       });
     }
 
-    if (game.status === "live" && h % 3 === 0) {
+    if (game.status === "live") {
       items.push({
         id: `notif-live-${game.id}`,
         gameId: game.id,
-        title: "Tracked game is live",
-        body: `${game.away_team} @ ${game.home_team} just went live`,
+        title: "Game is live",
+        body: `${game.away_team} @ ${game.home_team} is now in progress`,
         kind: "game-live",
         severity: "info",
-        forced: true,
-        createdAt: new Date(Date.now() - (h % 15) * 60000).toISOString(),
+        forced: false,
+        createdAt: new Date(game.commence_time).toISOString(),
         href,
       });
     }

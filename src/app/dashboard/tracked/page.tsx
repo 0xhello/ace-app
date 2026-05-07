@@ -1,11 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { loadBets, updateBetStatus, ensureSeedData, computeStats, type BetRecord } from "@/lib/bet-history";
+import { useEffect, useState, useCallback } from "react";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
 import { formatAmericanOdds } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { TrendingUp, Clock, CheckCircle2, XCircle, BarChart2, Trash2 } from "lucide-react";
+import { TrendingUp, Clock, CheckCircle2, XCircle, BarChart2, RefreshCw } from "lucide-react";
+
+interface BetRecord {
+  id: string;
+  gameId: string;
+  matchup: string;
+  market: string;
+  label: string;
+  odds: number;
+  book: string;
+  stake: number;
+  confidenceTier: "high" | "medium" | "low";
+  status: "pending" | "won" | "lost" | "void";
+  placedAt: string;
+  settledAt?: string;
+}
 
 const TIER_COLOR: Record<string, string> = {
   high: "#3ee68a",
@@ -30,6 +44,36 @@ function timeAgo(iso: string): string {
   if (d > 0) return `${d}d ago`;
   if (h > 0) return `${h}h ago`;
   return "just now";
+}
+
+function computeStats(bets: BetRecord[]) {
+  const settled = bets.filter((b) => b.status === "won" || b.status === "lost");
+  const wins = settled.filter((b) => b.status === "won");
+  const totalStaked = settled.reduce((a, b) => a + b.stake, 0);
+  const totalReturned = wins.reduce((a, b) => {
+    const dec = b.odds > 0 ? b.odds / 100 + 1 : 100 / Math.abs(b.odds) + 1;
+    return a + b.stake * dec;
+  }, 0);
+  const pnl = totalReturned - totalStaked;
+  const roi = totalStaked > 0 ? (pnl / totalStaked) * 100 : 0;
+  const winRate = settled.length > 0 ? (wins.length / settled.length) * 100 : 0;
+
+  const byTier = (tier: BetRecord["confidenceTier"]) => {
+    const s = settled.filter((b) => b.confidenceTier === tier);
+    const w = s.filter((b) => b.status === "won");
+    return s.length > 0 ? Math.round((w.length / s.length) * 100) : null;
+  };
+
+  return {
+    record: `${wins.length}-${settled.length - wins.length}`,
+    pending: bets.filter((b) => b.status === "pending").length,
+    profit: pnl,
+    roi,
+    winRate,
+    highHit: byTier("high"),
+    medHit: byTier("medium"),
+    lowHit: byTier("low"),
+  };
 }
 
 function StatCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
@@ -115,33 +159,53 @@ function BetCard({ bet, onSettle }: { bet: BetRecord; onSettle: (id: string, s: 
 
 export default function TrackedPage() {
   const [bets, setBets] = useState<BetRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"active" | "history" | "stats">("active");
 
-  useEffect(() => {
-    ensureSeedData();
-    setBets(loadBets());
+  const fetchBets = useCallback(async () => {
+    try {
+      const res = await fetch("/api/bets");
+      if (res.ok) {
+        const data = await res.json();
+        setBets(data.bets ?? []);
+      }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  function settle(id: string, status: BetRecord["status"]) {
-    updateBetStatus(id, status);
-    setBets(loadBets());
+  useEffect(() => { fetchBets(); }, [fetchBets]);
+
+  async function settle(id: string, status: BetRecord["status"]) {
+    await fetch(`/api/bets/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    fetchBets();
   }
 
   const stats = computeStats(bets);
   const pending = bets.filter((b) => b.status === "pending");
   const settled = bets.filter((b) => b.status === "won" || b.status === "lost");
 
+  if (loading) {
+    return (
+      <div className="flex-1 overflow-y-auto bg-[#0a0b0a] flex items-center justify-center">
+        <RefreshCw className="h-4 w-4 text-[#3a4033] animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
       <div className="max-w-4xl mx-auto px-6 py-6">
 
-        {/* Header */}
         <div className="mb-6">
           <h1 className="text-[20px] font-bold text-white">Tracked</h1>
           <p className="text-[12px] text-[#6b7068] mt-1">Your bet history, outcomes, and confidence accuracy.</p>
         </div>
 
-        {/* Stats */}
         <div className="flex gap-3 mb-6">
           <StatCard label="Record" value={stats.record} sub={`${stats.pending} pending`} />
           <StatCard
@@ -158,7 +222,6 @@ export default function TrackedPage() {
           />
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-1 mb-5 border-b border-[#22251f] pb-0">
           {([
             { key: "active", label: `Active (${pending.length})` },
@@ -180,7 +243,6 @@ export default function TrackedPage() {
           ))}
         </div>
 
-        {/* Active tab */}
         {tab === "active" && (
           <div className="space-y-3">
             {pending.length === 0 ? (
@@ -195,7 +257,6 @@ export default function TrackedPage() {
           </div>
         )}
 
-        {/* History tab */}
         {tab === "history" && (
           <div className="space-y-3">
             {settled.length === 0 ? (
@@ -210,7 +271,6 @@ export default function TrackedPage() {
           </div>
         )}
 
-        {/* Stats tab */}
         {tab === "stats" && (
           <div className="space-y-4">
             <p className="text-[11px] text-[#6b7068]">Win rate by confidence tier — how accurate the ACE model has been on your bets.</p>
@@ -219,11 +279,9 @@ export default function TrackedPage() {
               return (
                 <div key={tier} className="rounded-xl border border-[#22251f] bg-[#121412] p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: TIER_COLOR[tier] }}>
-                        {tier} confidence
-                      </span>
-                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: TIER_COLOR[tier] }}>
+                      {tier} confidence
+                    </span>
                     <span className="text-[18px] font-black font-mono" style={{ color: rate !== null ? TIER_COLOR[tier] : "#27272a" }}>
                       {rate !== null ? `${rate}%` : "—"}
                     </span>

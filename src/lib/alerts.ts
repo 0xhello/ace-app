@@ -99,6 +99,56 @@ export function checkAlerts(games: Game[]): PriceAlert[] {
   return triggered;
 }
 
+// Pure check against a provided list — no localStorage reads/writes
+export function checkAlertsAgainst(games: Game[], alerts: PriceAlert[]): PriceAlert[] {
+  const triggered: PriceAlert[] = [];
+
+  for (const alert of alerts) {
+    if (alert.status !== "active") continue;
+
+    const game = games.find((g) => g.id === alert.gameId);
+    if (!game) continue;
+
+    const prices: number[] = [];
+
+    for (const bk of game.bookmakers) {
+      if (alert.book !== "any" && bk.sportsbook !== alert.book) continue;
+
+      if (alert.market === "ml") {
+        const team = alert.side === "away" ? game.away_team : game.home_team;
+        const o = (bk.markets.h2h || []).find((x) => x.name === team);
+        if (o) prices.push(o.price);
+      } else if (alert.market === "spread") {
+        const team = alert.side === "away" ? game.away_team : game.home_team;
+        const o = (bk.markets.spreads || []).find((x) => x.name === team);
+        if (o) prices.push(o.price);
+      } else if (alert.market === "total") {
+        const side = alert.side === "over" ? "Over" : "Under";
+        const o = (bk.markets.totals || []).find((x) => x.name === side);
+        if (o) prices.push(o.price);
+      }
+    }
+
+    if (!prices.length) continue;
+
+    const best = Math.max(...prices);
+    const hit =
+      (alert.condition === "rises_above" && best > alert.threshold) ||
+      (alert.condition === "drops_below" && best < alert.threshold);
+
+    if (hit) {
+      triggered.push({
+        ...alert,
+        status: "triggered",
+        triggeredAt: new Date().toISOString(),
+        triggeredOdds: best,
+      });
+    }
+  }
+
+  return triggered;
+}
+
 export function requestNotificationPermission(): Promise<NotificationPermission> {
   if (!("Notification" in window)) return Promise.resolve("denied");
   if (Notification.permission !== "default") return Promise.resolve(Notification.permission);

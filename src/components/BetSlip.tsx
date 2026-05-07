@@ -3,11 +3,10 @@
 import { cn, formatAmericanOdds } from "@/lib/utils";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
 import { bookDeepLink } from "@/lib/deeplinks";
-import { saveBets } from "@/lib/bet-history";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { getConfidenceForGame } from "@/lib/signals";
 import { Game } from "@/types/game";
-import { X, Plus, Share2, Copy, ArrowRight, Check } from "lucide-react";
+import { X, Plus, Copy, ArrowRight, Check } from "lucide-react";
 import { useState, useMemo } from "react";
 
 const STAKE_PRESETS = [10, 25, 50, 100];
@@ -119,17 +118,19 @@ export default function BetSlip({
   const [stake, setStake] = useState(25);
   const [selectedBook, setSelectedBook] = useState<string | null>(null);
   const [placed, setPlaced] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const bestBook = useMemo(() => findBestBook(slip, games), [slip, games]);
   const activeBook = selectedBook ?? bestBook ?? "fanduel";
 
-  function handleOpenInBook() {
+  async function handleOpenInBook() {
     const sport = games.find((g) => g.id === slip[0]?.gameId)?.sport_title ?? "";
     const url = bookDeepLink(activeBook, sport);
+    const now = Date.now();
     const newBets = slip.map((leg) => {
       const conf = confidenceForLeg(leg);
       return {
-        id: `${leg.id}-${Date.now()}`,
+        id: `${leg.id}-${now}`,
         gameId: leg.gameId,
         matchup: leg.matchup,
         market: leg.market,
@@ -138,11 +139,16 @@ export default function BetSlip({
         book: activeBook,
         stake,
         confidenceTier: conf.tier as "high" | "medium" | "low",
-        status: "pending" as const,
-        placedAt: new Date().toISOString(),
+        placedAt: new Date(now).toISOString(),
       };
     });
-    saveBets(newBets);
+
+    fetch("/api/bets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bets: newBets }),
+    }).catch(() => {});
+
     setPlaced(true);
     setTimeout(() => setPlaced(false), 2000);
     if (url) window.open(url, "_blank", "noopener,noreferrer");
@@ -356,14 +362,18 @@ export default function BetSlip({
               )}
             </button>
 
-            <div className="flex gap-1.5">
-              <button className="flex-1 py-1.5 rounded-md border border-[#22251f] text-[9px] text-[#6b7068] hover:text-[#9ca39a] flex items-center justify-center gap-1 transition-colors">
-                <Copy className="h-2.5 w-2.5" /> Copy
-              </button>
-              <button className="flex-1 py-1.5 rounded-md border border-[#22251f] text-[9px] text-[#6b7068] hover:text-[#9ca39a] flex items-center justify-center gap-1 transition-colors">
-                <Share2 className="h-2.5 w-2.5" /> Share
-              </button>
-            </div>
+            <button
+              onClick={() => {
+                const text = slip.map((l) => `${l.label} ${l.odds > 0 ? "+" : ""}${l.odds}`).join(" | ");
+                navigator.clipboard.writeText(text).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                });
+              }}
+              className="w-full py-1.5 rounded-md border border-[#22251f] text-[9px] text-[#6b7068] hover:text-[#9ca39a] flex items-center justify-center gap-1 transition-colors"
+            >
+              {copied ? <><Check className="h-2.5 w-2.5 text-[#3ee68a]" /><span className="text-[#3ee68a]">Copied</span></> : <><Copy className="h-2.5 w-2.5" /> Copy slip</>}
+            </button>
           </div>
         </div>
       )}

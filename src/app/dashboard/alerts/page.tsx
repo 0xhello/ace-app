@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  loadAlerts, saveAlert, deleteAlert, dismissAlert,
-  requestNotificationPermission, type PriceAlert,
-} from "@/lib/alerts";
+import { useEffect, useState, useCallback } from "react";
+import type { PriceAlert } from "@/lib/alerts";
+import { requestNotificationPermission } from "@/lib/alerts";
 import { cn } from "@/lib/utils";
-import { Bell, BellOff, Plus, Trash2, CheckCircle2, Clock, X } from "lucide-react";
+import { Bell, BellOff, Plus, Trash2, CheckCircle2, Clock, X, RefreshCw } from "lucide-react";
 
 const MARKET_LABELS: Record<string, string> = { ml: "Moneyline", spread: "Spread", total: "Total" };
 const CONDITION_LABELS: Record<string, string> = { rises_above: "rises above", drops_below: "drops below" };
@@ -68,57 +66,94 @@ function AlertCard({ alert, onDelete, onDismiss }: { alert: PriceAlert; onDelete
   );
 }
 
-const BLANK: Omit<PriceAlert, "id" | "status" | "createdAt"> = {
+const BLANK = {
   gameId: "",
   matchup: "",
   team: "",
-  market: "ml",
-  side: "away",
-  condition: "drops_below",
+  market: "ml" as const,
+  side: "away" as const,
+  condition: "drops_below" as const,
   threshold: -110,
   book: "any",
 };
 
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [loading, setLoading] = useState(true);
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ ...BLANK });
 
-  useEffect(() => {
-    setAlerts(loadAlerts());
-    if ("Notification" in window) setNotifPermission(Notification.permission);
+  const fetchAlerts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/alerts");
+      if (res.ok) {
+        const data = await res.json();
+        setAlerts(data.alerts ?? []);
+      }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  function refresh() { setAlerts(loadAlerts()); }
+  useEffect(() => {
+    fetchAlerts();
+    if ("Notification" in window) setNotifPermission(Notification.permission);
+  }, [fetchAlerts]);
 
   async function enableNotifications() {
     const perm = await requestNotificationPermission();
     setNotifPermission(perm);
   }
 
-  function handleCreate() {
+  async function handleCreate() {
     if (!form.matchup.trim() || !form.team.trim()) return;
-    saveAlert({
+    const alert: PriceAlert = {
       ...form,
       id: `alert-${Date.now()}`,
       status: "active",
       createdAt: new Date().toISOString(),
+    };
+    await fetch("/api/alerts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ alert }),
     });
     setForm({ ...BLANK });
     setShowForm(false);
-    refresh();
+    fetchAlerts();
+  }
+
+  async function handleDelete(id: string) {
+    await fetch(`/api/alerts/${id}`, { method: "DELETE" });
+    fetchAlerts();
+  }
+
+  async function handleDismiss(id: string) {
+    await fetch(`/api/alerts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "dismissed" }),
+    });
+    fetchAlerts();
   }
 
   const active = alerts.filter((a) => a.status === "active");
   const triggered = alerts.filter((a) => a.status === "triggered");
   const dismissed = alerts.filter((a) => a.status === "dismissed");
 
+  if (loading) {
+    return (
+      <div className="flex-1 overflow-y-auto bg-[#0a0b0a] flex items-center justify-center">
+        <RefreshCw className="h-4 w-4 text-[#3a4033] animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
       <div className="max-w-3xl mx-auto px-6 py-6">
 
-        {/* Header */}
         <div className="flex items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-[20px] font-bold text-white">Alerts</h1>
@@ -132,7 +167,6 @@ export default function AlertsPage() {
           </button>
         </div>
 
-        {/* Notification permission banner */}
         {notifPermission !== "granted" && (
           <div className="rounded-xl border border-[#f59e0b]/20 bg-[#f59e0b]/[0.04] p-4 mb-5 flex items-center gap-3">
             <BellOff className="h-4 w-4 text-[#f59e0b] shrink-0" />
@@ -151,7 +185,6 @@ export default function AlertsPage() {
           </div>
         )}
 
-        {/* New alert form */}
         {showForm && (
           <div className="rounded-xl border border-[#2e332a] bg-[#121412] p-4 mb-5">
             <div className="flex items-center justify-between mb-4">
@@ -232,7 +265,6 @@ export default function AlertsPage() {
           </div>
         )}
 
-        {/* Triggered */}
         {triggered.length > 0 && (
           <div className="mb-5">
             <p className="text-[10px] text-[#3ee68a] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -241,15 +273,14 @@ export default function AlertsPage() {
             <div className="space-y-2">
               {triggered.map((a) => (
                 <AlertCard key={a.id} alert={a}
-                  onDelete={() => { deleteAlert(a.id); refresh(); }}
-                  onDismiss={() => { dismissAlert(a.id); refresh(); }}
+                  onDelete={() => handleDelete(a.id)}
+                  onDismiss={() => handleDismiss(a.id)}
                 />
               ))}
             </div>
           </div>
         )}
 
-        {/* Active */}
         <div className="mb-5">
           <p className="text-[10px] text-[#6b7068] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
             <Bell className="h-3 w-3" /> Watching ({active.length})
@@ -264,15 +295,14 @@ export default function AlertsPage() {
             <div className="space-y-2">
               {active.map((a) => (
                 <AlertCard key={a.id} alert={a}
-                  onDelete={() => { deleteAlert(a.id); refresh(); }}
-                  onDismiss={() => { dismissAlert(a.id); refresh(); }}
+                  onDelete={() => handleDelete(a.id)}
+                  onDismiss={() => handleDismiss(a.id)}
                 />
               ))}
             </div>
           )}
         </div>
 
-        {/* Dismissed (collapsed) */}
         {dismissed.length > 0 && (
           <p className="text-[10px] text-[#27272a] text-center">{dismissed.length} dismissed alert{dismissed.length > 1 ? "s" : ""} hidden</p>
         )}
