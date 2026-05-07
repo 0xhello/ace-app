@@ -36,7 +36,7 @@ try:
                FROM execution_log e
                JOIN signal_log s ON s.id = e.signal_id
                LEFT JOIN predictions p ON p.game_id = s.game_id
-               ORDER BY e.id DESC LIMIT 100"""
+               ORDER BY s.game_date DESC, e.id DESC LIMIT 100"""
         ).fetchall()
         executions = [dict(r) for r in rows]
 
