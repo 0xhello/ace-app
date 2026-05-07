@@ -190,10 +190,14 @@ function computeEdge(n: number, avg: number | null, pct: number | null): string 
 function sigLabel(t: string) {
   if (t === "soft_book_divergence") return "divergence";
   if (t === "line_movement") return "line move";
+  if (t === "steam_move") return "steam";
   return t.replace(/_/g, " ");
 }
 function sigColor(t: string) {
-  return t === "soft_book_divergence" ? "#3ee68a" : t === "line_movement" ? "#f5c062" : "#9ca39a";
+  if (t === "soft_book_divergence") return "#3ee68a";
+  if (t === "line_movement") return "#f5c062";
+  if (t === "steam_move") return "#a78bfa";
+  return "#9ca39a";
 }
 
 // ─── Primitive components ─────────────────────────────────────────────────────
@@ -441,6 +445,68 @@ export default function OpsPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* ══ PAPER BANKROLL ══════════════════════════════════════════════════ */}
+        {signalTrack && (
+          <div className="rounded-xl border border-[#1e2220] bg-[#0d0f0d] px-5 py-4">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#3a4033] mb-1">Paper Bankroll</p>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-[28px] font-black font-mono leading-none"
+                     style={{ color: signalTrack.current_units !== null && signalTrack.current_units >= signalTrack.start_units! ? "#3ee68a" : "#ef4444" }}>
+                    ${((signalTrack.current_units ?? signalTrack.start_units!) * signalTrack.unit_value).toLocaleString()}
+                  </p>
+                  {signalTrack.pnl_units !== null && signalTrack.pnl_units !== 0 && (
+                    <p className="text-[13px] font-bold font-mono pb-0.5" style={{ color: green(signalTrack.pnl_units) }}>
+                      {fmtDollars(signalTrack.pnl_units, signalTrack.unit_value)}
+                    </p>
+                  )}
+                </div>
+                <p className="text-[10px] text-[#4a524a] mt-1">
+                  Started at ${(signalTrack.start_units! * signalTrack.unit_value).toLocaleString()} · ${signalTrack.unit_value}/unit flat
+                </p>
+              </div>
+
+              <div className="flex items-center gap-6">
+                <div className="text-center">
+                  <p className="text-[9px] text-[#3a4033] uppercase tracking-wider mb-1">Record</p>
+                  {signalTrack.graded > 0 ? (
+                    <p className="text-[16px] font-black font-mono" style={{ color: winColor(signalTrack.wins / signalTrack.graded) }}>
+                      {signalTrack.wins}W–{signalTrack.losses}L{signalTrack.pushes > 0 ? `–${signalTrack.pushes}P` : ""}
+                    </p>
+                  ) : (
+                    <p className="text-[16px] font-black font-mono text-[#3a4033]">—</p>
+                  )}
+                  {signalTrack.pending > 0 && (
+                    <p className="text-[9px] text-[#4a524a]">{signalTrack.pending} pending</p>
+                  )}
+                </div>
+                <div className="text-center">
+                  <p className="text-[9px] text-[#3a4033] uppercase tracking-wider mb-1">Win rate</p>
+                  <p className="text-[16px] font-black font-mono"
+                     style={{ color: signalTrack.graded > 0 ? winColor(signalTrack.wins / signalTrack.graded) : "#3a4033" }}>
+                    {signalTrack.graded > 0 ? fmtPct(signalTrack.wins / signalTrack.graded, 0) : "—"}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[9px] text-[#3a4033] uppercase tracking-wider mb-1">Staked</p>
+                  <p className="text-[16px] font-black font-mono text-[#6b7068]">
+                    ${(signalTrack.total_staked_units * signalTrack.unit_value).toLocaleString()}
+                  </p>
+                </div>
+                {signalTrack.roi_pct !== null && (
+                  <div className="text-center">
+                    <p className="text-[9px] text-[#3a4033] uppercase tracking-wider mb-1">ROI on staked</p>
+                    <p className="text-[16px] font-black font-mono" style={{ color: green(signalTrack.roi_pct) }}>
+                      {signalTrack.roi_pct >= 0 ? "+" : ""}{signalTrack.roi_pct.toFixed(1)}%
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 

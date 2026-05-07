@@ -38,6 +38,7 @@ from .signal_logger import (
     get_divergence_first_seen, _rest_days_for_code, _regime_for_date,
     get_db, DB_PATH, log_paper_execution,
 )
+from .steam_detector import detect_steam, log_steam_signals
 from .train_spread_model import BACKTEST_METRICS_PATH
 
 # Load ODDS_API_KEY from .env.local (same file the Next.js app uses)
@@ -526,6 +527,18 @@ def run(
         n_updated = _record_closing_proxies(upcoming, force=force, only_within_hours=only_within)
         if n_updated:
             print(f"  Closing proxies recorded: {n_updated} signal row(s) updated")
+
+    # Steam detection — runs on every snapshot so we catch moves as they happen
+    for gd in (_et_today(), _et_tomorrow):
+        steam_moves = detect_steam(game_date=gd)
+        if steam_moves:
+            steam_ids = log_steam_signals(steam_moves)
+            print(f"  Steam signals logged: {len(steam_ids)} for {gd}")
+            for s in steam_moves:
+                direction = "HOME" if s["direction"] == 1 else "AWAY"
+                books_str = ", ".join(s["books"][:4])
+                print(f"    [STEAM] {s['away_team']} @ {s['home_team']}  "
+                      f"bet={direction}  {len(s['books'])} books  avg {s['move_size']:+.2f}pts  ({books_str})")
 
     if label == "6pm_proxy":
         new_signals = detect_line_movements(game_date=_et_today())
