@@ -95,6 +95,9 @@ export function transformGame(raw: any, scoreMap: Map<string, any>): Game {
     status = "final";
   } else if (score?.scores && startMs <= now) {
     status = "live";
+  } else if (startMs <= now) {
+    // Game has started but no score data available — estimate from elapsed time
+    status = (now - startMs > 4 * 3_600_000) ? "final" : "live";
   }
 
   const bookmakers = (raw.bookmakers ?? []).map(transformBookmaker);

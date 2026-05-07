@@ -73,17 +73,35 @@ function isRecent(iso: string, withinHours = 6): boolean {
   return Date.now() - new Date(iso).getTime() < withinHours * 3_600_000;
 }
 
-// Match ESPN news items to a game by team name word overlap
+// Returns the unique team nickname (last word, e.g. "Yankees", "Lakers")
+function teamNickname(name: string): string {
+  return name.split(" ").pop()!.toLowerCase();
+}
+
+// Match ESPN news items to a game using team nicknames, not word fragments.
+// Word-fragment matching ("york" from "New York X") leaks across same-city teams.
 function matchNewsToGame(game: Game, items: ESPNNewsItem[]): ESPNNewsItem[] {
-  const teamWords = [game.home_team, game.away_team].flatMap((name) =>
-    name.split(" ").filter((w) => w.length > 3)
-  );
+  const homeFull = game.home_team.toLowerCase();
+  const awayFull = game.away_team.toLowerCase();
+  const homeNick = teamNickname(game.home_team);
+  const awayNick = teamNickname(game.away_team);
 
   return items.filter((item) => {
-    const isSameSport = game.sport.split("_")[0] === item.sport_key.split("_")[0];
-    if (!isSameSport) return false;
-    const text = `${item.headline} ${item.description} ${item.teams.join(" ")}`.toLowerCase();
-    return teamWords.some((w) => text.includes(w.toLowerCase()));
+    if (game.sport.split("_")[0] !== item.sport_key.split("_")[0]) return false;
+
+    // Primary: match via ESPN's team category tags (full name or unique nickname)
+    if (item.teams.length > 0) {
+      return item.teams.some((t) => {
+        const full = t.toLowerCase();
+        const nick = teamNickname(t);
+        return full === homeFull || full === awayFull || nick === homeNick || nick === awayNick;
+      });
+    }
+
+    // Fallback: whole-word nickname search in headline/description only
+    const text = `${item.headline} ${item.description}`.toLowerCase();
+    return (homeNick.length >= 4 && new RegExp(`\\b${homeNick}\\b`).test(text)) ||
+           (awayNick.length >= 4 && new RegExp(`\\b${awayNick}\\b`).test(text));
   });
 }
 
@@ -200,15 +218,19 @@ function modelSignalToGameSignal(s: ModelSignal): GameSignal {
   };
 }
 
-// Determine which team (home/away) an ESPN news item is about
+// Determine which team (home/away) an ESPN news item is about.
+// Uses full name or unique nickname — never partial words like "york".
 function matchTeamAffected(itemTeams: string[], homeTeam: string, awayTeam: string): "home" | "away" | null {
   if (!itemTeams.length) return null;
-  const homeWords = homeTeam.toLowerCase().split(" ").filter((w) => w.length > 3);
-  const awayWords = awayTeam.toLowerCase().split(" ").filter((w) => w.length > 3);
+  const homeFull = homeTeam.toLowerCase();
+  const awayFull = awayTeam.toLowerCase();
+  const homeNick = teamNickname(homeTeam);
+  const awayNick = teamNickname(awayTeam);
   for (const t of itemTeams) {
-    const tLow = t.toLowerCase();
-    if (homeWords.some((w) => tLow.includes(w)) || homeTeam.toLowerCase().includes(tLow)) return "home";
-    if (awayWords.some((w) => tLow.includes(w)) || awayTeam.toLowerCase().includes(tLow)) return "away";
+    const full = t.toLowerCase();
+    const nick = teamNickname(t);
+    if (full === homeFull || nick === homeNick) return "home";
+    if (full === awayFull || nick === awayNick) return "away";
   }
   return null;
 }
@@ -347,7 +369,14 @@ export function generateIntelMap(
     const hasNew = signals.some((s) => s.time === "now" || (s.time.endsWith("m") && parseInt(s.time) < 120));
     const recentNews = matched.filter((n) => isRecent(n.published, 6));
 
-    const topGs = signals.find((s) => s.severity === "high") ?? signals.find((s) => s.severity === "medium") ?? signals[0] ?? null;
+    // Prefer non-injury signals for top_signal — injuries are already shown as badges
+    const nonInjury = signals.filter((s) => s.type !== "injury");
+    const topGs = nonInjury.find((s) => s.severity === "high")
+      ?? nonInjury.find((s) => s.severity === "medium")
+      ?? nonInjury[0]
+      ?? signals.find((s) => s.severity === "high")
+      ?? signals[0]
+      ?? null;
 
     result[game.id] = {
       game_id: game.id,
