@@ -189,6 +189,10 @@ def _poll_interval() -> tuple[int, str]:
 
     if hours_to_tip > 6:
         return 600, f"{hours_to_tip:.1f}h to tip — polling every 10 min"
+    elif hours_to_tip > 2:
+        return 300, f"{hours_to_tip:.1f}h to tip — polling every 5 min"
+    elif hours_to_tip > 0.5:
+        return 120, f"{hours_to_tip:.1f}h to tip — polling every 2 min"
     elif hours_to_tip > 0:
         return 60, f"{hours_to_tip:.1f}h to tip — polling every 60s"
     else:
