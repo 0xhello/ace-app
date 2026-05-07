@@ -280,7 +280,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>
               <div className="flex h-8 items-center rounded-lg border border-[#22271f] bg-[#111310] px-2">
-                <NotificationBell games={games} serverAlerts={serverAlerts} />
+                <NotificationBell games={games} serverAlerts={serverAlerts} intelMap={intelMap} />
               </div>
             </div>
           </div>

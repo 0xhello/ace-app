@@ -7,6 +7,7 @@ import type { Game } from "@/types/game";
 import type { NotificationItem } from "@/types/notification";
 import { generateNotifications } from "@/lib/notifications";
 import type { PriceAlert } from "@/lib/alerts";
+import type { GameIntel } from "@/lib/live-signals";
 import { cn } from "@/lib/utils";
 
 function timeAgo(iso: string) {
@@ -15,12 +16,12 @@ function timeAgo(iso: string) {
   return `${mins}m ago`;
 }
 
-export default function NotificationBell({ games, serverAlerts = [] }: { games: Game[]; serverAlerts?: PriceAlert[] }) {
+export default function NotificationBell({ games, serverAlerts = [], intelMap = {} }: { games: Game[]; serverAlerts?: PriceAlert[]; intelMap?: Record<string, GameIntel> }) {
   const [open, setOpen] = useState(false);
 
   const triggeredAlerts = serverAlerts.filter((a) => a.status === "triggered");
 
-  const signalNotifs = useMemo(() => generateNotifications(games), [games]);
+  const signalNotifs = useMemo(() => generateNotifications(games, intelMap), [games, intelMap]);
 
   const alertNotifs: NotificationItem[] = triggeredAlerts.map((a) => ({
     id: `price-${a.id}`,
