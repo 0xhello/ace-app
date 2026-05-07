@@ -18,9 +18,6 @@ function decimalOdds(american: number) {
   return american > 0 ? american / 100 + 1 : 100 / Math.abs(american) + 1;
 }
 
-function combinedDecimal(legs: SlipLeg[]) {
-  return legs.reduce((acc, l) => acc * decimalOdds(l.odds), 1);
-}
 
 function toAmerican(dec: number) {
   if (dec >= 2) return Math.round((dec - 1) * 100);
@@ -100,7 +97,7 @@ function getOtherSidePrices(game: Game, legId: string): number[] {
   return [];
 }
 
-function computeLegPriceIntel(leg: SlipLeg, games: Game[]) {
+function computeLegPriceIntel(leg: SlipLeg, games: Game[], activeOdds: number) {
   const game = games.find((g) => g.id === leg.gameId);
   if (!game || !game.bookmakers.length) return null;
 
@@ -111,11 +108,11 @@ function computeLegPriceIntel(leg: SlipLeg, games: Game[]) {
   if (!thisSidePrices.length) return null;
 
   const toDecimal = (p: number) => (p > 0 ? p / 100 + 1 : 100 / Math.abs(p) + 1);
-  const toAmerican = (d: number) => (d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1)));
+  const toAmericanIntel = (d: number) => (d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1)));
   const impliedFromDecimal = (d: number) => (1 / d) * 100;
 
   const avgDecimal = thisSidePrices.reduce((a, p) => a + toDecimal(p), 0) / thisSidePrices.length;
-  const marketAvg = toAmerican(avgDecimal);
+  const marketAvg = toAmericanIntel(avgDecimal);
 
   const otherSidePrices = getOtherSidePrices(game, leg.id);
   let noVigProb: number | null = null;
@@ -126,8 +123,8 @@ function computeLegPriceIntel(leg: SlipLeg, games: Game[]) {
     noVigProb = (rawThis / (rawThis + rawOther)) * 100;
   }
 
-  // Positive = you're getting a better price than the market average (lower juice)
-  const edgeVsMarket = impliedFromDecimal(avgDecimal) - impliedFromDecimal(toDecimal(leg.odds));
+  // Edge reflects the active book's price vs the cross-book market average
+  const edgeVsMarket = impliedFromDecimal(avgDecimal) - impliedFromDecimal(toDecimal(activeOdds));
 
   return {
     marketAvg,
@@ -135,6 +132,12 @@ function computeLegPriceIntel(leg: SlipLeg, games: Game[]) {
     edgeVsMarket,
     bookCount: thisSidePrices.length,
   };
+}
+
+function getEffectiveOdds(leg: SlipLeg, games: Game[], bookKey: string): number {
+  const game = games.find((g) => g.id === leg.gameId);
+  if (!game) return leg.odds;
+  return getBookOddsForLeg(game, leg.id, bookKey) ?? leg.odds;
 }
 
 // ── Confidence label ──────────────────────────────────────────────────────────
@@ -193,7 +196,7 @@ export default function BetSlip({
         matchup: leg.matchup,
         market: leg.market,
         label: leg.label,
-        odds: leg.odds,
+        odds: getEffectiveOdds(leg, games, activeBook),
         book: activeBook,
         stake,
         confidenceTier: conf.tier as "high" | "medium" | "low",
@@ -213,7 +216,8 @@ export default function BetSlip({
   }
   const bm = bookMeta(activeBook);
 
-  const dec = combinedDecimal(slip);
+  // All payout math uses the active book's price for each leg, not the click-time price
+  const dec = slip.reduce((acc, l) => acc * decimalOdds(getEffectiveOdds(l, games, activeBook)), 1);
   const payout = stake * (dec - 1);
   const combinedAmerican = slip.length ? toAmerican(dec) : null;
   const impliedProb = slip.length ? (100 / dec).toFixed(1) : null;
@@ -262,7 +266,9 @@ export default function BetSlip({
             {slip.map((leg) => {
               const conf = confidenceForLeg(leg, intelMap);
               const bestForLeg = findBestBookForLeg(leg, games);
-              const priceIntel = computeLegPriceIntel(leg, games);
+              const effectiveOdds = getEffectiveOdds(leg, games, activeBook);
+              const bookHasOdds = effectiveOdds !== leg.odds || !selectedBook;
+              const priceIntel = computeLegPriceIntel(leg, games, effectiveOdds);
               const edgePositive = priceIntel && priceIntel.edgeVsMarket > 0.2;
               const edgeNegative = priceIntel && priceIntel.edgeVsMarket < -0.2;
               return (
@@ -273,8 +279,11 @@ export default function BetSlip({
                       <p className="text-[9px] text-[#6b7068] mt-0.5 truncate">{leg.matchup}</p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className={cn("text-[12px] font-mono font-bold", leg.odds > 0 ? "text-[#3ee68a]" : "text-white")}>
-                        {formatAmericanOdds(leg.odds)}
+                      {!bookHasOdds && (
+                        <span className="text-[8px] text-[#f59e0b] font-medium">Not available</span>
+                      )}
+                      <span className={cn("text-[12px] font-mono font-bold", effectiveOdds > 0 ? "text-[#3ee68a]" : "text-white")}>
+                        {formatAmericanOdds(effectiveOdds)}
                       </span>
                       <button
                         onClick={() => onRemove(leg.id)}
