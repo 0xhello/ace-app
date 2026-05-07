@@ -346,19 +346,19 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
           </div>
         </div>
 
-        <div
-          className="shrink-0 px-5 py-2 grid items-center gap-2 border-b border-[#1b201a] bg-[#0a0b0a]"
-          style={{ gridTemplateColumns: "minmax(220px,1fr) repeat(3, 84px) 28px" }}
-        >
-          <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest">Matchup</span>
-          <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest text-center">ML</span>
-          <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest text-center">Spread</span>
-          <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest text-center">Total</span>
-          <span />
-        </div>
-
         <div className="flex-1 overflow-y-auto scrollbar-hide">
           <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
+
+          <div
+            className="sticky top-0 z-20 px-5 py-2 grid items-center gap-2 border-b border-[#1b201a] bg-[#0a0b0a]/98 backdrop-blur-sm"
+            style={{ gridTemplateColumns: "minmax(220px,1fr) repeat(3, 84px) 28px" }}
+          >
+            <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest">Matchup</span>
+            <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest text-center">ML</span>
+            <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest text-center">Spread</span>
+            <span className="text-[9px] text-[#6b7068] font-semibold uppercase tracking-widest text-center">Total</span>
+            <span />
+          </div>
 
           {liveGames.length > 0 && (
             <>

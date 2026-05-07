@@ -47,6 +47,17 @@ body {
 ::-webkit-scrollbar-thumb { background: #22251f; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #2e332a; }
 
+@keyframes odds-flash-up {
+  0%   { background-color: rgba(62, 230, 138, 0.22); }
+  100% { background-color: transparent; }
+}
+@keyframes odds-flash-down {
+  0%   { background-color: rgba(239, 68, 68, 0.22); }
+  100% { background-color: transparent; }
+}
+.odds-flash-up   { animation: odds-flash-up   600ms ease-out forwards; }
+.odds-flash-down { animation: odds-flash-down 600ms ease-out forwards; }
+
 @keyframes ace-ticker {
   from { transform: translateX(0); }
   to   { transform: translateX(-50%); }

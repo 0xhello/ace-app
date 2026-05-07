@@ -82,6 +82,61 @@ function findBestBook(legs: SlipLeg[], games: Game[]): string | null {
   return best?.bookKey ?? null;
 }
 
+// ── Price intelligence ────────────────────────────────────────────────────────
+
+function getOtherSidePrices(game: Game, legId: string): number[] {
+  if (legId.endsWith("-ml-away"))
+    return game.bookmakers.flatMap((b) => (b.markets.h2h || []).filter((o) => o.name === game.home_team).map((o) => o.price));
+  if (legId.endsWith("-ml-home"))
+    return game.bookmakers.flatMap((b) => (b.markets.h2h || []).filter((o) => o.name === game.away_team).map((o) => o.price));
+  if (legId.endsWith("-sp-away"))
+    return game.bookmakers.flatMap((b) => (b.markets.spreads || []).filter((o) => o.name === game.home_team).map((o) => o.price));
+  if (legId.endsWith("-sp-home"))
+    return game.bookmakers.flatMap((b) => (b.markets.spreads || []).filter((o) => o.name === game.away_team).map((o) => o.price));
+  if (legId.endsWith("-ov"))
+    return game.bookmakers.flatMap((b) => (b.markets.totals || []).filter((o) => o.name === "Under").map((o) => o.price));
+  if (legId.endsWith("-un"))
+    return game.bookmakers.flatMap((b) => (b.markets.totals || []).filter((o) => o.name === "Over").map((o) => o.price));
+  return [];
+}
+
+function computeLegPriceIntel(leg: SlipLeg, games: Game[]) {
+  const game = games.find((g) => g.id === leg.gameId);
+  if (!game || !game.bookmakers.length) return null;
+
+  const thisSidePrices = game.bookmakers.flatMap((b) => {
+    const p = getBookOddsForLeg(game, leg.id, b.sportsbook);
+    return p === null ? [] : [p];
+  });
+  if (!thisSidePrices.length) return null;
+
+  const toDecimal = (p: number) => (p > 0 ? p / 100 + 1 : 100 / Math.abs(p) + 1);
+  const toAmerican = (d: number) => (d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1)));
+  const impliedFromDecimal = (d: number) => (1 / d) * 100;
+
+  const avgDecimal = thisSidePrices.reduce((a, p) => a + toDecimal(p), 0) / thisSidePrices.length;
+  const marketAvg = toAmerican(avgDecimal);
+
+  const otherSidePrices = getOtherSidePrices(game, leg.id);
+  let noVigProb: number | null = null;
+  if (otherSidePrices.length) {
+    const avgOtherDecimal = otherSidePrices.reduce((a, p) => a + toDecimal(p), 0) / otherSidePrices.length;
+    const rawThis = impliedFromDecimal(avgDecimal);
+    const rawOther = impliedFromDecimal(avgOtherDecimal);
+    noVigProb = (rawThis / (rawThis + rawOther)) * 100;
+  }
+
+  // Positive = you're getting a better price than the market average (lower juice)
+  const edgeVsMarket = impliedFromDecimal(avgDecimal) - impliedFromDecimal(toDecimal(leg.odds));
+
+  return {
+    marketAvg,
+    noVigProb,
+    edgeVsMarket,
+    bookCount: thisSidePrices.length,
+  };
+}
+
 // ── Confidence label ──────────────────────────────────────────────────────────
 
 const TIER_LABEL: Record<string, string> = {
@@ -207,6 +262,9 @@ export default function BetSlip({
             {slip.map((leg) => {
               const conf = confidenceForLeg(leg, intelMap);
               const bestForLeg = findBestBookForLeg(leg, games);
+              const priceIntel = computeLegPriceIntel(leg, games);
+              const edgePositive = priceIntel && priceIntel.edgeVsMarket > 0.2;
+              const edgeNegative = priceIntel && priceIntel.edgeVsMarket < -0.2;
               return (
                 <div key={leg.id} className="rounded-xl border border-[#20251f] bg-[linear-gradient(180deg,rgba(18,20,18,0.98),rgba(14,16,14,0.98))] p-3 group/leg hover:border-[#2e332a] transition-colors shadow-[0_10px_24px_rgba(0,0,0,0.18)]">
                   <div className="flex items-start justify-between gap-2">
@@ -226,6 +284,29 @@ export default function BetSlip({
                       </button>
                     </div>
                   </div>
+
+                  {/* Price intelligence row */}
+                  {priceIntel && (
+                    <div className="mt-2 rounded-lg bg-[#0d0f0d] border border-[#1a1e1a] px-2.5 py-1.5 flex items-center gap-3 flex-wrap">
+                      {priceIntel.noVigProb !== null && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-[8px] text-[#3a4033] uppercase tracking-wider">True prob</span>
+                          <span className="text-[9px] font-mono font-bold text-[#d4d7d0]">{priceIntel.noVigProb.toFixed(1)}%</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <span className="text-[8px] text-[#3a4033] uppercase tracking-wider">Mkt avg</span>
+                        <span className="text-[9px] font-mono text-[#9ca39a]">{priceIntel.marketAvg > 0 ? "+" : ""}{priceIntel.marketAvg}</span>
+                      </div>
+                      <div className="flex items-center gap-1 ml-auto">
+                        <span className="text-[8px] text-[#3a4033] uppercase tracking-wider">vs avg</span>
+                        <span className={cn("text-[9px] font-mono font-bold", edgePositive ? "text-[#3ee68a]" : edgeNegative ? "text-[#ef4444]" : "text-[#6b7068]")}>
+                          {priceIntel.edgeVsMarket > 0 ? "+" : ""}{priceIntel.edgeVsMarket.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <span className="text-[8px] font-bold text-[#6b7068] uppercase tracking-widest bg-[#161a16] px-1.5 py-[2px] rounded">
                       {leg.market}

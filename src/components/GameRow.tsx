@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Game } from "@/types/game";
 import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
 import { Star, Sparkles, TrendingUp, TrendingDown } from "lucide-react";
@@ -111,6 +111,19 @@ function OddsCell({
 }) {
   const [alertMenu, setAlertMenu] = useState(false);
   const [alertDone, setAlertDone] = useState(false);
+  const [flashClass, setFlashClass] = useState<string>("");
+  const prevMovement = useRef(movement);
+
+  useEffect(() => {
+    if (movement && movement !== prevMovement.current) {
+      const cls = movement === "up" ? "odds-flash-up" : "odds-flash-down";
+      setFlashClass(cls);
+      const t = setTimeout(() => setFlashClass(""), 700);
+      prevMovement.current = movement;
+      return () => clearTimeout(t);
+    }
+    prevMovement.current = movement;
+  }, [movement]);
 
   function handleContextMenu(e: React.MouseEvent) {
     if (!alertMeta || !leg) return;
@@ -163,7 +176,8 @@ function OddsCell({
           selected
             ? "border-[#3ee68a]/35 bg-[#3ee68a]/10"
             : "border-[#22251f] bg-[#0d0e0c] hover:border-[#2e332a] hover:bg-[#161a16]",
-          recommended && "border-[#3ee68a]/40 shadow-[0_0_0_1px_rgba(0,255,127,0.08),0_0_18px_rgba(0,255,127,0.08)]"
+          recommended && "border-[#3ee68a]/40 shadow-[0_0_0_1px_rgba(0,255,127,0.08),0_0_18px_rgba(0,255,127,0.08)]",
+          flashClass
         )}
       >
         {recommended && <div className="absolute inset-y-0 left-0 w-[2px] bg-[#3ee68a] rounded-l-md" />}
@@ -199,10 +213,10 @@ function OddsCell({
 
         {movement && (
           <span className={cn(
-            "absolute bottom-[3px] left-[3px] opacity-60",
+            "absolute top-[2px] right-[3px] text-[8px] font-bold leading-none",
             movement === "up" ? "text-[#3ee68a]" : "text-[#ef4444]"
           )}>
-            {movement === "up" ? <TrendingUp className="h-2 w-2" /> : <TrendingDown className="h-2 w-2" />}
+            {movement === "up" ? "▲" : "▼"}
           </span>
         )}
 
