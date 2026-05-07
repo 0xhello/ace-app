@@ -48,15 +48,15 @@ function computeMovement(
 }
 
 export async function GET() {
-  const entry = cache.get(CACHE_KEY);
+  const entry = await cache.get(CACHE_KEY);
   const cachedGames = entry?.data?.games ?? [];
 
   // Serve from cache if still fresh
-  if (!cache.isStale(CACHE_KEY, cachedGames)) {
+  if (entry && !cache.isStale(entry, cachedGames)) {
     return NextResponse.json({
-      ...entry!.data,
+      ...entry.data,
       cached: true,
-      cacheAge: Math.round(cache.age(CACHE_KEY) / 1000),
+      cacheAge: Math.round(cache.age(entry) / 1000),
     });
   }
 
@@ -64,11 +64,10 @@ export async function GET() {
   try {
     const result = await fetchAllGames();
 
-    // Build movement map by comparing to previous odds snapshot
     const currSnap = buildOddsSnapshot(result.games);
-    const prevSnap = cache.getPrevOddsSnapshot();
+    const prevSnap = await cache.getPrevOddsSnapshot();
     const movementMap = computeMovement(prevSnap, currSnap);
-    cache.setPrevOddsSnapshot(currSnap);
+    await cache.setPrevOddsSnapshot(currSnap);
 
     const payload = {
       games: result.games,
@@ -77,7 +76,7 @@ export async function GET() {
       data_status: result.errors.length ? "degraded" : "ok",
       movementMap,
     };
-    cache.set(CACHE_KEY, payload);
+    await cache.set(CACHE_KEY, payload, result.games);
     return NextResponse.json({ ...payload, cached: false, cacheAge: 0 });
   } catch (e: any) {
     if (entry) {
@@ -85,7 +84,7 @@ export async function GET() {
         ...entry.data,
         cached: true,
         stale: true,
-        cacheAge: Math.round(cache.age(CACHE_KEY) / 1000),
+        cacheAge: Math.round(cache.age(entry) / 1000),
       });
     }
     return NextResponse.json(

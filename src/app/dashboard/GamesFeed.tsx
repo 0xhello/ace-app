@@ -15,10 +15,10 @@ async function getGames(): Promise<{
   errors: string[];
   fetchedAt: string | null;
 }> {
-  const cached = serverCache.get(CACHE_KEY);
-  const cachedGames = cached?.data?.games ?? [];
-  if (cached && !serverCache.isStale(CACHE_KEY, cachedGames)) {
-    const d = cached.data;
+  const entry = await serverCache.get(CACHE_KEY);
+  const cachedGames = entry?.data?.games ?? [];
+  if (entry && !serverCache.isStale(entry, cachedGames)) {
+    const d = entry.data;
     return { games: d.games ?? [], errors: d.errors ?? [], fetchedAt: d.fetchedAt ?? null };
   }
 
@@ -35,7 +35,7 @@ async function getGames(): Promise<{
       fetchedAt: result.fetchedAt,
       data_status: result.errors.length ? "degraded" : "ok",
     };
-    serverCache.set(CACHE_KEY, payload);
+    await serverCache.set(CACHE_KEY, payload, result.games);
 
     return { games: result.games, errors: result.errors, fetchedAt: result.fetchedAt };
   } catch (e: any) {
@@ -86,9 +86,9 @@ export default async function GamesFeed() {
   ]);
 
   // Pull server-side movement map from cache (populated by /api/board on each refresh)
-  const cached = serverCache.get(CACHE_KEY);
+  const cachedEntry = await serverCache.get(CACHE_KEY);
   const movementMap: Record<string, Record<string, "up" | "down" | null>> =
-    cached?.data?.movementMap ?? {};
+    cachedEntry?.data?.movementMap ?? {};
 
   const intelMap = generateIntelMap(games, newsItems, weatherMap, movementMap, modelSignals);
   const topPicks = generateLivePicks(games, 5);
