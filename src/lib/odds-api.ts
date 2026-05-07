@@ -156,11 +156,28 @@ export async function fetchAllGames(): Promise<{
 }> {
   const sports = [...SPORT_KEYS];
 
-  // Fetch odds + scores for all sports in parallel
-  const [oddsResults, scoreResults] = await Promise.all([
-    Promise.all(sports.map((s) => fetchOddsForSportSafe(s))),
-    Promise.all(sports.map((s) => fetchScoresForSport(s))),
-  ]);
+  // Step 1: fetch odds for all sports
+  const oddsResults = await Promise.all(sports.map((s) => fetchOddsForSportSafe(s)));
+
+  // Step 2: only call the scores endpoint for sports that have games within the last 4 hours.
+  // The scores endpoint costs 1 credit per sport — skipping it when no games are live saves 6
+  // credits per refresh (25% of total). Off-season sports already return 422 at zero cost.
+  const now = Date.now();
+  const LIVE_WINDOW_MS = 4 * 60 * 60 * 1000;
+  const sportsNeedingScores = new Set<string>();
+  for (let i = 0; i < sports.length; i++) {
+    for (const raw of oddsResults[i].data) {
+      const startMs = new Date(raw.commence_time).getTime();
+      if (startMs <= now && startMs > now - LIVE_WINDOW_MS) {
+        sportsNeedingScores.add(sports[i]);
+        break;
+      }
+    }
+  }
+
+  const scoreResults = await Promise.all(
+    sports.map((s) => sportsNeedingScores.has(s) ? fetchScoresForSport(s) : Promise.resolve([]))
+  );
 
   // Build score lookup
   const scoreMap = new Map<string, any>();

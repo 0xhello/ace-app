@@ -28,7 +28,7 @@ export function setPrevOddsSnapshot(snap: OddsSnapshot): void {
 // TTL in ms — shorter when live games are in play
 const TTL_LIVE     = 30_000;        // 30 seconds
 const TTL_SOON     = 3 * 60_000;    // 3 minutes  (game starts within 2h)
-const TTL_DEFAULT  = 8 * 60_000;    // 8 minutes  (nothing imminent)
+const TTL_DEFAULT  = 15 * 60_000;   // 15 minutes (nothing imminent — saves ~33% credits vs 8 min)
 
 export function hasLiveGames(games: any[]): boolean {
   return games.some((g: any) => g.status === "live");
