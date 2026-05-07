@@ -38,7 +38,7 @@ _RUNNING = True
 
 # ── Signal handling ────────────────────────────────────────────────────────────
 
-def _handle_signal(sig: int, frame: object) -> None:
+def _handle_signal(sig: int, _frame: object) -> None:
     global _RUNNING
     print(f"\n  [worker] Signal {sig} — shutting down gracefully", flush=True)
     _RUNNING = False
@@ -194,16 +194,12 @@ def _poll_interval() -> tuple[int, str]:
     now_utc = datetime.now(timezone.utc)
     hours_to_tip = (tip - now_utc).total_seconds() / 3600
 
-    if hours_to_tip > 6:
-        return 600, f"{hours_to_tip:.1f}h to tip — polling every 10 min"
-    elif hours_to_tip > 2:
-        return 300, f"{hours_to_tip:.1f}h to tip — polling every 5 min"
-    elif hours_to_tip > 0.5:
-        return 120, f"{hours_to_tip:.1f}h to tip — polling every 2 min"
+    if hours_to_tip > 2:
+        return 900, f"{hours_to_tip:.1f}h to tip — 15 min poll"
     elif hours_to_tip > 0:
-        return 60, f"{hours_to_tip:.1f}h to tip — polling every 60s"
+        return 300, f"{hours_to_tip:.1f}h to tip — 5 min poll"
     else:
-        return 300, "games in progress — polling every 5 min for closing proxies"
+        return 900, "games in progress — 15 min poll"
 
 
 # ── Interruptible sleep ────────────────────────────────────────────────────────

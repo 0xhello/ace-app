@@ -1,5 +1,5 @@
 import { Game, BookOdds, MarketOutcome } from "@/types/game";
-import { getActiveSports, setActiveSports } from "@/lib/server-cache";
+import { getActiveSports, setActiveSports, set as cacheSet } from "@/lib/server-cache";
 
 const BASE = "https://api.the-odds-api.com/v4";
 
@@ -204,6 +204,16 @@ export async function fetchAllGames(): Promise<{
   const scoreResults = await Promise.all(
     sports.map((s) => sportsNeedingScores.has(s) ? fetchScoresForSport(s) : Promise.resolve([]))
   );
+
+  // Write raw NBA odds + scores to Redis so the Python worker can read them
+  // without making its own API calls (fire-and-forget — worker falls back if stale)
+  const nbaIdx = sports.indexOf("basketball_nba");
+  if (nbaIdx >= 0) {
+    if (oddsResults[nbaIdx].data.length > 0)
+      cacheSet("__raw_odds_nba__", oddsResults[nbaIdx].data).catch(() => {});
+    if (scoreResults[nbaIdx]?.length > 0)
+      cacheSet("__raw_scores_nba__", scoreResults[nbaIdx]).catch(() => {});
+  }
 
   // Build score lookup
   const scoreMap = new Map<string, any>();

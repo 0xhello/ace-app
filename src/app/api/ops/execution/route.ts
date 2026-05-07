@@ -86,14 +86,23 @@ except Exception as e:
 
 // ── Live score enrichment ──────────────────────────────────────────────────────
 
-const SCORES_CACHE_KEY = "__nba_scores_exec__";
 const SCORES_TTL_MS = 5 * 60_000;
 
 async function getLiveScores(): Promise<Map<string, any>> {
+  // Prefer the shared scores cache written by fetchAllGames (0 extra API calls)
   try {
-    const cached = await cacheGet(SCORES_CACHE_KEY);
-    if (cached && Date.now() - cached.fetchedAt < SCORES_TTL_MS) {
-      return buildScoreMap(cached.data);
+    const shared = await cacheGet("__raw_scores_nba__");
+    if (shared && Date.now() - shared.fetchedAt < SCORES_TTL_MS) {
+      return buildScoreMap(shared.data);
+    }
+  } catch {}
+
+  // Fallback: own cache, then direct API call (ops page visited before dashboard)
+  const OWN_KEY = "__nba_scores_exec__";
+  try {
+    const own = await cacheGet(OWN_KEY);
+    if (own && Date.now() - own.fetchedAt < SCORES_TTL_MS) {
+      return buildScoreMap(own.data);
     }
 
     const apiKey = process.env.ODDS_API_KEY;
@@ -110,7 +119,7 @@ async function getLiveScores(): Promise<Map<string, any>> {
     if (!res.ok) return new Map();
 
     const scores = await res.json();
-    await cacheSet(SCORES_CACHE_KEY, scores);
+    await cacheSet(OWN_KEY, scores);
     return buildScoreMap(scores);
   } catch {
     return new Map();

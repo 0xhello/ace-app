@@ -19,6 +19,7 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
@@ -33,7 +34,7 @@ from dotenv import load_dotenv
 from .inference import predict_games, log_prediction, MODEL_PERFORMANCE_PATH, normalize_team_code
 from .signal_logger import (
     save_snapshot, record_closing_proxy, detect_line_movements,
-    get_signal_execution_source, save_book_lines, get_book_divergences,
+    save_book_lines, get_book_divergences,
     check_and_save_divergence_alerts, log_signal, get_model_probs,
     get_divergence_first_seen, _rest_days_for_code, _regime_for_date,
     get_db, DB_PATH, log_paper_execution,
@@ -415,7 +416,44 @@ def _load_best_threshold() -> float:
         return _DEFAULT_THRESHOLD
 
 
+def _try_redis_odds_cache() -> Optional[List[Dict[str, Any]]]:
+    """Read raw NBA odds from Upstash Redis (written by the Next.js web frontend).
+    Returns the odds list when the cache is fresh, None otherwise."""
+    rest_url = os.getenv("UPSTASH_REDIS_REST_URL", "").rstrip("/")
+    token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
+    if not rest_url or not token:
+        return None
+    try:
+        resp = httpx.get(
+            f"{rest_url}/get/__raw_odds_nba__",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=4,
+        )
+        if resp.status_code != 200:
+            return None
+        result = resp.json().get("result")
+        if result is None:
+            return None
+        entry = json.loads(result) if isinstance(result, str) else result
+        age_ms = datetime.now(timezone.utc).timestamp() * 1000 - (entry.get("fetchedAt") or 0)
+        if age_ms > 25 * 60 * 1000:  # stale — fall through to direct API call
+            return None
+        data: List[Dict[str, Any]] = entry.get("data") or []
+        if not data:
+            return None
+        print(f"  [cache] Redis hit: {len(data)} games, age {age_ms/1000:.0f}s — skipping API call")
+        return data
+    except Exception as e:
+        print(f"  [cache] Redis miss ({e})", file=sys.stderr)
+        return None
+
+
 def fetch_nba_odds() -> List[Dict[str, Any]]:
+    # Use web-frontend Redis cache when available — zero API credits consumed
+    cached = _try_redis_odds_cache()
+    if cached is not None:
+        return cached
+
     if not ODDS_API_KEY:
         raise EnvironmentError("ODDS_API_KEY not set. Add it to .env.local.")
 
