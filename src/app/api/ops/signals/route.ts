@@ -57,14 +57,37 @@ try:
     stale = [{'id': r['id'], 'game_date': r['game_date'],
               'home_team': r['home_team'], 'away_team': r['away_team']} for r in stale_rows]
 
-    # Open signals broken down by stage (include signal_type for display)
+    # Open signals — join predictions for Kelly sizing data
     open_signals = conn.execute(
-        'SELECT id, game_date, home_team, away_team, bet_side, line_at_signal, status, signal_type FROM signal_log WHERE status IN ("open","proxy_captured") ORDER BY game_date ASC, id DESC'
+        """SELECT s.id, s.game_date, s.home_team, s.away_team, s.bet_side,
+                  s.line_at_signal, s.status, s.signal_type,
+                  p.home_cover_prob, p.edge_vs_pinnacle
+           FROM signal_log s
+           LEFT JOIN predictions p ON p.game_id = s.game_id
+           WHERE s.status IN ("open","proxy_captured")
+           ORDER BY s.game_date ASC, s.id DESC"""
     ).fetchall()
-    open_list = [{'id': r['id'], 'game_date': r['game_date'], 'home_team': r['home_team'],
-                  'away_team': r['away_team'], 'bet_side': r['bet_side'],
-                  'line_at_signal': r['line_at_signal'], 'status': r['status'],
-                  'signal_type': r['signal_type']} for r in open_signals]
+
+    def _kelly(bet_side, home_cover_prob):
+        if home_cover_prob is None:
+            return None
+        p = float(home_cover_prob) if bet_side == 'home' else 1.0 - float(home_cover_prob)
+        b = 100.0 / 110.0  # -110 payout
+        k = (p * (b + 1.0) - 1.0) / b
+        return round(max(k, 0.0), 4)  # never negative
+
+    open_list = []
+    for r in open_signals:
+        kelly = _kelly(r['bet_side'], r['home_cover_prob'])
+        open_list.append({
+            'id': r['id'], 'game_date': r['game_date'],
+            'home_team': r['home_team'], 'away_team': r['away_team'],
+            'bet_side': r['bet_side'], 'line_at_signal': r['line_at_signal'],
+            'status': r['status'], 'signal_type': r['signal_type'],
+            'home_cover_prob': r['home_cover_prob'],
+            'edge_vs_pinnacle': r['edge_vs_pinnacle'],
+            'kelly_fraction': kelly,
+        })
 
     # Recent graded signals for history table
     recent_rows = conn.execute(

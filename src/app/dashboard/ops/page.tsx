@@ -78,7 +78,7 @@ interface SignalsData {
   non_pinnacle_close: { clv: number | null; n: number };
   today: { signals: number; snapshots: number; games: Array<{ home: string; away: string }> };
   stale: Array<{ id: number; game_date: string; home_team: string; away_team: string }>;
-  open_signals: Array<{ id: number; game_date: string; home_team: string; away_team: string; bet_side: string; line_at_signal: number; status: string; signal_type: string }>;
+  open_signals: Array<{ id: number; game_date: string; home_team: string; away_team: string; bet_side: string; line_at_signal: number; status: string; signal_type: string; home_cover_prob: number | null; edge_vs_pinnacle: number | null; kelly_fraction: number | null }>;
   recent_graded: RecentSignal[];
   book_lines: { total: number; game_days: number; divergences: BookDivergence[] };
   by_type: Record<string, { n: number; avg_clv: number | null; pct_pos: number | null; graded: number }>;
@@ -91,7 +91,13 @@ interface Execution {
   pnl_units: number | null; notes: string; created_at: string; graded_at: string | null;
   home_team?: string; away_team?: string; game_date?: string; signal_type?: string;
 }
-interface ExecSummary { total: number; graded: number; wins: number; losses: number; pnl_units: number | null }
+interface ExecSummary {
+  total: number; graded: number; pending: number;
+  wins: number; losses: number; pushes: number;
+  pnl_units: number | null; total_staked_units: number;
+  start_units: number | null; current_units: number | null;
+  roi_pct: number | null; unit_value: number;
+}
 interface ExecutionData {
   executions: Execution[];
   summary: { paper: ExecSummary; real: ExecSummary };
@@ -142,7 +148,19 @@ function fmtPct(v: number | null, dec = 1)  { return v !== null ? `${(v * 100).t
 function fmtRoi(v: number | null)            { if (!v && v !== 0) return "—"; const s = (v*100).toFixed(1); return v >= 0 ? `+${s}%` : `${s}%`; }
 function fmtClv(v: number | null)            { if (v === null) return "—"; return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2); }
 function fmtPnl(v: number | null)            { if (v === null) return "—"; return (v >= 0 ? "+" : "") + v.toFixed(2) + "u"; }
+function fmtDollars(units: number | null, unitVal: number) {
+  if (units === null) return "—";
+  const d = units * unitVal;
+  return (d >= 0 ? "+" : "") + "$" + Math.abs(d).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
 function abbrevTeam(full: string)            { const p = full.split(" "); const l = p[p.length - 1]; return (l.length > 6 ? l.slice(0,3) : l).toUpperCase(); }
+
+function kellyColor(k: number | null): string {
+  if (k === null || k === 0) return "#3a4033";
+  if (k >= 0.06) return "#3ee68a";
+  if (k >= 0.03) return "#f5c062";
+  return "#9ca39a";
+}
 
 function green(v: number | null) { return v !== null && v >= 0 ? "#3ee68a" : "#ef4444"; }
 function winColor(v: number | null) { if (v === null) return "#6b7068"; return v >= 0.524 ? "#3ee68a" : v >= 0.48 ? "#f5c062" : "#ef4444"; }
@@ -461,29 +479,63 @@ export default function OpsPage() {
               <div className="space-y-2">
                 {openSignals.map((s) => {
                   const logged = realBets.some(e => e.signal_id === s.id);
+                  const probForSide = s.home_cover_prob !== null
+                    ? (s.bet_side === "home" ? s.home_cover_prob : 1 - s.home_cover_prob)
+                    : null;
+                  const halfKelly = s.kelly_fraction !== null ? s.kelly_fraction / 2 : null;
                   return (
-                    <div key={s.id} className="flex items-center gap-3 rounded-xl border border-[#1e2220] bg-[#0d0f0d] px-4 py-3">
-                      <span className="text-[9px] text-[#2e3328] font-mono w-8 shrink-0">#{s.id}</span>
-                      <span className="text-[9px] text-[#4a524a] shrink-0 w-16">{s.game_date}</span>
-                      <span className="text-[11px] font-medium text-white flex-1 min-w-0 truncate">
-                        {abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}
-                      </span>
-                      <span className="text-[11px] font-bold font-mono shrink-0" style={{ color: sigColor(s.signal_type) }}>
-                        {s.bet_side.toUpperCase()} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}
-                      </span>
-                      <Tag label={sigLabel(s.signal_type)} color={sigColor(s.signal_type)} />
-                      {s.status === "proxy_captured" && <Tag label="proxy ✓" color="#f5c062" />}
-                      {logged ? (
-                        <span className="text-[9px] font-bold text-[#3ee68a] w-16 text-right shrink-0">BET LOGGED ✓</span>
-                      ) : (
-                        <button
-                          onClick={() => logRealBet(s.id)}
-                          disabled={loggingBet === s.id}
-                          className="flex items-center gap-1.5 text-[9px] font-bold text-[#f5c062] border border-[#f5c062]/25 rounded-lg px-2.5 py-1.5 hover:bg-[#f5c062]/8 active:bg-[#f5c062]/15 transition-colors disabled:opacity-40 shrink-0"
-                        >
-                          <PlusCircle className="h-3 w-3" />
-                          {loggingBet === s.id ? "Logging…" : "Log Bet"}
-                        </button>
+                    <div key={s.id} className="rounded-xl border border-[#1e2220] bg-[#0d0f0d] px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[9px] text-[#2e3328] font-mono w-8 shrink-0">#{s.id}</span>
+                        <span className="text-[9px] text-[#4a524a] shrink-0 w-16">{s.game_date}</span>
+                        <span className="text-[11px] font-medium text-white flex-1 min-w-0 truncate">
+                          {abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}
+                        </span>
+                        <span className="text-[11px] font-bold font-mono shrink-0" style={{ color: sigColor(s.signal_type) }}>
+                          {s.bet_side.toUpperCase()} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}
+                        </span>
+                        <Tag label={sigLabel(s.signal_type)} color={sigColor(s.signal_type)} />
+                        {s.status === "proxy_captured" && <Tag label="proxy ✓" color="#f5c062" />}
+                        {logged ? (
+                          <span className="text-[9px] font-bold text-[#3ee68a] w-16 text-right shrink-0">BET LOGGED ✓</span>
+                        ) : (
+                          <button
+                            onClick={() => logRealBet(s.id)}
+                            disabled={loggingBet === s.id}
+                            className="flex items-center gap-1.5 text-[9px] font-bold text-[#f5c062] border border-[#f5c062]/25 rounded-lg px-2.5 py-1.5 hover:bg-[#f5c062]/8 active:bg-[#f5c062]/15 transition-colors disabled:opacity-40 shrink-0"
+                          >
+                            <PlusCircle className="h-3 w-3" />
+                            {loggingBet === s.id ? "Logging…" : "Log Bet"}
+                          </button>
+                        )}
+                      </div>
+                      {/* Kelly sizing row */}
+                      {(probForSide !== null || s.edge_vs_pinnacle !== null) && (
+                        <div className="flex items-center gap-5 mt-2 pt-2 border-t border-[#141714]">
+                          {probForSide !== null && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[8px] text-[#2e3328] uppercase tracking-wider">Model prob</span>
+                              <span className="text-[10px] font-bold font-mono text-white">{(probForSide * 100).toFixed(1)}%</span>
+                            </div>
+                          )}
+                          {s.edge_vs_pinnacle !== null && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[8px] text-[#2e3328] uppercase tracking-wider">Edge vs Pin</span>
+                              <span className="text-[10px] font-bold font-mono" style={{ color: green(s.edge_vs_pinnacle) }}>
+                                {s.edge_vs_pinnacle >= 0 ? "+" : ""}{(s.edge_vs_pinnacle * 100).toFixed(1)}pp
+                              </span>
+                            </div>
+                          )}
+                          {halfKelly !== null && halfKelly > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[8px] text-[#2e3328] uppercase tracking-wider">½ Kelly</span>
+                              <span className="text-[10px] font-bold font-mono" style={{ color: kellyColor(halfKelly) }}>
+                                {(halfKelly * 100).toFixed(1)}%
+                              </span>
+                              <span className="text-[9px] text-[#3a4033]">of bankroll</span>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   );
@@ -540,8 +592,13 @@ export default function OpsPage() {
                       <Num value={fmtPct(realSummary.wins / realSummary.graded)} size={40} color={winColor(realSummary.wins / realSummary.graded)} />
                     </div>
                     <div>
-                      <p className="text-[9px] text-[#3a4033] uppercase tracking-wider mb-1.5">P&amp;L (units)</p>
-                      <Num value={fmtPnl(realSummary.pnl_units)} size={40} color={green(realSummary.pnl_units)} />
+                      <p className="text-[9px] text-[#3a4033] uppercase tracking-wider mb-1.5">P&amp;L</p>
+                      <Num
+                        value={fmtDollars(realSummary.pnl_units, realSummary.unit_value)}
+                        size={40}
+                        color={green(realSummary.pnl_units)}
+                        sub={`${fmtPnl(realSummary.pnl_units)} · ${realSummary.roi_pct !== null ? `${realSummary.roi_pct >= 0 ? "+" : ""}${realSummary.roi_pct.toFixed(1)}% ROI` : "—"}`}
+                      />
                     </div>
                   </>
                 )}
@@ -621,12 +678,45 @@ export default function OpsPage() {
                          sub={`${sig.clv.n} graded · ${fmtPct(sig.clv.pct_positive !== null ? sig.clv.pct_positive / 100 : null)} positive`} />
                   </div>
                   <div className="rounded-xl border border-[#1e2220] bg-[#0d0f0d] p-4">
-                    <p className="text-[9px] text-[#3a4033] uppercase tracking-wider mb-3">Signal P&amp;L <span className="normal-case text-[#2e3328]">(if you bet every signal)</span></p>
+                    <p className="text-[9px] text-[#3a4033] uppercase tracking-wider mb-3">Signal P&amp;L <span className="normal-case text-[#2e3328]">(if you bet every signal flat)</span></p>
                     {signalTrack && signalTrack.graded > 0 ? (
-                      <Num value={fmtPnl(signalTrack.pnl_units)} size={32} color={green(signalTrack.pnl_units)}
-                           sub={`${signalTrack.wins}W ${signalTrack.losses}L of ${signalTrack.graded} graded · flat -110`} />
+                      <>
+                        <Num value={fmtPnl(signalTrack.pnl_units)} size={32} color={green(signalTrack.pnl_units)}
+                             sub={`${signalTrack.wins}W ${signalTrack.losses}L${signalTrack.pushes > 0 ? ` ${signalTrack.pushes}P` : ""} of ${signalTrack.graded} graded`} />
+                        <div className="flex items-center gap-4 mt-3 pt-2.5 border-t border-[#141714]">
+                          <div>
+                            <p className="text-[8px] text-[#2e3328] mb-0.5">Starting</p>
+                            <p className="text-[11px] font-bold font-mono text-[#6b7068]">${(signalTrack.start_units! * signalTrack.unit_value).toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] text-[#2e3328] mb-0.5">Staked</p>
+                            <p className="text-[11px] font-bold font-mono text-[#6b7068]">${(signalTrack.total_staked_units * signalTrack.unit_value).toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-[8px] text-[#2e3328] mb-0.5">Balance</p>
+                            <p className="text-[11px] font-bold font-mono" style={{ color: green(signalTrack.pnl_units) }}>
+                              ${(signalTrack.current_units! * signalTrack.unit_value).toLocaleString()}
+                            </p>
+                          </div>
+                          {signalTrack.roi_pct !== null && (
+                            <div>
+                              <p className="text-[8px] text-[#2e3328] mb-0.5">ROI</p>
+                              <p className="text-[11px] font-bold font-mono" style={{ color: green(signalTrack.roi_pct) }}>
+                                {signalTrack.roi_pct >= 0 ? "+" : ""}{signalTrack.roi_pct.toFixed(1)}%
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </>
                     ) : (
-                      <Num value="—" size={32} sub="accumulates as signals grade" />
+                      <>
+                        <Num value="—" size={32} sub="accumulates as signals grade" />
+                        {signalTrack && (
+                          <p className="text-[9px] text-[#2e3328] mt-2">
+                            Starting bankroll ${(signalTrack.start_units! * signalTrack.unit_value).toLocaleString()} · ${signalTrack.unit_value}/unit
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
