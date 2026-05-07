@@ -2,10 +2,11 @@
 // Replaces the Python backend's /intel/board endpoint.
 
 import { Game } from "@/types/game";
-import { ESPNNewsItem } from "@/lib/espn";
+import { ESPNNewsItem, extractInjuryContext, InjuryStatus } from "@/lib/espn";
 import { WeatherData } from "@/lib/weather";
 import { computeConfidence, computeRecommendation, ConfidenceResult, RecommendationResult } from "@/lib/confidence";
 import { ModelSignal } from "@/lib/model-signals";
+import { noVigProb } from "@/lib/edge";
 import type { Signal } from "@/types/signal";
 
 export interface GameSignal {
@@ -16,6 +17,18 @@ export interface GameSignal {
   time: string;
   benefits?: string[];
   harms?: string[];
+  // Injury-specific enrichment
+  playerName?: string | null;
+  playerStatus?: InjuryStatus | null;
+  teamAffected?: "home" | "away" | null;
+}
+
+export interface InjuryAlert {
+  playerName: string;
+  status: InjuryStatus;
+  teamAffected: "home" | "away";
+  teamName: string;
+  published: string;
 }
 
 export interface GameIntel {
@@ -26,6 +39,18 @@ export interface GameIntel {
   has_new_signal: boolean;
   signals: GameSignal[];
   top_signal: Signal | null;
+  // Pre-extracted injury alerts with player names
+  injury_alerts: InjuryAlert[];
+  // Python model signal context (if any)
+  top_model_signal: {
+    signal_type: string;
+    bet_side: "home" | "away";
+    edge_vs_pinnacle: number | null;
+    line_at_signal: number | null;
+    kelly_fraction: number | null;
+  } | null;
+  // No-vig true probability for home team (market consensus, juice stripped)
+  no_vig_home_prob: number | null;
   // Real confidence + recommendation from confidence.ts
   confidence: ConfidenceResult;
   recommendation: RecommendationResult | null;
@@ -175,6 +200,64 @@ function modelSignalToGameSignal(s: ModelSignal): GameSignal {
   };
 }
 
+// Determine which team (home/away) an ESPN news item is about
+function matchTeamAffected(itemTeams: string[], homeTeam: string, awayTeam: string): "home" | "away" | null {
+  if (!itemTeams.length) return null;
+  const homeWords = homeTeam.toLowerCase().split(" ").filter((w) => w.length > 3);
+  const awayWords = awayTeam.toLowerCase().split(" ").filter((w) => w.length > 3);
+  for (const t of itemTeams) {
+    const tLow = t.toLowerCase();
+    if (homeWords.some((w) => tLow.includes(w)) || homeTeam.toLowerCase().includes(tLow)) return "home";
+    if (awayWords.some((w) => tLow.includes(w)) || awayTeam.toLowerCase().includes(tLow)) return "away";
+  }
+  return null;
+}
+
+// Compute no-vig home win probability averaged across all books
+function computeNoVigHomeProb(game: Game): number | null {
+  const probs: number[] = [];
+  for (const bm of game.bookmakers) {
+    const homeOdds = bm.markets.h2h?.find((o) => o.name === game.home_team)?.price;
+    const awayOdds = bm.markets.h2h?.find((o) => o.name === game.away_team)?.price;
+    if (homeOdds == null || awayOdds == null) continue;
+    const [homeProb] = noVigProb(homeOdds, awayOdds);
+    probs.push(homeProb);
+  }
+  if (!probs.length) return null;
+  return Math.round((probs.reduce((a, b) => a + b, 0) / probs.length) * 10) / 10;
+}
+
+// Extract structured injury alerts from matched ESPN items
+function buildInjuryAlerts(matched: ESPNNewsItem[], game: Game): InjuryAlert[] {
+  const alerts: InjuryAlert[] = [];
+  const seen = new Set<string>();
+
+  for (const item of matched) {
+    if (item.type !== "injury") continue;
+    const ctx = extractInjuryContext(item.headline, item.description);
+    if (!ctx.playerName || !ctx.status) continue;
+
+    const key = `${ctx.playerName}-${ctx.status}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const teamAffected = matchTeamAffected(item.teams, game.home_team, game.away_team);
+    if (!teamAffected) continue;
+
+    alerts.push({
+      playerName: ctx.playerName,
+      status: ctx.status,
+      teamAffected,
+      teamName: teamAffected === "home" ? game.home_team : game.away_team,
+      published: item.published,
+    });
+  }
+
+  // Sort: out > doubtful > questionable > game-time > day-to-day
+  const ORDER: InjuryStatus[] = ["out", "doubtful", "questionable", "game-time", "day-to-day"];
+  return alerts.sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status));
+}
+
 // ── Main export ────────────────────────────────────────────────────────────────
 
 export function generateIntelMap(
@@ -193,15 +276,28 @@ export function generateIntelMap(
     const weather = weatherMap.get(game.id) ?? null;
     const movement = movementMap[game.id];
 
-    // 1. ESPN news signals
+    // 1. ESPN news signals — enriched with player name extraction
     const matched = matchNewsToGame(game, newsItems);
     for (const item of matched) {
+      const isInjury = item.type === "injury";
+      const injCtx = isInjury ? extractInjuryContext(item.headline, item.description) : null;
+      const teamAffected = matchTeamAffected(item.teams, game.home_team, game.away_team);
+
+      const title = injCtx?.playerName
+        ? `${injCtx.playerName} — ${injCtx.status === "out" ? "OUT" : injCtx.status === "doubtful" ? "Doubtful" : injCtx.status === "questionable" ? "Questionable" : injCtx.status === "game-time" ? "Game-time decision" : "Day-to-day"}`
+        : item.headline;
+
       signals.push({
         type: item.type === "trade" ? "news" : item.type,
         severity: item.severity,
-        title: item.headline,
+        title,
         detail: item.description,
         time: timeAgo(item.published),
+        playerName: injCtx?.playerName ?? null,
+        playerStatus: injCtx?.status ?? null,
+        teamAffected: teamAffected ?? null,
+        benefits: teamAffected ? [teamAffected === "home" ? game.away_team : game.home_team] : [],
+        harms: teamAffected ? [teamAffected === "home" ? game.home_team : game.away_team] : [],
       });
     }
 
@@ -222,9 +318,20 @@ export function generateIntelMap(
     // 5. Python backend model signals (signal_log.db — soft_book_divergence, line_movement, steam_move)
     const homeNorm = game.home_team.toLowerCase().trim();
     const awayNorm = game.away_team.toLowerCase().trim();
+    let topModelSignal: GameIntel["top_model_signal"] = null;
     for (const ms of modelSignals) {
       if (ms.home_team.toLowerCase().trim() === homeNorm && ms.away_team.toLowerCase().trim() === awayNorm) {
         signals.push(modelSignalToGameSignal(ms));
+        // Keep highest-edge model signal as top_model_signal
+        if (!topModelSignal || (ms.edge_vs_pinnacle ?? 0) > (topModelSignal.edge_vs_pinnacle ?? 0)) {
+          topModelSignal = {
+            signal_type: ms.signal_type,
+            bet_side: ms.bet_side,
+            edge_vs_pinnacle: ms.edge_vs_pinnacle,
+            line_at_signal: ms.line_at_signal,
+            kelly_fraction: ms.kelly_fraction,
+          };
+        }
       }
     }
 
@@ -250,6 +357,9 @@ export function generateIntelMap(
       has_new_signal: hasNew || recentNews.length > 0,
       signals,
       top_signal: topGs ? gameSignalToSignal(topGs, game.id, 0) : null,
+      injury_alerts: buildInjuryAlerts(matched, game),
+      top_model_signal: topModelSignal,
+      no_vig_home_prob: computeNoVigHomeProb(game),
       confidence,
       recommendation,
       weather,

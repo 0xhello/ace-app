@@ -52,6 +52,55 @@ function classifyArticle(headline: string, desc: string): { type: ESPNNewsItem["
   return { type: "news", severity: "low" };
 }
 
+export type InjuryStatus = "out" | "doubtful" | "questionable" | "game-time" | "day-to-day";
+
+export interface InjuryContext {
+  playerName: string | null;
+  status: InjuryStatus | null;
+  isImpactful: boolean;
+}
+
+export function extractInjuryContext(headline: string, desc: string): InjuryContext {
+  const text = `${headline} ${desc}`;
+  const lower = text.toLowerCase();
+
+  let status: InjuryStatus | null = null;
+  if (/ruled?\s+out|out\s+indefinitely|season[- ]ending|placed\s+on\s+(?:il|ir)|will\s+miss\s+(?:the\s+)?(?:rest|remainder|season)|expected\s+to\s+miss/.test(lower)) {
+    status = "out";
+  } else if (/\bdoubtful\b/.test(lower)) {
+    status = "doubtful";
+  } else if (/game[- ]time\s+decision/.test(lower)) {
+    status = "game-time";
+  } else if (/\bquestionable\b/.test(lower)) {
+    status = "questionable";
+  } else if (/day[- ]to[- ]day/.test(lower)) {
+    status = "day-to-day";
+  }
+
+  if (!status) return { playerName: null, status: null, isImpactful: false };
+
+  // Match "FirstName LastName" or "First Middle Last" anchored to injury keywords
+  const patterns = [
+    /\b([A-Z][a-z]{1,14}(?:\s+[A-Z]\.?\s*)?[A-Z][a-z]{2,20})\s+(?:is\s+)?(?:ruled?\s+out|doubtful|questionable|day[- ]to[- ]day|game[- ]time|out\s+(?:with|for|indefinitely)|placed\s+on|will\s+miss|expected\s+to\s+miss)/,
+    /\b([A-Z][a-z]{1,14}(?:\s+[A-Z]\.?\s*)?[A-Z][a-z]{2,20})(?:'s)?\s+(?:\w+\s+)?(?:injury|status|absence)/,
+  ];
+
+  const SKIP_PREFIXES = /^(?:The|A |An |In |On |For |Of |With |Due |After |Before |During |While |When |This |That |NBA|NFL|NHL|MLB|Los |New |San |Las |St\.|Fort |Den )/i;
+
+  for (const pat of patterns) {
+    const m = text.match(pat);
+    if (m?.[1]) {
+      const name = m[1].trim();
+      const parts = name.split(/\s+/);
+      if (parts.length >= 2 && !SKIP_PREFIXES.test(name)) {
+        return { playerName: name, status, isImpactful: status === "out" || status === "doubtful" };
+      }
+    }
+  }
+
+  return { playerName: null, status, isImpactful: status === "out" || status === "doubtful" };
+}
+
 export async function fetchESPNNews(sportKey: string, limit = 12): Promise<ESPNNewsItem[]> {
   const config = SPORT_MAP[sportKey];
   if (!config) return [];

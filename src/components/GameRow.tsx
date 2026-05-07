@@ -369,6 +369,9 @@ export default function GameRow({
   const aiRecommendation = boardIntel?.recommendation ?? null;
   const marketMovement = boardIntel?.market_movement ?? {};
   const marketConfidence = boardIntel?.market_confidence ?? {};
+  const injuryAlerts: Array<{ playerName: string; status: string; teamAffected: "home" | "away"; teamName: string }> = boardIntel?.injury_alerts ?? [];
+  const topModelSignal = boardIntel?.top_model_signal ?? null;
+  const noVigHomeProb: number | null = boardIntel?.no_vig_home_prob ?? null;
   const scoreboard = boardIntel?.scoreboard || game.scoreboard;
   const awayScore = scoreboard?.away_score;
   const homeScore = scoreboard?.home_score;
@@ -487,6 +490,59 @@ export default function GameRow({
                   <SignalSummaryLine signal={topSignal} />
                   {aiRecommendation?.reason && (
                     <p className="text-[10px] text-[#8b9388] line-clamp-1">{aiRecommendation.reason}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Intelligence strip — injury alerts + model signal + no-vig prob */}
+              {(injuryAlerts.length > 0 || topModelSignal || noVigHomeProb != null) && (
+                <div className="pl-[26px] mt-1.5 flex flex-wrap items-center gap-1">
+                  {injuryAlerts.slice(0, 3).map((a, i) => {
+                    const isOut = a.status === "out" || a.status === "doubtful";
+                    const statusLabel = a.status === "out" ? "OUT" : a.status === "doubtful" ? "DBTF" : a.status === "questionable" ? "QUES" : a.status === "game-time" ? "GTD" : "D2D";
+                    const lastName = a.playerName.split(" ").slice(-1)[0];
+                    return (
+                      <span
+                        key={i}
+                        title={`${a.playerName} — ${a.status} (${a.teamName})`}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-[3px] px-[5px] py-[2px] text-[9px] font-semibold leading-none",
+                          isOut
+                            ? "bg-[#1a0d0d] border border-[#ef4444]/30 text-[#ef8080]"
+                            : "bg-[#1a1508] border border-[#f59e0b]/30 text-[#d4a84b]"
+                        )}
+                      >
+                        <span className={cn("h-1 w-1 rounded-full shrink-0", isOut ? "bg-[#ef4444]" : "bg-[#f59e0b]")} />
+                        {lastName} {statusLabel}
+                      </span>
+                    );
+                  })}
+
+                  {topModelSignal && (
+                    <span
+                      title={`ACE Model: ${topModelSignal.signal_type.replace(/_/g, " ")} · ${topModelSignal.bet_side} side${topModelSignal.line_at_signal != null ? ` at ${topModelSignal.line_at_signal > 0 ? "+" : ""}${topModelSignal.line_at_signal}` : ""}`}
+                      className="inline-flex items-center gap-1 rounded-[3px] bg-[#0b1a0f] border border-[#3ee68a]/30 px-[5px] py-[2px] text-[9px] font-semibold leading-none text-[#3ee68a]"
+                    >
+                      ◆ ACE {topModelSignal.bet_side.toUpperCase()}
+                      {topModelSignal.line_at_signal != null && (
+                        <span className="text-[#3ee68a]/70">
+                          {topModelSignal.line_at_signal > 0 ? "+" : ""}{topModelSignal.line_at_signal}
+                        </span>
+                      )}
+                      {topModelSignal.edge_vs_pinnacle != null && topModelSignal.edge_vs_pinnacle > 0 && (
+                        <span className="text-[#3ee68a]/60">+{topModelSignal.edge_vs_pinnacle.toFixed(1)}%</span>
+                      )}
+                    </span>
+                  )}
+
+                  {noVigHomeProb != null && (
+                    <span
+                      title={`No-vig true probability: ${game.home_team} ${noVigHomeProb}% · ${game.away_team} ${(100 - noVigHomeProb).toFixed(1)}%`}
+                      className="inline-flex items-center gap-1 rounded-[3px] bg-[#111411] border border-[#2e332a] px-[5px] py-[2px] text-[9px] leading-none text-[#6b7068]"
+                    >
+                      <span className="text-[#4a5248]">prob</span>
+                      <span className="font-mono text-[#9ca39a]">HM {noVigHomeProb}%</span>
+                    </span>
                   )}
                 </div>
               )}
