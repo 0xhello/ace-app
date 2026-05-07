@@ -60,7 +60,7 @@ except Exception as e:
 `) as { id: number; email: string; password_hash: string; role: string } | null;
 }
 
-export function getUserCount(): number {
+export function getUserCount(): number | null {
   const r = py(`
 import sqlite3, json
 try:
@@ -69,9 +69,9 @@ try:
     conn.close()
     print(json.dumps(n))
 except:
-    print(json.dumps(0))
+    print(json.dumps(None))
 `);
-  return typeof r === "number" ? r : 0;
+  return typeof r === "number" ? r : null;
 }
 
 export function createUser(email: string, passwordHash: string, role: string): boolean {
