@@ -600,7 +600,7 @@ export default function OpsPage() {
                     {e.away_team && e.home_team ? `${abbrevTeam(e.away_team)} @ ${abbrevTeam(e.home_team)}` : "—"}
                   </span>
                   <span className="text-[10px] font-bold font-mono text-white">
-                    {e.bet_side?.toUpperCase()} {line > 0 ? "+" : ""}{line}
+                    {e.bet_side === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {line > 0 ? "+" : ""}{line}
                   </span>
                   <span className="text-[9px] text-[#4a524a] truncate">{e.book || "—"}</span>
                   <span className="text-[9px] font-mono text-[#6b7068]">{line > 0 ? "+" : ""}{line}</span>
@@ -674,7 +674,7 @@ export default function OpsPage() {
                           {abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}
                         </span>
                         <span className="text-[11px] font-bold font-mono shrink-0" style={{ color: sigColor(s.signal_type) }}>
-                          {s.bet_side.toUpperCase()} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}
+                          {s.bet_side === "home" ? abbrevTeam(s.home_team) : abbrevTeam(s.away_team)} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}
                         </span>
                         <Tag label={sigLabel(s.signal_type)} color={sigColor(s.signal_type)} />
                         {s.status === "proxy_captured" && <Tag label="proxy ✓" color="#f5c062" />}
@@ -747,7 +747,7 @@ export default function OpsPage() {
                       {abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}
                     </span>
                     <span className="text-[10px] font-bold font-mono" style={{ color: sigColor(s.signal_type) }}>
-                      {s.bet_side.toUpperCase()} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}
+                      {s.bet_side === "home" ? abbrevTeam(s.home_team) : abbrevTeam(s.away_team)} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}
                     </span>
                     <span className="flex items-center gap-1 text-[8px] font-bold text-[#4a524a] uppercase tracking-wider shrink-0">
                       <Clock className="h-2.5 w-2.5" /> grading pending
@@ -839,7 +839,7 @@ export default function OpsPage() {
                         {e.away_team && e.home_team ? `${abbrevTeam(e.away_team)} @ ${abbrevTeam(e.home_team)}` : "—"}
                       </span>
                       <span className="text-[10px] font-bold font-mono text-white">
-                        {e.bet_side?.toUpperCase()} {line > 0 ? "+" : ""}{line}
+                        {e.bet_side === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {line > 0 ? "+" : ""}{line}
                       </span>
                       <span className="text-[9px] text-[#4a524a] truncate">{e.book || "—"}</span>
                       <span className="text-[9px] font-mono text-[#6b7068]">{line > 0 ? "+" : ""}{line}</span>
@@ -996,7 +996,7 @@ export default function OpsPage() {
                         <span className="text-[9px] text-[#2e3328] font-mono">#{s.id}</span>
                         <span className="text-[9px] text-[#4a524a]">{fmtDate(s.game_date)}</span>
                         <span className="text-[10px] text-[#9ca39a] truncate">{abbrevTeam(s.away)} @ {abbrevTeam(s.home)}</span>
-                        <span className="text-[10px] font-bold font-mono text-white">{s.side?.toUpperCase()} {s.line > 0 ? "+" : ""}{s.line}</span>
+                        <span className="text-[10px] font-bold font-mono text-white">{s.side === "home" ? abbrevTeam(s.home) : abbrevTeam(s.away)} {s.line > 0 ? "+" : ""}{s.line}</span>
                         <span className="text-[10px] font-bold font-mono" style={{ color: green(s.clv) }}>{fmtClv(s.clv)}</span>
                         <span className="text-[9px] text-[#4a524a]">{s.src && s.src !== "pinnacle" ? "fallback" : "same-bk"}</span>
                         <span className={cn("text-[9px] font-bold text-right", s.win === 1 ? "text-[#3ee68a]" : "text-[#ef4444]")}>
