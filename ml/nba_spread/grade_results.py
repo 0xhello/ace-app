@@ -26,7 +26,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 from .inference import MODEL_PERFORMANCE_PATH, update_prediction_result, _migrate_late_columns
-from .signal_logger import grade_signal, grade_executions, void_stale_signals, DB_PATH
+from .signal_logger import grade_signal, grade_executions, log_paper_execution, void_stale_signals, DB_PATH
 from .train_spread_model import TEAM_NAME_TO_CODE
 
 _ENV_PATH = Path(__file__).resolve().parents[2] / ".env.local"
@@ -195,13 +195,22 @@ def run(days_back: int = 3, void_stale: bool = False, stale_days: int = 3) -> No
                 f"pick={pick_side.upper()}  actual_covered={'HOME' if actual == 1 else 'AWAY'}"
             )
 
-        # Grade any CLV signals logged for this game (push or result — both get graded)
+        # Grade any signals logged for this game (open or proxy_captured)
         clv_results = grade_signal(game_id, home_score, away_score)
         clv_graded += len(clv_results)
         for r in clv_results:
             clv_str = f"{r['clv_points']:+.1f}" if r["clv_points"] is not None else "n/a"
             cov_str = {1: "covered", 0: "missed", None: "push"}.get(r["covered"], "?")
             print(f"         CLV signal #{r['id']}  clv={clv_str}pts  result={cov_str}")
+            # Auto-create paper bet if one was never logged (backfills historical signals)
+            import sqlite3 as _sqlite3
+            _conn = _sqlite3.connect(DB_PATH)
+            _row = _conn.execute("SELECT bet_side, line_at_signal, execution_source FROM signal_log WHERE id=?", (r["id"],)).fetchone()
+            _has_paper = _conn.execute("SELECT 1 FROM execution_log WHERE signal_id=? AND mode='paper'", (r["id"],)).fetchone()
+            _conn.close()
+            if _row and not _has_paper:
+                log_paper_execution(r["id"], _row[2] or "", _row[1], _row[0], notes="auto-backfill")
+                print(f"           → paper bet backfilled for signal #{r['id']}")
             grade_executions(r["id"], r["covered"])
 
     print()

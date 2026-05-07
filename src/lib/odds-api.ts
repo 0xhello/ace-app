@@ -1,4 +1,5 @@
 import { Game, BookOdds, MarketOutcome } from "@/types/game";
+import { getActiveSports, setActiveSports } from "@/lib/server-cache";
 
 const BASE = "https://api.the-odds-api.com/v4";
 
@@ -157,10 +158,32 @@ export async function fetchAllGames(): Promise<{
   errors: string[];
   fetchedAt: string;
 }> {
-  const sports = [...SPORT_KEYS];
+  // Step 1: resolve which sports to fetch.
+  // Track which sports returned games; only re-fetch those until an hourly full refresh.
+  // During NBA playoffs this cuts fetches from 6 sports (18 credits) down to 1-2 (3-6 credits).
+  const FULL_REFRESH_INTERVAL = 60 * 60_000; // 1 hour
+  let sports: string[];
+  try {
+    const cached = await getActiveSports();
+    if (cached && cached.sports.length > 0 && Date.now() - cached.setAt < FULL_REFRESH_INTERVAL) {
+      sports = cached.sports;
+    } else {
+      sports = [...SPORT_KEYS];
+    }
+  } catch {
+    sports = [...SPORT_KEYS];
+  }
 
-  // Step 1: fetch odds for all sports
   const oddsResults = await Promise.all(sports.map((s) => fetchOddsForSportSafe(s)));
+
+  // Update the active-sports list with whatever returned games this round
+  try {
+    const active = sports.filter((_, i) => oddsResults[i].data.length > 0);
+    // Always keep at least the sports we just checked that had games;
+    // if nothing came back (off-season?), fall back to full list next time
+    await setActiveSports(active.length > 0 ? active : [...SPORT_KEYS]);
+  } catch {}
+
 
   // Step 2: only call the scores endpoint for sports that have games within the last 4 hours.
   // The scores endpoint costs 1 credit per sport — skipping it when no games are live saves 6

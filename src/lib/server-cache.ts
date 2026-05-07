@@ -12,9 +12,9 @@ import { Redis } from "@upstash/redis";
 // ── TTL config ─────────────────────────────────────────────────────────────────
 // IMPORTANT: TTL must be longer than the client poll interval (30s live, 5min idle)
 // otherwise every poll fires a real API call.
-const TTL_LIVE    = 2 * 60_000;   // 2 minutes
-const TTL_SOON    = 5 * 60_000;   // 5 minutes  (game starts within 2h)
-const TTL_DEFAULT = 15 * 60_000;  // 15 minutes (nothing imminent)
+const TTL_LIVE    = 5 * 60_000;   // 5 minutes  (was 2min — 30 calls/hr × 18 credits = 540/hr)
+const TTL_SOON    = 10 * 60_000;  // 10 minutes (game starts within 2h)
+const TTL_DEFAULT = 20 * 60_000;  // 20 minutes (nothing imminent)
 
 export type OddsSnapshot = Record<string, Record<string, number | null>>;
 
@@ -90,6 +90,30 @@ export function isStale(entry: CacheEntry | null, games?: any[]): boolean {
 
 export function age(entry: CacheEntry | null): number {
   return entry ? Date.now() - entry.fetchedAt : Infinity;
+}
+
+// ── Active sports tracking (skip dead sports on every fetch) ──────────────────
+// After each fetchAllGames(), record which sports returned ≥1 game.
+// Next fetch only calls those sports; a full refresh every hour catches new ones.
+
+const ACTIVE_SPORTS_KEY = "__active_sports__";
+
+interface ActiveSportsEntry { sports: string[]; setAt: number }
+let memActiveSports: ActiveSportsEntry | null = null;
+
+export async function getActiveSports(): Promise<ActiveSportsEntry | null> {
+  if (redis) {
+    try { return await redis.get<ActiveSportsEntry>(ACTIVE_SPORTS_KEY); } catch { return null; }
+  }
+  return memActiveSports;
+}
+
+export async function setActiveSports(sports: string[]): Promise<void> {
+  const entry: ActiveSportsEntry = { sports, setAt: Date.now() };
+  if (redis) {
+    try { await redis.set(ACTIVE_SPORTS_KEY, entry, { ex: 7200 }); return; } catch {}
+  }
+  memActiveSports = entry;
 }
 
 // ── Odds snapshot (for line movement detection) ────────────────────────────────
