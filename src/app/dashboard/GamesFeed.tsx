@@ -6,6 +6,7 @@ import { fetchAllESPNNews } from "@/lib/espn";
 import { generateIntelMap } from "@/lib/live-signals";
 import { generateLivePicks } from "@/lib/live-picks";
 import { fetchWeatherForGames } from "@/lib/weather";
+import { fetchModelSignals } from "@/lib/model-signals";
 import * as serverCache from "@/lib/server-cache";
 
 const CACHE_KEY = "board-games";
@@ -55,10 +56,11 @@ async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T
 export default async function GamesFeed() {
   const { games, errors, fetchedAt, feedMode } = await getGames();
 
-  // Fetch ESPN news + weather in parallel (both free, no quota impact)
-  const [newsItems, weatherMap] = await Promise.all([
+  // Fetch ESPN news, weather, and model signals in parallel
+  const [newsItems, weatherMap, modelSignals] = await Promise.all([
     withTimeout(fetchAllESPNNews(), 5_000, []),
     withTimeout(fetchWeatherForGames(games), 6_000, new Map()),
+    withTimeout(Promise.resolve(fetchModelSignals()), 5_000, []),
   ]);
 
   // Pull server-side movement map from cache (populated by /api/board on each refresh)
@@ -66,7 +68,7 @@ export default async function GamesFeed() {
   const movementMap: Record<string, Record<string, "up" | "down" | null>> =
     cached?.data?.movementMap ?? {};
 
-  const intelMap = generateIntelMap(games, newsItems, weatherMap, movementMap);
+  const intelMap = generateIntelMap(games, newsItems, weatherMap, movementMap, modelSignals);
   const topPicks = generateLivePicks(games, 5);
 
   if (games.length === 0) {

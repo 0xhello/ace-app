@@ -5,6 +5,8 @@ import { Game } from "@/types/game";
 import { ESPNNewsItem } from "@/lib/espn";
 import { WeatherData } from "@/lib/weather";
 import { computeConfidence, computeRecommendation, ConfidenceResult, RecommendationResult } from "@/lib/confidence";
+import { ModelSignal } from "@/lib/model-signals";
+import type { Signal } from "@/types/signal";
 
 export interface GameSignal {
   type: "injury" | "lineup" | "market" | "news" | "trade" | "weather" | "model";
@@ -23,6 +25,7 @@ export interface GameIntel {
   is_volatile: boolean;
   has_new_signal: boolean;
   signals: GameSignal[];
+  top_signal: Signal | null;
   // Real confidence + recommendation from confidence.ts
   confidence: ConfidenceResult;
   recommendation: RecommendationResult | null;
@@ -121,13 +124,65 @@ function weatherSignal(weather: WeatherData): GameSignal | null {
   };
 }
 
+function gameSignalToSignal(gs: GameSignal, gameId: string, idx: number): Signal {
+  return {
+    id: `live-${gameId}-${idx}`,
+    gameId,
+    type: gs.type as Signal["type"],
+    severity: gs.severity,
+    certainty: "confirmed",
+    affectedTeam: "neutral",
+    direction: gs.severity === "high" ? "negative" : "uncertain",
+    summary: gs.title,
+    details: gs.detail,
+    benefits: gs.benefits ?? [],
+    harms: gs.harms ?? [],
+    sourceCategory: gs.type === "model" ? "market" : gs.type === "weather" ? "weather" : gs.type === "news" ? "ai" : "market",
+    isForced: false,
+    isDemo: false,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+const SIGNAL_TYPE_LABELS: Record<string, { title: string; detail: (s: ModelSignal) => string }> = {
+  soft_book_divergence: {
+    title: "ACE: Soft-book divergence from Pinnacle",
+    detail: (s) => `Model flagged a line discrepancy versus Pinnacle on the ${s.bet_side} spread${s.line_at_signal != null ? ` (line: ${s.line_at_signal > 0 ? "+" : ""}${s.line_at_signal})` : ""}.${s.edge_vs_pinnacle != null ? ` Edge vs Pinnacle: ${s.edge_vs_pinnacle.toFixed(1)}%.` : ""}${s.kelly_fraction != null && s.kelly_fraction > 0 ? ` Kelly: ${(s.kelly_fraction * 100).toFixed(1)}%.` : ""}`,
+  },
+  line_movement: {
+    title: "ACE: Line movement detected",
+    detail: (s) => `Model detected significant line movement on the ${s.bet_side} side${s.line_at_signal != null ? ` (signal line: ${s.line_at_signal > 0 ? "+" : ""}${s.line_at_signal})` : ""}.`,
+  },
+  steam_move: {
+    title: "ACE: Steam move — sharp action",
+    detail: (s) => `Rapid line movement consistent with sharp/syndicate betting on the ${s.bet_side}${s.line_at_signal != null ? ` at ${s.line_at_signal > 0 ? "+" : ""}${s.line_at_signal}` : ""}.`,
+  },
+};
+
+function modelSignalToGameSignal(s: ModelSignal): GameSignal {
+  const edge = s.edge_vs_pinnacle ?? 0;
+  const tmpl = SIGNAL_TYPE_LABELS[s.signal_type] ?? {
+    title: `ACE: ${s.signal_type.replace(/_/g, " ")}`,
+    detail: (ms: ModelSignal) => `Model signal on ${ms.bet_side} side${ms.line_at_signal != null ? ` at line ${ms.line_at_signal}` : ""}.`,
+  };
+  return {
+    type: "model",
+    severity: edge >= 3 ? "high" : edge >= 1 ? "medium" : "low",
+    title: tmpl.title,
+    detail: tmpl.detail(s),
+    time: "now",
+    benefits: [s.bet_side === "home" ? "home" : "away"],
+  };
+}
+
 // ── Main export ────────────────────────────────────────────────────────────────
 
 export function generateIntelMap(
   games: Game[],
   newsItems: ESPNNewsItem[],
   weatherMap: Map<string, WeatherData>,
-  movementMap: Record<string, Record<string, "up" | "down" | null>>
+  movementMap: Record<string, Record<string, "up" | "down" | null>>,
+  modelSignals: ModelSignal[] = []
 ): Record<string, GameIntel> {
   const result: Record<string, GameIntel> = {};
 
@@ -164,6 +219,15 @@ export function generateIntelMap(
     const mlSignal = detectMLConsensus(game);
     if (mlSignal) signals.push(mlSignal);
 
+    // 5. Python backend model signals (signal_log.db — soft_book_divergence, line_movement, steam_move)
+    const homeNorm = game.home_team.toLowerCase().trim();
+    const awayNorm = game.away_team.toLowerCase().trim();
+    for (const ms of modelSignals) {
+      if (ms.home_team.toLowerCase().trim() === homeNorm && ms.away_team.toLowerCase().trim() === awayNorm) {
+        signals.push(modelSignalToGameSignal(ms));
+      }
+    }
+
     // Compute real confidence + recommendation
     const confidence = computeConfidence(game, signals, weather, movement);
     const recommendation = computeRecommendation(game, signals, weather, movement, confidence);
@@ -176,6 +240,8 @@ export function generateIntelMap(
     const hasNew = signals.some((s) => s.time === "now" || (s.time.endsWith("m") && parseInt(s.time) < 120));
     const recentNews = matched.filter((n) => isRecent(n.published, 6));
 
+    const topGs = signals.find((s) => s.severity === "high") ?? signals.find((s) => s.severity === "medium") ?? signals[0] ?? null;
+
     result[game.id] = {
       game_id: game.id,
       signals_count: signals.length,
@@ -183,6 +249,7 @@ export function generateIntelMap(
       is_volatile: hasHigh || signals.length >= 3,
       has_new_signal: hasNew || recentNews.length > 0,
       signals,
+      top_signal: topGs ? gameSignalToSignal(topGs, game.id, 0) : null,
       confidence,
       recommendation,
       weather,
