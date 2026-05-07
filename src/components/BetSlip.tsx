@@ -4,8 +4,8 @@ import { cn, formatAmericanOdds } from "@/lib/utils";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
 import { bookDeepLink } from "@/lib/deeplinks";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
-import { getConfidenceForGame } from "@/lib/signals";
 import { Game } from "@/types/game";
+import type { GameIntel } from "@/lib/live-signals";
 import { X, Plus, Copy, ArrowRight, Check } from "lucide-react";
 import { useState, useMemo } from "react";
 
@@ -95,11 +95,12 @@ const TIER_COLOR: Record<string, string> = {
   low: "#ef4444",
 };
 
-function confidenceForLeg(leg: SlipLeg) {
-  const parts = leg.matchup.split(" @ ");
-  const away = parts[0] ?? "";
-  const home = parts[1] ?? "";
-  return getConfidenceForGame(leg.gameId, home, away);
+function confidenceForLeg(leg: SlipLeg, intelMap: Record<string, GameIntel>) {
+  const intel = intelMap[leg.gameId];
+  if (intel) {
+    return { tier: intel.confidence.tier, pct: intel.confidence.pct };
+  }
+  return { tier: "low" as const, pct: 50 };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -109,11 +110,13 @@ export default function BetSlip({
   onRemove,
   onClear,
   games = [],
+  intelMap = {},
 }: {
   slip: SlipLeg[];
   onRemove: (id: string) => void;
   onClear: () => void;
   games?: Game[];
+  intelMap?: Record<string, GameIntel>;
 }) {
   const [stake, setStake] = useState(25);
   const [selectedBook, setSelectedBook] = useState<string | null>(null);
@@ -128,7 +131,7 @@ export default function BetSlip({
     const url = bookDeepLink(activeBook, sport);
     const now = Date.now();
     const newBets = slip.map((leg) => {
-      const conf = confidenceForLeg(leg);
+      const conf = confidenceForLeg(leg, intelMap);
       return {
         id: `${leg.id}-${now}`,
         gameId: leg.gameId,
@@ -202,7 +205,7 @@ export default function BetSlip({
         ) : (
           <div className="p-2.5 space-y-1.5">
             {slip.map((leg) => {
-              const conf = confidenceForLeg(leg);
+              const conf = confidenceForLeg(leg, intelMap);
               const bestForLeg = findBestBookForLeg(leg, games);
               return (
                 <div key={leg.id} className="rounded-xl border border-[#20251f] bg-[linear-gradient(180deg,rgba(18,20,18,0.98),rgba(14,16,14,0.98))] p-3 group/leg hover:border-[#2e332a] transition-colors shadow-[0_10px_24px_rgba(0,0,0,0.18)]">

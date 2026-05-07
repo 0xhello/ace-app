@@ -428,7 +428,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
             <div className="[writing-mode:vertical-rl] rotate-180 text-[9px] font-bold tracking-widest text-[#2e332a] uppercase">Betslip</div>
           </div>
         ) : (
-          <BetSlip slip={slip} onRemove={removeLeg} onClear={() => setSlip([])} games={games} />
+          <BetSlip slip={slip} onRemove={removeLeg} onClear={() => setSlip([])} games={games} intelMap={intelMap} />
         )}
       </div>
 
