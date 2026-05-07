@@ -6,6 +6,7 @@ import {
   Activity, AlertTriangle, CheckCircle2, XCircle, Clock,
   Database, TrendingUp, Zap, RefreshCw, Terminal, Brain,
   BookMarked, PlusCircle, Target, BarChart2, Info, Users, Copy, Check,
+  Radio, Eye,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -103,6 +104,24 @@ interface ExecSummary {
 interface ExecutionData {
   executions: Execution[];
   summary: { paper: ExecSummary; real: ExecSummary };
+}
+interface WatchedGame {
+  game_id: string;
+  home_team: string | null;
+  away_team: string | null;
+  game_date: string | null;
+  bet_side: string | null;
+  line: number | null;
+  stake: number | null;
+  exec_id: number | null;
+  prob_for_side: number | null;
+  edge_vs_pinnacle: number | null;
+  source: "real_bet" | "watchlist" | "bet+watch";
+  live_home_score: number | null;
+  live_away_score: number | null;
+  live_completed: boolean;
+  has_scores: boolean;
+  live_covering: boolean | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -272,6 +291,7 @@ export default function OpsPage() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [perfTab,     setPerfTab]     = useState<"all" | "bets" | "conf" | "source">("all");
   const [loggingBet,  setLoggingBet]  = useState<number | null>(null);
+  const [liveWatch,   setLiveWatch]   = useState<WatchedGame[]>([]);
 
   // ── Invite codes state ────────────────────────────────────────────────────────
   interface InviteCode {
@@ -332,10 +352,22 @@ export default function OpsPage() {
     loadInviteCodes();
   }
 
+  async function loadLiveWatch() {
+    try {
+      const r = await fetch("/api/ops/live-watch");
+      if (r.ok) {
+        const d = await r.json();
+        setLiveWatch(d.games ?? []);
+      }
+    } catch {}
+  }
+
   useEffect(() => {
     loadAll();
-    const t = setInterval(loadAll, 60_000);
-    return () => clearInterval(t);
+    loadLiveWatch();
+    const t1 = setInterval(loadAll, 60_000);
+    const t2 = setInterval(loadLiveWatch, 30_000);
+    return () => { clearInterval(t1); clearInterval(t2); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -623,6 +655,136 @@ export default function OpsPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* ══ LIVE WATCH ════════════════════════════════════════════════════════ */}
+        {liveWatch.length > 0 && (
+          <div className="ace-panel p-5">
+            <SectionHead
+              title="Live Watch"
+              icon={Radio}
+              right={
+                <button onClick={loadLiveWatch} className="text-[9px] text-[#3a4033] hover:text-[#6b7068] flex items-center gap-1.5 transition-colors">
+                  <RefreshCw className="h-3 w-3" /> refresh
+                </button>
+              }
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {liveWatch.map((g) => {
+                const isLive = g.has_scores && !g.live_completed;
+                const isFinal = g.has_scores && g.live_completed;
+                const hasBet = g.bet_side !== null;
+                const betTeam = hasBet ? (g.bet_side === "home" ? g.home_team : g.away_team) : null;
+                const oppTeam = hasBet ? (g.bet_side === "home" ? g.away_team : g.home_team) : null;
+                const betScore = hasBet ? (g.bet_side === "home" ? g.live_home_score : g.live_away_score) : null;
+                const oppScore = hasBet ? (g.bet_side === "home" ? g.live_away_score : g.live_home_score) : null;
+                const coverColor = g.live_covering === true ? "#3ee68a" : g.live_covering === false ? "#ef4444" : "#6b7068";
+                const coverText  = g.live_covering === true ? "COVERING ✓" : g.live_covering === false ? "NOT COVERING ✗" : "PUSH ~";
+                const borderColor = g.live_covering === true ? "border-[#3ee68a]/25" : g.live_covering === false ? "border-[#ef4444]/20" : "border-[#1e2220]";
+                return (
+                  <div key={g.game_id} className={`rounded-xl border bg-[#0d0f0d] p-4 ${borderColor}`}>
+                    {/* Header: status badge + matchup */}
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] font-medium text-[#9ca39a]">
+                        {g.away_team ? `${abbrevTeam(g.away_team)} @ ${abbrevTeam(g.home_team ?? "")}` : g.game_id.slice(0, 8)}
+                      </span>
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                        isLive  ? "text-[#3ee68a] bg-[#3ee68a]/10 animate-pulse" :
+                        isFinal ? "text-[#6b7068] bg-[#1a1e1a]" :
+                                  "text-[#f5c062] bg-[#f5c062]/10"
+                      }`}>
+                        {isLive ? "● LIVE" : isFinal ? "FINAL" : "upcoming"}
+                      </span>
+                    </div>
+
+                    {/* Score — bet side first */}
+                    {g.has_scores && hasBet ? (
+                      <div className="flex items-baseline gap-3 mb-3">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[8px] text-[#4a524a] uppercase tracking-wider mb-0.5">YOUR SIDE</span>
+                          <span className="text-[32px] font-black font-mono leading-none text-white">{betScore ?? "—"}</span>
+                          <span className="text-[9px] text-[#6b7068] mt-0.5">{betTeam ? abbrevTeam(betTeam) : "—"}</span>
+                        </div>
+                        <span className="text-[20px] font-black text-[#2e3328] self-center">–</span>
+                        <div className="flex flex-col items-center">
+                          <span className="text-[8px] text-[#4a524a] uppercase tracking-wider mb-0.5">OPP</span>
+                          <span className="text-[32px] font-black font-mono leading-none text-[#6b7068]">{oppScore ?? "—"}</span>
+                          <span className="text-[9px] text-[#4a524a] mt-0.5">{oppTeam ? abbrevTeam(oppTeam) : "—"}</span>
+                        </div>
+                        <div className="flex-1 flex flex-col items-end justify-center gap-1">
+                          {g.line !== null && (
+                            <span className="text-[10px] font-bold font-mono text-white">
+                              {betTeam ? abbrevTeam(betTeam) : ""} {g.line > 0 ? "+" : ""}{g.line}
+                            </span>
+                          )}
+                          <span className="text-[10px] font-bold" style={{ color: coverColor }}>{coverText}</span>
+                          {g.line !== null && betScore !== null && oppScore !== null && (
+                            <span className="text-[9px] text-[#4a524a] font-mono">
+                              margin {g.bet_side === "home"
+                                ? ((betScore - oppScore) + g.line > 0 ? "+" : "") + ((betScore - oppScore) + g.line).toFixed(1)
+                                : ((oppScore - betScore) + (-g.line) > 0 ? "+" : "") + ((oppScore - betScore) - g.line).toFixed(1)} vs spread
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ) : g.has_scores ? (
+                      /* watchlist-only game — no bet, just score */
+                      <div className="flex items-baseline gap-2 mb-3">
+                        <span className="text-[28px] font-black font-mono text-white">{g.live_away_score}</span>
+                        <span className="text-[16px] font-black text-[#2e3328]">–</span>
+                        <span className="text-[28px] font-black font-mono text-[#6b7068]">{g.live_home_score}</span>
+                        <span className="text-[9px] text-[#4a524a] ml-1">{g.away_team ? abbrevTeam(g.away_team) : ""} / {g.home_team ? abbrevTeam(g.home_team) : ""}</span>
+                      </div>
+                    ) : (
+                      <div className="py-2 mb-3">
+                        <p className="text-[10px] text-[#3a4033]">Score not yet available</p>
+                      </div>
+                    )}
+
+                    {/* Model intel row */}
+                    {(g.prob_for_side !== null || g.edge_vs_pinnacle !== null) && (
+                      <div className="flex items-center gap-4 pt-2.5 border-t border-[#141714]">
+                        <span className="text-[8px] text-[#2e3328] uppercase tracking-wider">ACE Intel</span>
+                        {g.prob_for_side !== null && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] text-[#3a4033]">prob</span>
+                            <span className="text-[10px] font-bold font-mono text-white">{(g.prob_for_side * 100).toFixed(1)}%</span>
+                          </div>
+                        )}
+                        {g.edge_vs_pinnacle !== null && (
+                          <div className="flex items-center gap-1">
+                            <span className="text-[8px] text-[#3a4033]">edge</span>
+                            <span className="text-[10px] font-bold font-mono"
+                              style={{ color: g.edge_vs_pinnacle > 0 ? "#3ee68a" : "#ef4444" }}>
+                              {g.edge_vs_pinnacle >= 0 ? "+" : ""}{(g.edge_vs_pinnacle * 100).toFixed(1)}pp
+                            </span>
+                          </div>
+                        )}
+                        {g.source === "real_bet" || g.source === "bet+watch" ? (
+                          <span className="ml-auto text-[8px] font-bold text-[#3a4033] uppercase tracking-wider">real $</span>
+                        ) : (
+                          <span className="ml-auto text-[8px] text-[#2e3328] uppercase tracking-wider flex items-center gap-1">
+                            <Eye className="h-2.5 w-2.5" /> watching
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {g.prob_for_side === null && g.edge_vs_pinnacle === null && (
+                      <div className="pt-2.5 border-t border-[#141714] flex items-center justify-between">
+                        <span className="text-[8px] text-[#2e3328]">No model data</span>
+                        {(g.source === "real_bet" || g.source === "bet+watch") && (
+                          <span className="text-[8px] font-bold text-[#3a4033] uppercase tracking-wider">real $</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[8px] text-[#2e3328] mt-3">
+              Auto-refreshes every 30s · Star games on the board or log a bet to track here
+            </p>
           </div>
         )}
 

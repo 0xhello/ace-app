@@ -86,6 +86,8 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   const [signalFilter, setSignalFilter] = useState<"none" | "high" | "volatile" | "new">("none");
   const [movementMap, setMovementMap] = useState<Record<string, Record<string, "up" | "down">>>({});
   const [showAskAce, setShowAskAce] = useState(false);
+  const [pinnedToast, setPinnedToast] = useState<{ label: string } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const prevGamesRef = useRef<Game[]>(initialGames);
   const serverAlertsRef = useRef<PriceAlert[]>([]);
@@ -216,6 +218,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   }
 
   function toggleWatch(id: string) {
+    const game = games.find((g) => g.id === id);
     setWatchlist((prev) => {
       const n = new Set(prev);
       if (n.has(id)) {
@@ -228,6 +231,11 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ gameId: id }),
         }).catch(() => {});
+        // Show toast
+        const label = game ? `${game.away_team.split(" ").at(-1)} @ ${game.home_team.split(" ").at(-1)}` : "Game";
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setPinnedToast({ label });
+        toastTimerRef.current = setTimeout(() => setPinnedToast(null), 4000);
       }
       return n;
     });
@@ -432,6 +440,21 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
       </div>
 
       {showAskAce && <AskAce onClose={() => setShowAskAce(false)} />}
+
+      {/* Star-pin toast */}
+      {pinnedToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl border border-[#3ee68a]/30 bg-[#0d1109] px-4 py-3 shadow-[0_0_20px_rgba(62,230,138,0.12)]">
+          <span className="text-[#3ee68a] text-[12px]">★</span>
+          <div>
+            <p className="text-[11px] font-semibold text-white">{pinnedToast.label} pinned to Live Tracker</p>
+            <p className="text-[9px] text-[#4a524a]">View in Ops dashboard → Live Watch</p>
+          </div>
+          <a href="/dashboard/ops" className="text-[9px] font-bold text-[#3ee68a] border border-[#3ee68a]/25 rounded-lg px-2.5 py-1 hover:bg-[#3ee68a]/8 transition-colors ml-2 whitespace-nowrap">
+            Go to Ops →
+          </a>
+          <button onClick={() => setPinnedToast(null)} className="text-[#2e3328] hover:text-[#6b7068] ml-1 text-[12px] leading-none">✕</button>
+        </div>
+      )}
     </div>
   );
 }
