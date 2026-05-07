@@ -202,13 +202,19 @@ def run(days_back: int = 3, void_stale: bool = False, stale_days: int = 3) -> No
             clv_str = f"{r['clv_points']:+.1f}" if r["clv_points"] is not None else "n/a"
             cov_str = {1: "covered", 0: "missed", None: "push"}.get(r["covered"], "?")
             print(f"         CLV signal #{r['id']}  clv={clv_str}pts  result={cov_str}")
-            # Auto-create paper bet if one was never logged (backfills historical signals)
+            # Auto-create paper bet only if model endorsed the signal (is_bet=1).
+            # Non-endorsed signals are tracked for CLV analysis but not paper-traded.
             import sqlite3 as _sqlite3
             _conn = _sqlite3.connect(DB_PATH)
-            _row = _conn.execute("SELECT bet_side, line_at_signal, execution_source FROM signal_log WHERE id=?", (r["id"],)).fetchone()
+            _row  = _conn.execute("SELECT bet_side, line_at_signal, execution_source FROM signal_log WHERE id=?", (r["id"],)).fetchone()
             _has_paper = _conn.execute("SELECT 1 FROM execution_log WHERE signal_id=? AND mode='paper'", (r["id"],)).fetchone()
+            _pred = _conn.execute(
+                "SELECT p.is_bet FROM predictions p JOIN signal_log s ON s.game_id=p.game_id WHERE s.id=?",
+                (r["id"],)
+            ).fetchone()
             _conn.close()
-            if _row and not _has_paper:
+            _endorsed = _pred is None or _pred["is_bet"] == 1  # no prediction yet → give benefit of doubt
+            if _row and not _has_paper and _endorsed:
                 log_paper_execution(r["id"], _row[2] or "", _row[1], _row[0], notes="auto-backfill")
                 print(f"           → paper bet backfilled for signal #{r['id']}")
             grade_executions(r["id"], r["covered"])

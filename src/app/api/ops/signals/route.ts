@@ -57,14 +57,16 @@ try:
     stale = [{'id': r['id'], 'game_date': r['game_date'],
               'home_team': r['home_team'], 'away_team': r['away_team']} for r in stale_rows]
 
-    # Open signals — join predictions for Kelly sizing data
+    # Open signals — only show model-endorsed bets (is_bet=1) or signals not yet predicted.
+    # is_bet=0 signals are tracked internally for CLV analysis but are not actionable.
     open_signals = conn.execute(
         """SELECT s.id, s.game_date, s.home_team, s.away_team, s.bet_side,
                   s.line_at_signal, s.status, s.signal_type,
-                  p.home_cover_prob, p.edge_vs_pinnacle
+                  p.home_cover_prob, p.edge_vs_pinnacle, p.is_bet
            FROM signal_log s
            LEFT JOIN predictions p ON p.game_id = s.game_id
            WHERE s.status IN ("open","proxy_captured")
+             AND (p.is_bet = 1 OR p.is_bet IS NULL)
            ORDER BY s.game_date ASC, s.id DESC"""
     ).fetchall()
 
@@ -79,13 +81,17 @@ try:
     open_list = []
     for r in open_signals:
         kelly = _kelly(r['bet_side'], r['home_cover_prob'])
+        # edge_vs_pinnacle is always stored as the HOME team's edge.
+        # Convert to the bet side's perspective so positive always means "edge in our favour".
+        raw_edge = r['edge_vs_pinnacle']
+        bet_edge = (raw_edge if r['bet_side'] == 'home' else -raw_edge) if raw_edge is not None else None
         open_list.append({
             'id': r['id'], 'game_date': r['game_date'],
             'home_team': r['home_team'], 'away_team': r['away_team'],
             'bet_side': r['bet_side'], 'line_at_signal': r['line_at_signal'],
             'status': r['status'], 'signal_type': r['signal_type'],
             'home_cover_prob': r['home_cover_prob'],
-            'edge_vs_pinnacle': r['edge_vs_pinnacle'],
+            'edge_vs_pinnacle': bet_edge,
             'kelly_fraction': kelly,
         })
 

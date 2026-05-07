@@ -117,13 +117,25 @@ def _log_divergence_signals(alerts: List[Dict[str, Any]]) -> None:
         book      = a["book"]
 
         veto_note = ""
+        model_endorses = False   # True only when model+edge agree with divergence direction
         probs = get_model_probs(a["game_id"])
         if probs:
-            hcp = probs.get("home_cover_prob") or 0.5
+            hcp  = probs.get("home_cover_prob") or 0.5
+            edge = probs.get("edge_vs_pinnacle")
+            # Direction-consistent: home bet needs positive edge, away bet needs negative edge
+            if edge is not None:
+                dir_ok = (bet_side == "home" and edge > 0) or (bet_side == "away" and edge < 0)
+                model_endorses = dir_ok and abs(edge) >= EDGE_THRESHOLD
+            # Veto note for logging/analysis when model clearly disagrees
             if bet_side == "home" and hcp < _VETO_HOME_BELOW:
                 veto_note = f"model_veto: home_cover_prob={hcp:.3f} < {_VETO_HOME_BELOW}"
             elif bet_side == "away" and hcp > _VETO_AWAY_ABOVE:
                 veto_note = f"model_veto: home_cover_prob={hcp:.3f} > {_VETO_AWAY_ABOVE}"
+            elif not model_endorses and edge is not None:
+                veto_note = (
+                    f"model_veto: edge={edge:+.3f} not in {'home' if bet_side=='home' else 'away'} direction"
+                    f" (need {'>' if bet_side=='home' else '<'}0, |edge|>={EDGE_THRESHOLD})"
+                )
 
         # Gap age: time since this (game_id, book) divergence was first detected.
         # 0 for brand-new gaps; non-zero for widened alerts seen in prior cron runs.
@@ -166,8 +178,9 @@ def _log_divergence_signals(alerts: List[Dict[str, Any]]) -> None:
             opp_rest_days=o_rest,
         )
 
-        # Auto-log paper trade for every new signal (row_id > 0 = freshly inserted)
-        if row_id > 0:
+        # Only auto-log paper bet when model direction + edge both agree with the divergence.
+        # Vetoed or low-edge divergences are still logged for CLV tracking but not paper-traded.
+        if row_id > 0 and model_endorses:
             try:
                 log_paper_execution(
                     signal_id=row_id,
@@ -179,7 +192,7 @@ def _log_divergence_signals(alerts: List[Dict[str, Any]]) -> None:
                 pass
 
         direction   = "HOME" if bet_side == "home" else "AWAY"
-        status_flag = " [model veto]" if veto_note else " *** PAPER BET"
+        status_flag = " *** BET" if model_endorses else " [no bet — model veto]"
         print(
             f"    → Signal #{row_id}  {a['away_team']} @ {a['home_team']}  "
             f"bet={direction} at {book}={book_line:+.1f}{status_flag}"
