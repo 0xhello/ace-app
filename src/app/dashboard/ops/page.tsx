@@ -391,6 +391,7 @@ export default function OpsPage() {
   }
 
   const openSignals   = sig?.open_signals ?? [];
+  const paperBets     = execData?.executions.filter(e => e.mode === "paper") ?? [];
   const realBets      = execData?.executions.filter(e => e.mode === "real") ?? [];
   const signalTrack   = execData?.summary.paper;
   const realSummary   = execData?.summary.real;
@@ -550,6 +551,50 @@ export default function OpsPage() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ══ PAPER BET HISTORY ══════════════════════════════════════════════ */}
+        {paperBets.length > 0 && signalTrack && (
+          <div className="rounded-xl border border-[#1e2220] bg-[#0d0f0d] overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-[#181c18]">
+              <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#3a4033]">Paper Bet History</span>
+            </div>
+            <div className="grid grid-cols-[40px_52px_1fr_76px_60px_52px_56px_56px] gap-2 px-4 py-2 border-b border-[#181c18]">
+              {["#", "Date", "Game", "Side", "Book", "Line", "Stake", "P&L"].map(h => (
+                <span key={h} className="text-[8px] font-bold uppercase tracking-[0.14em] text-[#2e3328]">{h}</span>
+              ))}
+            </div>
+            {paperBets.map((e) => {
+              const isPush = e.graded_at !== null && e.outcome === null;
+              const oColor = e.outcome === 1 ? "#3ee68a" : e.outcome === 0 ? "#ef4444" : isPush ? "#6b7068" : "#3a4033";
+              const pnlDollars = e.pnl_units !== null ? e.pnl_units * signalTrack.unit_value : null;
+              const stakeDollars = e.stake * signalTrack.unit_value;
+              const line = e.fill_line ?? e.signal_line;
+              return (
+                <div key={e.id} className="grid grid-cols-[40px_52px_1fr_76px_60px_52px_56px_56px] gap-2 items-center px-4 py-2.5 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors">
+                  <span className="text-[9px] text-[#2e3328] font-mono">#{e.signal_id}</span>
+                  <span className="text-[9px] text-[#4a524a]">{e.game_date ? fmtDate(e.game_date) : "—"}</span>
+                  <span className="text-[10px] text-[#9ca39a] truncate">
+                    {e.away_team && e.home_team ? `${abbrevTeam(e.away_team)} @ ${abbrevTeam(e.home_team)}` : "—"}
+                  </span>
+                  <span className="text-[10px] font-bold font-mono text-white">
+                    {e.bet_side?.toUpperCase()} {line > 0 ? "+" : ""}{line}
+                  </span>
+                  <span className="text-[9px] text-[#4a524a] truncate">{e.book || "—"}</span>
+                  <span className="text-[9px] font-mono text-[#6b7068]">{line > 0 ? "+" : ""}{line}</span>
+                  <span className="text-[9px] font-mono text-[#6b7068]">${stakeDollars.toLocaleString()}</span>
+                  <span className="text-[10px] font-bold font-mono text-right" style={{ color: oColor }}>
+                    {e.graded_at === null
+                      ? <span className="text-[#3a4033]">open</span>
+                      : isPush ? <span>push</span>
+                      : pnlDollars !== null
+                        ? `${pnlDollars >= 0 ? "+" : ""}$${Math.abs(pnlDollars).toFixed(0)}`
+                        : e.outcome === 1 ? "WIN" : "LOSS"}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -720,30 +765,39 @@ export default function OpsPage() {
 
               {/* Bet log */}
               <div className="rounded-xl border border-[#181c18] bg-[#0d0f0d] overflow-hidden">
-                <div className="grid grid-cols-[36px_56px_1fr_72px_64px_48px_52px] gap-3 px-4 py-2.5 border-b border-[#181c18]">
-                  {["#", "Date", "Game", "Side", "Book", "Line", "Result"].map(h => (
+                <div className="grid grid-cols-[36px_52px_1fr_72px_56px_44px_52px_56px] gap-2 px-4 py-2.5 border-b border-[#181c18]">
+                  {["#", "Date", "Game", "Side", "Book", "Line", "Stake", "P&L"].map(h => (
                     <span key={h} className="text-[8px] font-bold uppercase tracking-[0.14em] text-[#2e3328]">{h}</span>
                   ))}
                 </div>
                 {realBets.slice(0, 30).map((e) => {
-                  const isPush  = e.graded_at !== null && e.outcome === null;
-                  const oColor  = e.outcome === 1 ? "#3ee68a" : e.outcome === 0 ? "#ef4444" : isPush ? "#6b7068" : "#3a4033";
-                  const oLabel  = e.outcome === 1 ? "WIN" : e.outcome === 0 ? "LOSS" : isPush ? "PUSH" : "open";
+                  const isPush = e.graded_at !== null && e.outcome === null;
+                  const oColor = e.outcome === 1 ? "#3ee68a" : e.outcome === 0 ? "#ef4444" : isPush ? "#6b7068" : "#3a4033";
+                  const line = e.fill_line ?? e.signal_line;
+                  const unitVal = realSummary?.unit_value ?? 100;
+                  const stakeDollars = e.stake * unitVal;
+                  const pnlDollars = e.pnl_units !== null ? e.pnl_units * unitVal : null;
                   return (
-                    <div key={e.id} className="grid grid-cols-[36px_56px_1fr_72px_64px_48px_52px] gap-3 items-center px-4 py-2.5 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors">
+                    <div key={e.id} className="grid grid-cols-[36px_52px_1fr_72px_56px_44px_52px_56px] gap-2 items-center px-4 py-2.5 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors">
                       <span className="text-[9px] text-[#2e3328] font-mono">#{e.signal_id}</span>
                       <span className="text-[9px] text-[#4a524a]">{e.game_date ? fmtDate(e.game_date) : "—"}</span>
                       <span className="text-[10px] text-[#9ca39a] truncate">
                         {e.away_team && e.home_team ? `${abbrevTeam(e.away_team)} @ ${abbrevTeam(e.home_team)}` : "—"}
                       </span>
                       <span className="text-[10px] font-bold font-mono text-white">
-                        {e.bet_side?.toUpperCase()} {e.signal_line > 0 ? "+" : ""}{e.signal_line}
+                        {e.bet_side?.toUpperCase()} {line > 0 ? "+" : ""}{line}
                       </span>
                       <span className="text-[9px] text-[#4a524a] truncate">{e.book || "—"}</span>
-                      <span className="text-[9px] font-mono text-[#6b7068]">
-                        {e.fill_line !== null ? `${e.fill_line > 0 ? "+" : ""}${e.fill_line}` : `${e.signal_line > 0 ? "+" : ""}${e.signal_line}`}
+                      <span className="text-[9px] font-mono text-[#6b7068]">{line > 0 ? "+" : ""}{line}</span>
+                      <span className="text-[9px] font-mono text-[#6b7068]">${stakeDollars.toLocaleString()}</span>
+                      <span className="text-[10px] font-bold font-mono text-right" style={{ color: oColor }}>
+                        {e.graded_at === null
+                          ? <span className="text-[#3a4033]">open</span>
+                          : isPush ? <span>push</span>
+                          : pnlDollars !== null
+                            ? `${pnlDollars >= 0 ? "+" : ""}$${Math.abs(pnlDollars).toFixed(0)}`
+                            : e.outcome === 1 ? "WIN" : "LOSS"}
                       </span>
-                      <span className="text-[9px] font-bold text-right" style={{ color: oColor }}>{oLabel}</span>
                     </div>
                   );
                 })}
