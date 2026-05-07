@@ -115,6 +115,13 @@ def _run_scheduled_tasks() -> None:
     if _daily_due("grade_results", hour=9):
         _run_task("ml.nba_spread.grade_results", "--days", "2", "--void-stale")
 
+    # Evening passes so results appear same night (11pm and 1am ET cover all game windows)
+    if _daily_due("grade_results_evening", hour=23):
+        _run_task("ml.nba_spread.grade_results", "--days", "2")
+
+    if _daily_due("grade_results_latenight", hour=1):
+        _run_task("ml.nba_spread.grade_results", "--days", "2")
+
     if _daily_due("fetch_and_predict", hour=12):
         _run_task("ml.nba_spread.fetch_and_predict")
 

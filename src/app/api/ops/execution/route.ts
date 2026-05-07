@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
+import { get as cacheGet, set as cacheSet } from "@/lib/server-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ try:
         print(json.dumps({'executions': [], 'summary': {'paper': _EMPTY_BASE, 'real': _EMPTY_BASE}}))
     else:
         rows = conn.execute(
-            """SELECT e.*, s.home_team, s.away_team, s.game_date, s.signal_type,
+            """SELECT e.*, s.home_team, s.away_team, s.game_date, s.signal_type, s.game_id,
                       p.home_cover_prob, p.edge_vs_pinnacle
                FROM execution_log e
                JOIN signal_log s ON s.id = e.signal_id
@@ -83,6 +84,71 @@ except Exception as e:
     print(json.dumps({'error': str(e)}))
 `;
 
+// ── Live score enrichment ──────────────────────────────────────────────────────
+
+const SCORES_CACHE_KEY = "__nba_scores_exec__";
+const SCORES_TTL_MS = 5 * 60_000;
+
+async function getLiveScores(): Promise<Map<string, any>> {
+  try {
+    const cached = await cacheGet(SCORES_CACHE_KEY);
+    if (cached && Date.now() - cached.fetchedAt < SCORES_TTL_MS) {
+      return buildScoreMap(cached.data);
+    }
+
+    const apiKey = process.env.ODDS_API_KEY;
+    if (!apiKey) return new Map();
+
+    const url = new URL("https://api.the-odds-api.com/v4/sports/basketball_nba/scores");
+    url.searchParams.set("apiKey", apiKey);
+    url.searchParams.set("daysFrom", "1");
+
+    const res = await fetch(url.toString(), {
+      cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return new Map();
+
+    const scores = await res.json();
+    await cacheSet(SCORES_CACHE_KEY, scores);
+    return buildScoreMap(scores);
+  } catch {
+    return new Map();
+  }
+}
+
+function buildScoreMap(scores: any[]): Map<string, any> {
+  const map = new Map<string, any>();
+  for (const s of scores ?? []) {
+    map.set(`${s.home_team}|${s.away_team}`, s);
+  }
+  return map;
+}
+
+function getTeamScore(entry: any, teamName: string): number | null {
+  for (const s of entry.scores ?? []) {
+    if (s.name === teamName) {
+      const n = parseInt(s.score, 10);
+      return isNaN(n) ? null : n;
+    }
+  }
+  return null;
+}
+
+function computeLiveCovering(
+  homeScore: number,
+  awayScore: number,
+  signalLine: number,
+  betSide: string
+): boolean | null {
+  const margin = (homeScore - awayScore) + signalLine;
+  if (margin === 0) return null; // push
+  const homeCovered = margin > 0;
+  return betSide === "home" ? homeCovered : !homeCovered;
+}
+
+// ── Route handlers ─────────────────────────────────────────────────────────────
+
 export async function GET() {
   const result = spawnSync("python3", ["-c", GET_QUERY(dbPath)], {
     encoding: "utf-8",
@@ -97,6 +163,31 @@ export async function GET() {
   } catch {
     return NextResponse.json({ error: "parse error", raw: result.stdout.slice(0, 300) });
   }
+
+  if (data.error) return NextResponse.json(data);
+
+  // Enrich open bets with live scores — only if there are ungraded bets
+  const executions = (data.executions as any[]) ?? [];
+  const hasOpen = executions.some((e) => e.outcome === null && !e.graded_at);
+
+  if (hasOpen) {
+    const scoreMap = await getLiveScores();
+    for (const e of executions) {
+      if (e.outcome !== null || e.graded_at) continue;
+      const entry = scoreMap.get(`${e.home_team}|${e.away_team}`);
+      if (!entry?.scores?.length) continue;
+
+      const hs = getTeamScore(entry, e.home_team);
+      const as_ = getTeamScore(entry, e.away_team);
+      if (hs === null || as_ === null) continue;
+
+      e.live_home_score = hs;
+      e.live_away_score = as_;
+      e.live_completed = entry.completed ?? false;
+      e.live_covering = computeLiveCovering(hs, as_, e.signal_line, e.bet_side);
+    }
+  }
+
   return NextResponse.json(data);
 }
 

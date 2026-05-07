@@ -90,6 +90,8 @@ interface Execution {
   bet_side: string; stake: number; outcome: 1 | 0 | null;
   pnl_units: number | null; notes: string; created_at: string; graded_at: string | null;
   home_team?: string; away_team?: string; game_date?: string; signal_type?: string;
+  live_home_score?: number; live_away_score?: number;
+  live_covering?: boolean | null; live_completed?: boolean;
 }
 interface ExecSummary {
   total: number; graded: number; pending: number;
@@ -560,7 +562,7 @@ export default function OpsPage() {
             <div className="px-4 py-2.5 border-b border-[#181c18]">
               <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#3a4033]">Paper Bet History</span>
             </div>
-            <div className="grid grid-cols-[40px_52px_1fr_76px_60px_52px_56px_56px] gap-2 px-4 py-2 border-b border-[#181c18]">
+            <div className="grid grid-cols-[40px_52px_1fr_76px_60px_52px_56px_72px] gap-2 px-4 py-2 border-b border-[#181c18]">
               {["#", "Date", "Game", "Side", "Book", "Line", "Stake", "P&L"].map(h => (
                 <span key={h} className="text-[8px] font-bold uppercase tracking-[0.14em] text-[#2e3328]">{h}</span>
               ))}
@@ -571,8 +573,22 @@ export default function OpsPage() {
               const pnlDollars = e.pnl_units !== null ? e.pnl_units * signalTrack.unit_value : null;
               const stakeDollars = e.stake * signalTrack.unit_value;
               const line = e.fill_line ?? e.signal_line;
+
+              // Live status for open bets
+              const hasLive = e.graded_at === null && e.live_home_score !== undefined && e.live_away_score !== undefined;
+              const liveLabel = hasLive
+                ? (e.live_completed ? "FINAL" : "LIVE")
+                : null;
+              const liveCover = hasLive ? e.live_covering : undefined;
+              const liveColor = liveCover === true ? "#3ee68a" : liveCover === false ? "#ef4444" : "#6b7068";
+              const liveScore = hasLive
+                ? (e.bet_side === "home"
+                    ? `${e.live_home_score}-${e.live_away_score}`
+                    : `${e.live_away_score}-${e.live_home_score}`)
+                : null;
+
               return (
-                <div key={e.id} className="grid grid-cols-[40px_52px_1fr_76px_60px_52px_56px_56px] gap-2 items-center px-4 py-2.5 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors">
+                <div key={e.id} className="grid grid-cols-[40px_52px_1fr_76px_60px_52px_56px_72px] gap-2 items-center px-4 py-2.5 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors">
                   <span className="text-[9px] text-[#2e3328] font-mono">#{e.signal_id}</span>
                   <span className="text-[9px] text-[#4a524a]">{e.game_date ? fmtDate(e.game_date) : "—"}</span>
                   <span className="text-[10px] text-[#9ca39a] truncate">
@@ -584,13 +600,18 @@ export default function OpsPage() {
                   <span className="text-[9px] text-[#4a524a] truncate">{e.book || "—"}</span>
                   <span className="text-[9px] font-mono text-[#6b7068]">{line > 0 ? "+" : ""}{line}</span>
                   <span className="text-[9px] font-mono text-[#6b7068]">${stakeDollars.toLocaleString()}</span>
-                  <span className="text-[10px] font-bold font-mono text-right" style={{ color: oColor }}>
-                    {e.graded_at === null
-                      ? <span className="text-[#3a4033]">open</span>
-                      : isPush ? <span>push</span>
-                      : pnlDollars !== null
-                        ? `${pnlDollars >= 0 ? "+" : ""}$${Math.abs(pnlDollars).toFixed(0)}`
-                        : e.outcome === 1 ? "WIN" : "LOSS"}
+                  <span className="text-[10px] font-bold font-mono text-right" style={{ color: hasLive ? liveColor : oColor }}>
+                    {e.graded_at !== null
+                      ? (isPush ? <span>push</span>
+                          : pnlDollars !== null
+                            ? `${pnlDollars >= 0 ? "+" : ""}$${Math.abs(pnlDollars).toFixed(0)}`
+                            : e.outcome === 1 ? "WIN" : "LOSS")
+                      : hasLive
+                        ? <span className="flex flex-col items-end gap-0.5">
+                            <span className="text-[8px] opacity-60">{liveLabel} {liveCover === true ? "✓" : liveCover === false ? "✗" : "·"}</span>
+                            <span>{liveScore}</span>
+                          </span>
+                        : <span className="text-[#3a4033]">open</span>}
                   </span>
                 </div>
               );
