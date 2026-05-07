@@ -392,12 +392,16 @@ export default function OpsPage() {
     if ((sig.by_status["proxy_captured"] ?? 0) > 0) alerts.push({ icon: Info, msg: `${sig.by_status["proxy_captured"]} signal(s) awaiting game scores`, level: "info" });
   }
 
-  const openSignals   = sig?.open_signals ?? [];
-  const paperBets     = execData?.executions.filter(e => e.mode === "paper") ?? [];
-  const realBets      = execData?.executions.filter(e => e.mode === "real") ?? [];
-  const signalTrack   = execData?.summary.paper;
-  const realSummary   = execData?.summary.real;
-  const today         = pipeline?.etToday ?? sig?.et_today ?? "—";
+  const allOpenSignals   = sig?.open_signals ?? [];
+  const paperBets        = execData?.executions.filter(e => e.mode === "paper") ?? [];
+  const realBets         = execData?.executions.filter(e => e.mode === "real") ?? [];
+  const signalTrack      = execData?.summary.paper;
+  const realSummary      = execData?.summary.real;
+  const today            = pipeline?.etToday ?? sig?.et_today ?? "—";
+
+  // Split open signals: actionable (game today or future) vs awaiting grading (game already played)
+  const actionableSignals = allOpenSignals.filter(s => s.game_date >= today);
+  const awaitingSignals   = allOpenSignals.filter(s => s.game_date < today);
 
   if (loading) {
     return (
@@ -586,6 +590,7 @@ export default function OpsPage() {
                     ? `${e.live_home_score}-${e.live_away_score}`
                     : `${e.live_away_score}-${e.live_home_score}`)
                 : null;
+              const isPastGame = e.game_date ? e.game_date < today : false;
 
               return (
                 <div key={e.id} className="grid grid-cols-[40px_52px_1fr_76px_60px_52px_56px_72px] gap-2 items-center px-4 py-2.5 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors">
@@ -611,7 +616,9 @@ export default function OpsPage() {
                             <span className="text-[8px] opacity-60">{liveLabel} {liveCover === true ? "✓" : liveCover === false ? "✗" : "·"}</span>
                             <span>{liveScore}</span>
                           </span>
-                        : <span className="text-[#3a4033]">open</span>}
+                        : isPastGame
+                          ? <span className="text-[#4a524a]">grading…</span>
+                          : <span className="text-[#3a4033]">open</span>}
                   </span>
                 </div>
               );
@@ -646,13 +653,13 @@ export default function OpsPage() {
           )}
 
           {/* Open signals — the action items */}
-          {openSignals.length > 0 ? (
+          {actionableSignals.length > 0 ? (
             <div>
               <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-[#3a4033] mb-3">
                 Open signals — review and log if betting
               </p>
               <div className="space-y-2">
-                {openSignals.map((s) => {
+                {actionableSignals.map((s) => {
                   const logged = realBets.some(e => e.signal_id === s.id);
                   const probForSide = s.home_cover_prob !== null
                     ? (s.bet_side === "home" ? s.home_cover_prob : 1 - s.home_cover_prob)
@@ -722,6 +729,32 @@ export default function OpsPage() {
               <p className="text-[11px] text-[#3a4033]">
                 {sig?.error ? "Signal data unavailable" : "No open signals right now"}
               </p>
+            </div>
+          )}
+
+          {/* Awaiting results — signals from past games not yet graded */}
+          {awaitingSignals.length > 0 && (
+            <div className="mt-4">
+              <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-[#3a4033] mb-3">
+                Awaiting grade — games played, results pending
+              </p>
+              <div className="space-y-1.5">
+                {awaitingSignals.map((s) => (
+                  <div key={s.id} className="rounded-xl border border-[#1a1d1a] bg-[#0d0f0d] px-4 py-2.5 flex items-center gap-3 opacity-60">
+                    <span className="text-[9px] text-[#2e3328] font-mono w-8 shrink-0">#{s.id}</span>
+                    <span className="text-[9px] text-[#4a524a] shrink-0 w-16">{s.game_date}</span>
+                    <span className="text-[10px] text-[#6b7068] flex-1 min-w-0 truncate">
+                      {abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}
+                    </span>
+                    <span className="text-[10px] font-bold font-mono" style={{ color: sigColor(s.signal_type) }}>
+                      {s.bet_side.toUpperCase()} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}
+                    </span>
+                    <span className="flex items-center gap-1 text-[8px] font-bold text-[#4a524a] uppercase tracking-wider shrink-0">
+                      <Clock className="h-2.5 w-2.5" /> grading pending
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
