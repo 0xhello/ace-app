@@ -899,7 +899,7 @@ def grade_signal(
         """
         SELECT id, home_team, away_team, line_at_signal, closing_line, bet_side
         FROM signal_log
-        WHERE game_id = ? AND status = 'proxy_captured'
+        WHERE game_id = ? AND status IN ('proxy_captured', 'open')
         """,
         (game_id,),
     ).fetchall()

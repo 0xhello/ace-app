@@ -82,16 +82,27 @@ def _weekly_due(task: str, weekday: int, hour: int, minute: int = 0, window: int
 
 def _run_task(module: str, *extra_args: str) -> None:
     """Run a pipeline module as a subprocess, streaming output to stdout."""
+    task_name = module.split(".")[-1]
     cmd = [sys.executable, "-m", module, *extra_args]
     print(f"  [worker] Running: {' '.join(cmd)}", flush=True)
+    started_at = datetime.now(timezone.utc).isoformat()
+    error: Optional[str] = None
     try:
         result = subprocess.run(cmd, capture_output=False, timeout=120)
         if result.returncode != 0:
+            error = f"exit code {result.returncode}"
             print(f"  [worker] {module} exited {result.returncode}", flush=True)
     except subprocess.TimeoutExpired:
+        error = "timed out after 120s"
         print(f"  [worker] {module} timed out after 120s", flush=True)
     except Exception as e:
+        error = str(e)
         print(f"  [worker] {module} error: {e}", flush=True)
+    try:
+        update_meta(f"job:{task_name}:last_run_at", started_at)
+        update_meta(f"job:{task_name}:last_error", error or "")
+    except Exception:
+        pass
 
 
 def _run_scheduled_tasks() -> None:

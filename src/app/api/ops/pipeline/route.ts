@@ -82,31 +82,46 @@ function parseCsv(text: string): CsvRow[] {
   });
 }
 
-function readWorkerMeta(dbPath: string): { lastPollAt: string | null; lastPollOk: boolean | null } {
+interface WorkerMeta {
+  lastPollAt: string | null;
+  lastPollOk: boolean | null;
+  jobMeta: Record<string, { lastRunAt: string | null; lastError: string | null }>;
+}
+
+function readWorkerMeta(dbPath: string): WorkerMeta {
   const script = `
 import sqlite3, json
 try:
     conn = sqlite3.connect(${JSON.stringify(dbPath)})
-    r1 = conn.execute("SELECT value FROM meta WHERE key='last_poll_at'").fetchone()
-    r2 = conn.execute("SELECT value FROM meta WHERE key='last_poll_ok'").fetchone()
+    rows = conn.execute("SELECT key, value FROM meta").fetchall()
     conn.close()
-    print(json.dumps({'last_poll_at': r1[0] if r1 else None, 'last_poll_ok': r2[0] if r2 else None}))
+    print(json.dumps({r[0]: r[1] for r in rows}))
 except Exception as e:
-    print(json.dumps({'last_poll_at': None, 'last_poll_ok': None}))
+    print(json.dumps({}))
 `;
   const result = spawnSync("python3", ["-c", script], { encoding: "utf-8", timeout: 5_000 });
+  const toTs = (raw: string | null) =>
+    raw ? new Date(raw).toISOString().replace("T", " ").slice(0, 19) : null;
   try {
-    const d = JSON.parse(result.stdout);
-    // Normalize to "YYYY-MM-DD HH:MM:SS" UTC — same format as log-file timestamps
-    // so staleness() / timeAgo() work correctly without timezone ambiguity.
-    const rawTs = d.last_poll_at as string | null;
-    const lastPollAt = rawTs ? new Date(rawTs).toISOString().replace("T", " ").slice(0, 19) : null;
+    const d: Record<string, string> = JSON.parse(result.stdout) ?? {};
+    const jobMeta: WorkerMeta["jobMeta"] = {};
+    for (const [key, val] of Object.entries(d)) {
+      const m = key.match(/^job:(\w+):last_run_at$/);
+      if (m) {
+        const name = m[1];
+        jobMeta[name] = {
+          lastRunAt: toTs(val),
+          lastError: d[`job:${name}:last_error`] || null,
+        };
+      }
+    }
     return {
-      lastPollAt,
-      lastPollOk: d.last_poll_ok === null ? null : d.last_poll_ok === "1",
+      lastPollAt: toTs(d["last_poll_at"] ?? null),
+      lastPollOk: d["last_poll_ok"] == null ? null : d["last_poll_ok"] === "1",
+      jobMeta,
     };
   } catch {
-    return { lastPollAt: null, lastPollOk: null };
+    return { lastPollAt: null, lastPollOk: null, jobMeta: {} };
   }
 }
 
@@ -137,6 +152,30 @@ export async function GET() {
 
   // Worker daemon status from meta table
   const workerMeta = readWorkerMeta(dbPath);
+
+  // When log files are empty (Railway: worker logs to stdout only), fall back to meta table
+  const { jobMeta } = workerMeta;
+  if (!gradeJob.lastRunAt && jobMeta.grade_results?.lastRunAt) {
+    gradeJob.lastRunAt = jobMeta.grade_results.lastRunAt;
+    if (jobMeta.grade_results.lastError) {
+      gradeJob.hasError = true;
+      gradeJob.errorSnippet = jobMeta.grade_results.lastError.slice(0, 120);
+    }
+  }
+  if (!fetchJob.lastRunAt && jobMeta.fetch_and_predict?.lastRunAt) {
+    fetchJob.lastRunAt = jobMeta.fetch_and_predict.lastRunAt;
+    if (jobMeta.fetch_and_predict.lastError) {
+      fetchJob.hasError = true;
+      fetchJob.errorSnippet = jobMeta.fetch_and_predict.lastError.slice(0, 120);
+    }
+  }
+  if (!stateJob.lastRunAt && jobMeta.update_team_state?.lastRunAt) {
+    stateJob.lastRunAt = jobMeta.update_team_state.lastRunAt;
+    if (jobMeta.update_team_state.lastError) {
+      stateJob.hasError = true;
+      stateJob.errorSnippet = jobMeta.update_team_state.lastError.slice(0, 120);
+    }
+  }
 
   const jobs = { state: stateJob, grade: gradeJob, fetch: fetchJob };
 
