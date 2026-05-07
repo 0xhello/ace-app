@@ -1,6 +1,5 @@
 import { Game } from "@/types/game";
 import DashboardShell from "@/components/dashboard/DashboardShell";
-import { getMockGames } from "@/lib/mock-games";
 import { fetchAllGames } from "@/lib/odds-api";
 import { fetchAllESPNNews } from "@/lib/espn";
 import { generateIntelMap } from "@/lib/live-signals";
@@ -15,20 +14,19 @@ async function getGames(): Promise<{
   games: Game[];
   errors: string[];
   fetchedAt: string | null;
-  feedMode: "live" | "demo";
 }> {
   const cached = serverCache.get(CACHE_KEY);
   const cachedGames = cached?.data?.games ?? [];
   if (cached && !serverCache.isStale(CACHE_KEY, cachedGames)) {
     const d = cached.data;
-    return { games: d.games ?? [], errors: d.errors ?? [], fetchedAt: d.fetchedAt ?? null, feedMode: "live" };
+    return { games: d.games ?? [], errors: d.errors ?? [], fetchedAt: d.fetchedAt ?? null };
   }
 
   try {
     const result = await fetchAllGames();
 
     if (!result.games.length && result.errors.length) {
-      return { games: getMockGames(), errors: result.errors, fetchedAt: new Date().toISOString(), feedMode: "demo" };
+      return { games: [], errors: result.errors, fetchedAt: new Date().toISOString() };
     }
 
     const payload = {
@@ -39,9 +37,9 @@ async function getGames(): Promise<{
     };
     serverCache.set(CACHE_KEY, payload);
 
-    return { games: result.games, errors: result.errors, fetchedAt: result.fetchedAt, feedMode: "live" };
+    return { games: result.games, errors: result.errors, fetchedAt: result.fetchedAt };
   } catch (e: any) {
-    return { games: getMockGames(), errors: [e.message], fetchedAt: new Date().toISOString(), feedMode: "demo" };
+    return { games: [], errors: [e.message], fetchedAt: new Date().toISOString() };
   }
 }
 
@@ -54,7 +52,31 @@ async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 export default async function GamesFeed() {
-  const { games, errors, fetchedAt, feedMode } = await getGames();
+  const { games, errors, fetchedAt } = await getGames();
+
+  if (games.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-[#0a0b0a]">
+        <div className="text-center max-w-md px-8 py-12">
+          <div className="mb-6 mx-auto h-14 w-14 rounded-2xl bg-[#121412] border border-[#22251f] flex items-center justify-center">
+            <svg className="h-7 w-7 text-[#3ee68a]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z" />
+            </svg>
+          </div>
+          <p className="text-[20px] font-bold text-white mb-3 leading-tight">
+            ACE is Temporarily Offline
+          </p>
+          <p className="text-[13px] text-[#6b7068] leading-relaxed mb-6">
+            Our servers are currently under maintenance. We'll be back online shortly — please check back in a few minutes.
+          </p>
+          <div className="flex items-center justify-center gap-1.5 text-[10px] text-[#3a4033] uppercase tracking-widest font-semibold">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
+            Maintenance in progress
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Fetch ESPN news, weather, and model signals in parallel
   const [newsItems, weatherMap, modelSignals] = await Promise.all([
@@ -70,35 +92,6 @@ export default async function GamesFeed() {
 
   const intelMap = generateIntelMap(games, newsItems, weatherMap, movementMap, modelSignals);
   const topPicks = generateLivePicks(games, 5);
-
-  if (games.length === 0) {
-    const quotaIssue = errors.some((e) =>
-      /quota|usage|401|429|invalid|expired|configured/i.test(String(e))
-    );
-    return (
-      <div className="text-center py-20 max-w-xl mx-auto px-6">
-        <p className="text-lg font-medium text-white mb-2">
-          {quotaIssue ? "Market data temporarily unavailable" : "No games right now"}
-        </p>
-        <p className="text-sm text-[#9ca39a]">
-          {quotaIssue
-            ? "The live odds provider is currently out of usage credits. ACE is still online — board market rows will return once quota is restored."
-            : "Check back when games are scheduled."}
-        </p>
-        {errors.length > 0 && (
-          <div className="mt-4 inline-flex flex-col items-start gap-1 rounded-lg border border-[#22251f] bg-[#121412] px-4 py-3 text-left">
-            <span className="text-[11px] uppercase tracking-wider text-[#6b7068]">Data status</span>
-            <span className="text-[12px] text-white">{errors[0]}</span>
-            {fetchedAt && (
-              <span className="text-[10px] text-[#6b7068]">
-                Checked {new Date(fetchedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
 
   return (
     <DashboardShell

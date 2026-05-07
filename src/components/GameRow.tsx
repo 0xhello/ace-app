@@ -6,7 +6,6 @@ import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
 import { Star, Sparkles, TrendingUp, TrendingDown } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
-import { getTopSignalForGame, hasHighSeveritySignal, getAIRecommendation } from "@/lib/signals";
 import { impliedProbability, edgePct } from "@/lib/edge";
 import { SignalChip, SignalSummaryLine } from "@/components/SignalBadge";
 import { getTeamLogoUrl } from "@/lib/team-logos";
@@ -351,9 +350,9 @@ export default function GameRow({
   const home = game.home_team;
 
   const hasBackendIntel = !!boardIntel;
-  const topSignal = boardIntel ? (boardIntel.top_signal ?? null) : getTopSignalForGame(game.id, home, away);
-  const isHighSeverity = boardIntel?.has_high_severity ?? hasHighSeveritySignal(game.id, home, away);
-  const aiRecommendation = boardIntel?.recommendation ?? getAIRecommendation(game.id, home, away);
+  const topSignal = boardIntel?.top_signal ?? null;
+  const isHighSeverity = boardIntel?.has_high_severity ?? false;
+  const aiRecommendation = boardIntel?.recommendation ?? null;
   const marketMovement = boardIntel?.market_movement ?? {};
   const marketConfidence = boardIntel?.market_confidence ?? {};
   const scoreboard = boardIntel?.scoreboard || game.scoreboard;

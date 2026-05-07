@@ -10,7 +10,6 @@ import NotificationBell from "@/components/NotificationBell";
 import AskAce from "@/components/AskAce";
 import { Search, Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getSignalsForGame, hasHighSeveritySignal } from "@/lib/signals";
 import { checkAlertsAgainst, fireNotification, type PriceAlert } from "@/lib/alerts";
 
 type SportFilter = "ALL" | "NBA" | "NFL" | "MLB" | "NHL" | "NCAAB";
@@ -146,11 +145,11 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   }, [liveCount, poll]);
 
   const highImpactCount = useMemo(() => {
-    return games.filter((g) => intelMap[g.id]?.has_high_severity ?? hasHighSeveritySignal(g.id, g.home_team, g.away_team)).length;
+    return games.filter((g) => intelMap[g.id]?.has_high_severity ?? false).length;
   }, [games, intelMap]);
 
   const signalGameCount = useMemo(() => {
-    return games.filter((g) => (intelMap[g.id]?.signals_count ?? getSignalsForGame(g.id, g.home_team, g.away_team).length) > 0).length;
+    return games.filter((g) => (intelMap[g.id]?.signals_count ?? 0) > 0).length;
   }, [games, intelMap]);
 
   const sportCounts = useMemo(() => {
@@ -176,8 +175,8 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
       const intel = intelMap[g.id];
       const hasBackendIntel = !!intel;
-      const signalsCount = intel?.signals_count ?? getSignalsForGame(g.id, g.home_team, g.away_team).length;
-      const highSeverity = intel?.has_high_severity ?? hasHighSeveritySignal(g.id, g.home_team, g.away_team);
+      const signalsCount = intel?.signals_count ?? 0;
+      const highSeverity = intel?.has_high_severity ?? false;
       const isVolatile = intel?.is_volatile ?? false;
       const hasNewSignal = intel?.has_new_signal ?? signalsCount > 0;
 
