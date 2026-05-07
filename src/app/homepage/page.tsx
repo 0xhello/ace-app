@@ -453,8 +453,8 @@ export default function Homepage() {
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#3ef08b]" />
               <span className="text-[10px] uppercase tracking-[0.24em] text-[#89f4ae]">43 books · live</span>
             </div>
-            <span className="hidden cursor-pointer text-[11px] text-white/38 transition hover:text-white/65 sm:inline">Log in</span>
-            <Link href="/dashboard" className="inline-flex items-center gap-1.5 rounded-full bg-[#3ef08b] px-4 py-2 text-[11px] font-semibold text-black transition hover:bg-[#58f5a0] active:scale-[0.98]">
+            <Link href="/login" className="hidden cursor-pointer text-[11px] text-white/38 transition hover:text-white/65 sm:inline">Log in</Link>
+            <Link href="/register" className="inline-flex items-center gap-1.5 rounded-full bg-[#3ef08b] px-4 py-2 text-[11px] font-semibold text-black transition hover:bg-[#58f5a0] active:scale-[0.98]">
               Get early access
             </Link>
           </div>
@@ -493,11 +493,11 @@ export default function Homepage() {
               </p>
 
               <div className="mt-7 flex flex-wrap items-center gap-3">
-                <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full bg-[#3ef08b] px-6 py-3 text-[13px] font-semibold text-black transition hover:bg-[#58f5a0] active:scale-[0.98]">
+                <Link href="/register" className="inline-flex items-center gap-2 rounded-full bg-[#3ef08b] px-6 py-3 text-[13px] font-semibold text-black transition hover:bg-[#58f5a0] active:scale-[0.98]">
                   Get early access
                 </Link>
-                <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full border border-white/[0.1] px-6 py-3 text-[13px] text-white/56 transition hover:border-white/[0.2] hover:text-white">
-                  Launch live demo →
+                <Link href="/login" className="inline-flex items-center gap-2 rounded-full border border-white/[0.1] px-6 py-3 text-[13px] text-white/56 transition hover:border-white/[0.2] hover:text-white">
+                  Sign in →
                 </Link>
               </div>
 
@@ -746,11 +746,11 @@ export default function Homepage() {
             Pull the data, read the signal, make the call.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
-            <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full bg-[#3ef08b] px-8 py-4 text-[14px] font-semibold text-black transition hover:bg-[#58f5a0] active:scale-[0.98]">
+            <Link href="/register" className="inline-flex items-center gap-2 rounded-full bg-[#3ef08b] px-8 py-4 text-[14px] font-semibold text-black transition hover:bg-[#58f5a0] active:scale-[0.98]">
               Get early access →
             </Link>
-            <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full border border-white/[0.1] px-8 py-4 text-[14px] text-white/48 transition hover:border-white/[0.2] hover:text-white">
-              Launch live demo
+            <Link href="/login" className="inline-flex items-center gap-2 rounded-full border border-white/[0.1] px-8 py-4 text-[14px] text-white/48 transition hover:border-white/[0.2] hover:text-white">
+              Sign in
             </Link>
           </div>
           <div className="mt-7 font-mono text-[9px] uppercase tracking-[0.28em] text-white/16">

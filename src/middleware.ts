@@ -16,10 +16,13 @@ export default auth(function middleware(req) {
     return;
   }
 
-  // Ops dashboard — redirect non-admin to main dashboard
+  // Ops dashboard — redirect non-admin to unauthorized page
   if (nextUrl.pathname.startsWith("/dashboard/ops")) {
-    if (!isLoggedIn || role !== "admin") {
-      return Response.redirect(new URL("/dashboard", nextUrl));
+    if (!isLoggedIn) {
+      return Response.redirect(new URL("/login", nextUrl));
+    }
+    if (role !== "admin") {
+      return Response.redirect(new URL("/unauthorized", nextUrl));
     }
     return;
   }
