@@ -26,9 +26,11 @@ export function setPrevOddsSnapshot(snap: OddsSnapshot): void {
 }
 
 // TTL in ms — shorter when live games are in play
-const TTL_LIVE     = 30_000;        // 30 seconds
-const TTL_SOON     = 3 * 60_000;    // 3 minutes  (game starts within 2h)
-const TTL_DEFAULT  = 15 * 60_000;   // 15 minutes (nothing imminent — saves ~33% credits vs 8 min)
+// IMPORTANT: TTL must be longer than the client poll interval (30s live, 5min idle)
+// otherwise every poll fires a real API call and burns credits.
+const TTL_LIVE     = 2 * 60_000;    // 2 minutes  (was 30s — matched poll interval = every poll cost credits)
+const TTL_SOON     = 5 * 60_000;    // 5 minutes  (game starts within 2h)
+const TTL_DEFAULT  = 15 * 60_000;   // 15 minutes (nothing imminent)
 
 export function hasLiveGames(games: any[]): boolean {
   return games.some((g: any) => g.status === "live");
