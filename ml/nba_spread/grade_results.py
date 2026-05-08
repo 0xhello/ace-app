@@ -305,12 +305,21 @@ def _stamp_closing_line(game_id: str, noon_line: float) -> None:
 
 
 def _mark_void(game_id: str, home_score: int, away_score: int) -> None:
+    from .signal_logger import update_prediction_result_db
+
     df = pd.read_csv(MODEL_PERFORMANCE_PATH)
     mask = df["game_id"].astype(str) == str(game_id)
+    note = f"push final score {away_score}-{home_score}"
     df.loc[mask, "result_status"] = "push"
-    df.loc[mask, "actual_home_covered"] = f"{home_score}-{away_score}"
-    df.loc[mask, "correct"] = ""
+    df.loc[mask, "actual_home_covered"] = pd.NA
+    df.loc[mask, "correct"] = pd.NA
+    if "notes" in df.columns:
+        df["notes"] = df["notes"].astype("object")
+        df.loc[mask, "notes"] = note
     df.to_csv(MODEL_PERFORMANCE_PATH, index=False)
+
+    # Mirror push result to SQLite while keeping the score in notes.
+    update_prediction_result_db(game_id, None, note)
 
 
 def _print_summary(df: pd.DataFrame) -> None:
