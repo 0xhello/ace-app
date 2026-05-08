@@ -609,6 +609,9 @@ export default function OpsPage() {
               const pnlDollars = e.pnl_units !== null ? e.pnl_units * signalTrack.unit_value : null;
               const stakeDollars = e.stake * signalTrack.unit_value;
               const line = e.fill_line ?? e.signal_line;
+              // line_at_signal / fill_line store the HOME team's spread (home convention).
+              // Negate for away bets to show the bet team's actual line.
+              const dLine = e.bet_side === "home" ? line : -line;
 
               // Live status for open bets
               const hasLive = e.graded_at === null && e.live_home_score !== undefined && e.live_away_score !== undefined;
@@ -632,10 +635,10 @@ export default function OpsPage() {
                     {e.away_team && e.home_team ? `${abbrevTeam(e.away_team)} @ ${abbrevTeam(e.home_team)}` : "—"}
                   </span>
                   <span className="text-[10px] font-bold font-mono text-white">
-                    {e.bet_side === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {line > 0 ? "+" : ""}{line}
+                    {e.bet_side === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {dLine > 0 ? "+" : ""}{dLine}
                   </span>
                   <span className="text-[9px] text-[#4a524a] truncate">{e.book || "—"}</span>
-                  <span className="text-[9px] font-mono text-[#6b7068]">{line > 0 ? "+" : ""}{line}</span>
+                  <span className="text-[9px] font-mono text-[#6b7068]">{dLine > 0 ? "+" : ""}{dLine}</span>
                   <span className="text-[9px] font-mono text-[#6b7068]">${stakeDollars.toLocaleString()}</span>
                   <span className="text-[10px] font-bold font-mono text-right" style={{ color: hasLive ? liveColor : oColor }}>
                     {e.graded_at !== null
@@ -715,7 +718,7 @@ export default function OpsPage() {
                         <div className="flex-1 flex flex-col items-end justify-center gap-1">
                           {g.line !== null && (
                             <span className="text-[10px] font-bold font-mono text-white">
-                              {betTeam ? abbrevTeam(betTeam) : ""} {g.line > 0 ? "+" : ""}{g.line}
+                              {betTeam ? abbrevTeam(betTeam) : ""} {(() => { const dl = g.bet_side === "home" ? g.line : -g.line; return `${dl > 0 ? "+" : ""}${dl}`; })()}
                             </span>
                           )}
                           <span className="text-[10px] font-bold" style={{ color: coverColor }}>{coverText}</span>
@@ -723,7 +726,7 @@ export default function OpsPage() {
                             <span className="text-[9px] text-[#4a524a] font-mono">
                               margin {g.bet_side === "home"
                                 ? ((betScore - oppScore) + g.line > 0 ? "+" : "") + ((betScore - oppScore) + g.line).toFixed(1)
-                                : ((oppScore - betScore) + (-g.line) > 0 ? "+" : "") + ((oppScore - betScore) - g.line).toFixed(1)} vs spread
+                                : ((betScore - oppScore) - g.line > 0 ? "+" : "") + ((betScore - oppScore) - g.line).toFixed(1)} vs spread
                             </span>
                           )}
                         </div>
@@ -836,7 +839,7 @@ export default function OpsPage() {
                           {abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}
                         </span>
                         <span className="text-[11px] font-bold font-mono shrink-0" style={{ color: sigColor(s.signal_type) }}>
-                          {s.bet_side === "home" ? abbrevTeam(s.home_team) : abbrevTeam(s.away_team)} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}
+                          {s.bet_side === "home" ? abbrevTeam(s.home_team) : abbrevTeam(s.away_team)} {(() => { const dl = s.bet_side === "home" ? s.line_at_signal : -s.line_at_signal; return `${dl > 0 ? "+" : ""}${dl}`; })()}
                         </span>
                         <Tag label={sigLabel(s.signal_type)} color={sigColor(s.signal_type)} />
                         {s.status === "proxy_captured" && <Tag label="proxy ✓" color="#f5c062" />}
@@ -909,7 +912,7 @@ export default function OpsPage() {
                       {abbrevTeam(s.away_team)} @ {abbrevTeam(s.home_team)}
                     </span>
                     <span className="text-[10px] font-bold font-mono" style={{ color: sigColor(s.signal_type) }}>
-                      {s.bet_side === "home" ? abbrevTeam(s.home_team) : abbrevTeam(s.away_team)} {s.line_at_signal > 0 ? "+" : ""}{s.line_at_signal}
+                      {s.bet_side === "home" ? abbrevTeam(s.home_team) : abbrevTeam(s.away_team)} {(() => { const dl = s.bet_side === "home" ? s.line_at_signal : -s.line_at_signal; return `${dl > 0 ? "+" : ""}${dl}`; })()}
                     </span>
                     <span className="flex items-center gap-1 text-[8px] font-bold text-[#4a524a] uppercase tracking-wider shrink-0">
                       <Clock className="h-2.5 w-2.5" /> grading pending
@@ -990,6 +993,7 @@ export default function OpsPage() {
                   const isPush = e.graded_at !== null && e.outcome === null;
                   const oColor = e.outcome === 1 ? "#3ee68a" : e.outcome === 0 ? "#ef4444" : isPush ? "#6b7068" : "#3a4033";
                   const line = e.fill_line ?? e.signal_line;
+                  const dLine = e.bet_side === "home" ? line : -line;
                   const unitVal = realSummary?.unit_value ?? 100;
                   const stakeDollars = e.stake * unitVal;
                   const pnlDollars = e.pnl_units !== null ? e.pnl_units * unitVal : null;
@@ -1001,10 +1005,10 @@ export default function OpsPage() {
                         {e.away_team && e.home_team ? `${abbrevTeam(e.away_team)} @ ${abbrevTeam(e.home_team)}` : "—"}
                       </span>
                       <span className="text-[10px] font-bold font-mono text-white">
-                        {e.bet_side === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {line > 0 ? "+" : ""}{line}
+                        {e.bet_side === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {dLine > 0 ? "+" : ""}{dLine}
                       </span>
                       <span className="text-[9px] text-[#4a524a] truncate">{e.book || "—"}</span>
-                      <span className="text-[9px] font-mono text-[#6b7068]">{line > 0 ? "+" : ""}{line}</span>
+                      <span className="text-[9px] font-mono text-[#6b7068]">{dLine > 0 ? "+" : ""}{dLine}</span>
                       <span className="text-[9px] font-mono text-[#6b7068]">${stakeDollars.toLocaleString()}</span>
                       <span className="text-[10px] font-bold font-mono text-right" style={{ color: oColor }}>
                         {e.graded_at === null
@@ -1158,7 +1162,7 @@ export default function OpsPage() {
                         <span className="text-[9px] text-[#2e3328] font-mono">#{s.id}</span>
                         <span className="text-[9px] text-[#4a524a]">{fmtDate(s.game_date)}</span>
                         <span className="text-[10px] text-[#9ca39a] truncate">{abbrevTeam(s.away)} @ {abbrevTeam(s.home)}</span>
-                        <span className="text-[10px] font-bold font-mono text-white">{s.side === "home" ? abbrevTeam(s.home) : abbrevTeam(s.away)} {s.line > 0 ? "+" : ""}{s.line}</span>
+                        <span className="text-[10px] font-bold font-mono text-white">{s.side === "home" ? abbrevTeam(s.home) : abbrevTeam(s.away)} {(() => { const dl = s.side === "home" ? s.line : -s.line; return `${dl > 0 ? "+" : ""}${dl}`; })()}</span>
                         <span className="text-[10px] font-bold font-mono" style={{ color: green(s.clv) }}>{fmtClv(s.clv)}</span>
                         <span className="text-[9px] text-[#4a524a]">{s.src && s.src !== "pinnacle" ? "fallback" : "same-bk"}</span>
                         <span className={cn("text-[9px] font-bold text-right", s.win === 1 ? "text-[#3ee68a]" : "text-[#ef4444]")}>
