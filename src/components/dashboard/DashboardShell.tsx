@@ -8,7 +8,7 @@ import BetSlip from "@/components/BetSlip";
 import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
 import AskAce from "@/components/AskAce";
-import { Search, Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
+import { Search, Sparkles, AlertTriangle, RefreshCw, Star, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { checkAlertsAgainst, fireNotification, type PriceAlert } from "@/lib/alerts";
 
@@ -86,8 +86,6 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   const [signalFilter, setSignalFilter] = useState<"none" | "high" | "volatile" | "new">("none");
   const [movementMap, setMovementMap] = useState<Record<string, Record<string, "up" | "down">>>({});
   const [showAskAce, setShowAskAce] = useState(false);
-  const [pinnedToast, setPinnedToast] = useState<{ label: string } | null>(null);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const prevGamesRef = useRef<Game[]>(initialGames);
   const serverAlertsRef = useRef<PriceAlert[]>([]);
@@ -218,7 +216,6 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   }
 
   function toggleWatch(id: string) {
-    const game = games.find((g) => g.id === id);
     setWatchlist((prev) => {
       const n = new Set(prev);
       if (n.has(id)) {
@@ -231,11 +228,6 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ gameId: id }),
         }).catch(() => {});
-        // Show toast
-        const label = game ? `${game.away_team.split(" ").at(-1)} @ ${game.home_team.split(" ").at(-1)}` : "Game";
-        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-        setPinnedToast({ label });
-        toastTimerRef.current = setTimeout(() => setPinnedToast(null), 4000);
       }
       return n;
     });
@@ -368,6 +360,93 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
             <span />
           </div>
 
+          {/* ── Watching rail ─────────────────────────────────────────────── */}
+          {watchlist.size > 0 && (() => {
+            const watchedGames = Array.from(watchlist)
+              .map(id => games.find(g => g.id === id))
+              .filter(Boolean) as Game[];
+            if (watchedGames.length === 0) return null;
+            return (
+              <div className="border-b border-[#22251f] bg-[#0b0d0b]">
+                <div className="flex items-center gap-2 px-5 pt-3 pb-1.5">
+                  <Star className="h-3 w-3 text-[#3ee68a] fill-current" />
+                  <span className="text-[9px] font-bold text-[#3ee68a] uppercase tracking-widest">Watching</span>
+                  <span className="text-[9px] text-[#2e3328] font-mono">{watchedGames.length}</span>
+                </div>
+                <div className="divide-y divide-[#161a16]">
+                  {watchedGames.map(g => {
+                    const isLive = g.status === "live";
+                    const isFinal = g.status === "final";
+                    const hs = g.scoreboard?.home_score != null ? Number(g.scoreboard.home_score) : null;
+                    const as_ = g.scoreboard?.away_score != null ? Number(g.scoreboard.away_score) : null;
+                    const clock = g.scoreboard?.clock;
+                    const period = g.scoreboard?.period;
+                    // Best spread line (home convention)
+                    const allSpreads = g.bookmakers.flatMap(b => b.markets.spreads ?? []);
+                    const homeSpread = allSpreads.find(s => s.name === g.home_team);
+                    const homeLine = homeSpread?.point ?? null;
+                    // Cover margin from home perspective
+                    let coverMargin: number | null = null;
+                    if (hs !== null && as_ !== null && homeLine !== null) {
+                      coverMargin = (hs - as_) + homeLine;
+                    }
+                    const awayAbbr = g.away_team.split(" ").at(-1)!;
+                    const homeAbbr = g.home_team.split(" ").at(-1)!;
+                    return (
+                      <div key={g.id} className="flex items-center gap-3 px-5 py-2.5">
+                        {/* Matchup */}
+                        <span className="text-[11px] font-medium text-white w-[130px] shrink-0 truncate">
+                          {awayAbbr} <span className="text-[#3a4033]">@</span> {homeAbbr}
+                        </span>
+                        {/* Live/Final/Time */}
+                        {isLive ? (
+                          <span className="text-[9px] font-bold text-[#ef4444] shrink-0 flex items-center gap-1">
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse inline-block" />
+                            {period ? `Q${period}` : "LIVE"}{clock ? ` ${clock}` : ""}
+                          </span>
+                        ) : isFinal ? (
+                          <span className="text-[9px] text-[#4a524a] shrink-0">FINAL</span>
+                        ) : (
+                          <span className="text-[9px] text-[#4a524a] shrink-0">
+                            {new Date(g.commence_time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                          </span>
+                        )}
+                        {/* Score */}
+                        {hs !== null && as_ !== null ? (
+                          <span className="text-[13px] font-black font-mono tabular-nums text-white shrink-0">
+                            {as_}–{hs}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] text-[#2e3328]">no score yet</span>
+                        )}
+                        {/* Spread */}
+                        {homeLine !== null && (
+                          <span className="text-[9px] font-mono text-[#4a524a] shrink-0">
+                            {homeAbbr} {homeLine > 0 ? "+" : ""}{homeLine}
+                          </span>
+                        )}
+                        {/* Cover status (home perspective) */}
+                        {coverMargin !== null && (
+                          <span className="text-[10px] font-bold shrink-0" style={{ color: coverMargin > 0 ? "#3ee68a" : coverMargin < 0 ? "#ef4444" : "#6b7068" }}>
+                            {homeAbbr} {coverMargin > 0 ? `+${coverMargin.toFixed(1)} ✓` : coverMargin < 0 ? `${coverMargin.toFixed(1)} ✗` : "PUSH"}
+                          </span>
+                        )}
+                        {/* Unstar */}
+                        <button
+                          onClick={() => toggleWatch(g.id)}
+                          className="ml-auto text-[#3ee68a] hover:text-[#ef4444] transition-colors"
+                          title="Remove from watching"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {liveGames.length > 0 && (
             <>
               <div className="flex items-center gap-2 px-5 py-1.5 bg-[#ef4444]/[0.03] border-b border-[#ef4444]/10">
@@ -440,21 +519,6 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
       </div>
 
       {showAskAce && <AskAce onClose={() => setShowAskAce(false)} />}
-
-      {/* Star-pin toast */}
-      {pinnedToast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl border border-[#3ee68a]/30 bg-[#0d1109] px-4 py-3 shadow-[0_0_20px_rgba(62,230,138,0.12)]">
-          <span className="text-[#3ee68a] text-[12px]">★</span>
-          <div>
-            <p className="text-[11px] font-semibold text-white">{pinnedToast.label} pinned to Live Tracker</p>
-            <p className="text-[9px] text-[#4a524a]">View in Ops dashboard → Live Watch</p>
-          </div>
-          <a href="/dashboard/ops" className="text-[9px] font-bold text-[#3ee68a] border border-[#3ee68a]/25 rounded-lg px-2.5 py-1 hover:bg-[#3ee68a]/8 transition-colors ml-2 whitespace-nowrap">
-            Go to Ops →
-          </a>
-          <button onClick={() => setPinnedToast(null)} className="text-[#2e3328] hover:text-[#6b7068] ml-1 text-[12px] leading-none">✕</button>
-        </div>
-      )}
     </div>
   );
 }
