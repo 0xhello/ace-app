@@ -88,9 +88,14 @@ def _run_task(module: str, *extra_args: str) -> None:
     started_at = datetime.now(timezone.utc).isoformat()
     error: Optional[str] = None
     try:
-        result = subprocess.run(cmd, capture_output=False, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if result.stdout:
+            print(result.stdout, end="", flush=True)
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr, flush=True)
         if result.returncode != 0:
-            error = f"exit code {result.returncode}"
+            err_lines = [l.strip() for l in result.stderr.splitlines() if l.strip()]
+            error = err_lines[-1] if err_lines else f"exit code {result.returncode}"
             print(f"  [worker] {module} exited {result.returncode}", flush=True)
     except subprocess.TimeoutExpired:
         error = "timed out after 120s"

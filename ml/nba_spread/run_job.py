@@ -34,10 +34,20 @@ def main() -> None:
     try:
         result = subprocess.run(
             [sys.executable, "-m", module, *extra_args],
+            capture_output=True,
+            text=True,
             timeout=90,
         )
+        # Print output so it appears in Railway logs
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+
         if result.returncode != 0:
-            error = f"exit code {result.returncode}"
+            # Store the last non-empty stderr line as the error snippet
+            err_lines = [l.strip() for l in result.stderr.splitlines() if l.strip()]
+            error = err_lines[-1] if err_lines else f"exit code {result.returncode}"
     except subprocess.TimeoutExpired:
         error = "timed out after 90s"
     except Exception as e:
