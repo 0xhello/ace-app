@@ -93,6 +93,7 @@ interface Execution {
   home_team?: string; away_team?: string; game_date?: string; signal_type?: string;
   live_home_score?: number; live_away_score?: number;
   live_covering?: boolean | null; live_completed?: boolean;
+  pick_side?: string | null; is_bet?: number | null;
 }
 interface ExecSummary {
   total: number; graded: number; pending: number;
@@ -609,9 +610,11 @@ export default function OpsPage() {
               const pnlDollars = e.pnl_units !== null ? e.pnl_units * signalTrack.unit_value : null;
               const stakeDollars = e.stake * signalTrack.unit_value;
               const line = e.fill_line ?? e.signal_line;
-              // line_at_signal / fill_line store the HOME team's spread (home convention).
-              // Negate for away bets to show the bet team's actual line.
-              const dLine = e.bet_side === "home" ? line : -line;
+              // Use pick_side (model's endorsement) for display; fall back to bet_side.
+              // is_bet=0 means the model rejected this signal — mark it clearly.
+              const modelRejected = e.is_bet === 0;
+              const displaySide = e.pick_side ?? e.bet_side;
+              const dLine = displaySide === "home" ? line : -line;
 
               // Live status for open bets
               const hasLive = e.graded_at === null && e.live_home_score !== undefined && e.live_away_score !== undefined;
@@ -621,21 +624,22 @@ export default function OpsPage() {
               const liveCover = hasLive ? e.live_covering : undefined;
               const liveColor = liveCover === true ? "#3ee68a" : liveCover === false ? "#ef4444" : "#6b7068";
               const liveScore = hasLive
-                ? (e.bet_side === "home"
+                ? (displaySide === "home"
                     ? `${e.live_home_score}-${e.live_away_score}`
                     : `${e.live_away_score}-${e.live_home_score}`)
                 : null;
               const isPastGame = e.game_date ? e.game_date < today : false;
 
               return (
-                <div key={e.id} className="grid grid-cols-[40px_52px_1fr_76px_60px_52px_56px_72px] gap-2 items-center px-4 py-2.5 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors">
+                <div key={e.id} className={`grid grid-cols-[40px_52px_1fr_76px_60px_52px_56px_72px] gap-2 items-center px-4 py-2.5 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors ${modelRejected ? "opacity-50" : ""}`}>
                   <span className="text-[9px] text-[#2e3328] font-mono">#{e.signal_id}</span>
                   <span className="text-[9px] text-[#4a524a]">{e.game_date ? fmtDate(e.game_date) : "—"}</span>
                   <span className="text-[10px] text-[#9ca39a] truncate">
                     {e.away_team && e.home_team ? `${abbrevTeam(e.away_team)} @ ${abbrevTeam(e.home_team)}` : "—"}
                   </span>
-                  <span className="text-[10px] font-bold font-mono text-white">
-                    {e.bet_side === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {dLine > 0 ? "+" : ""}{dLine}
+                  <span className="text-[10px] font-bold font-mono" style={{ color: modelRejected ? "#6b7068" : "white" }}>
+                    {displaySide === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {dLine > 0 ? "+" : ""}{dLine}
+                    {modelRejected && <span className="ml-1 text-[8px] text-[#ef4444] font-bold">✗ rejected</span>}
                   </span>
                   <span className="text-[9px] text-[#4a524a] truncate">{e.book || "—"}</span>
                   <span className="text-[9px] font-mono text-[#6b7068]">{dLine > 0 ? "+" : ""}{dLine}</span>
@@ -993,7 +997,8 @@ export default function OpsPage() {
                   const isPush = e.graded_at !== null && e.outcome === null;
                   const oColor = e.outcome === 1 ? "#3ee68a" : e.outcome === 0 ? "#ef4444" : isPush ? "#6b7068" : "#3a4033";
                   const line = e.fill_line ?? e.signal_line;
-                  const dLine = e.bet_side === "home" ? line : -line;
+                  const displaySide = e.pick_side ?? e.bet_side;
+                  const dLine = displaySide === "home" ? line : -line;
                   const unitVal = realSummary?.unit_value ?? 100;
                   const stakeDollars = e.stake * unitVal;
                   const pnlDollars = e.pnl_units !== null ? e.pnl_units * unitVal : null;
@@ -1005,7 +1010,7 @@ export default function OpsPage() {
                         {e.away_team && e.home_team ? `${abbrevTeam(e.away_team)} @ ${abbrevTeam(e.home_team)}` : "—"}
                       </span>
                       <span className="text-[10px] font-bold font-mono text-white">
-                        {e.bet_side === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {dLine > 0 ? "+" : ""}{dLine}
+                        {displaySide === "home" ? abbrevTeam(e.home_team ?? "") : abbrevTeam(e.away_team ?? "")} {dLine > 0 ? "+" : ""}{dLine}
                       </span>
                       <span className="text-[9px] text-[#4a524a] truncate">{e.book || "—"}</span>
                       <span className="text-[9px] font-mono text-[#6b7068]">{dLine > 0 ? "+" : ""}{dLine}</span>

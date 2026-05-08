@@ -33,7 +33,7 @@ try:
     else:
         rows = conn.execute(
             """SELECT e.*, s.home_team, s.away_team, s.game_date, s.signal_type, s.game_id,
-                      p.home_cover_prob, p.edge_vs_pinnacle
+                      p.home_cover_prob, p.edge_vs_pinnacle, p.pick_side, p.is_bet
                FROM execution_log e
                JOIN signal_log s ON s.id = e.signal_id
                LEFT JOIN predictions p ON p.game_id = s.game_id
