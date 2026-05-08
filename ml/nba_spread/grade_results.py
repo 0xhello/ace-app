@@ -213,7 +213,7 @@ def run(days_back: int = 3, void_stale: bool = False, stale_days: int = 3) -> No
                 (r["id"],)
             ).fetchone()
             _conn.close()
-            _endorsed = _pred is None or _pred["is_bet"] == 1  # no prediction yet → give benefit of doubt
+            _endorsed = _pred is None or _pred[0] == 1  # no prediction yet → give benefit of doubt
             if _row and not _has_paper and _endorsed:
                 log_paper_execution(r["id"], _row[2] or "", _row[1], _row[0], notes="auto-backfill")
                 print(f"           → paper bet backfilled for signal #{r['id']}")

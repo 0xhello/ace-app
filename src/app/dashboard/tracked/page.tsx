@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
 import { formatAmericanOdds } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { TrendingUp, Clock, CheckCircle2, XCircle, BarChart2, RefreshCw } from "lucide-react";
+import { TrendingUp, Clock, CheckCircle2, XCircle, BarChart2, RefreshCw, Star } from "lucide-react";
 
 interface BetRecord {
   id: string;
@@ -160,7 +161,9 @@ function BetCard({ bet, onSettle }: { bet: BetRecord; onSettle: (id: string, s: 
 export default function TrackedPage() {
   const [bets, setBets] = useState<BetRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"active" | "history" | "stats">("active");
+  const [tab, setTab] = useState<"watching" | "active" | "history" | "stats">("active");
+  const [watchedGames, setWatchedGames] = useState<any[]>([]);
+  const [watchLoading, setWatchLoading] = useState(true);
 
   const fetchBets = useCallback(async () => {
     try {
@@ -175,6 +178,22 @@ export default function TrackedPage() {
   }, []);
 
   useEffect(() => { fetchBets(); }, [fetchBets]);
+
+  useEffect(() => {
+    async function loadWatching() {
+      try {
+        const [wl, board] = await Promise.all([
+          fetch("/api/watchlist").then((r) => r.json()),
+          fetch("/api/board").then((r) => r.json()),
+        ]);
+        const ids = new Set<string>(wl.gameIds ?? []);
+        setWatchedGames((board.games ?? []).filter((g: any) => ids.has(g.id)));
+      } finally {
+        setWatchLoading(false);
+      }
+    }
+    loadWatching();
+  }, []);
 
   async function settle(id: string, status: BetRecord["status"]) {
     await fetch(`/api/bets/${id}`, {
@@ -224,6 +243,7 @@ export default function TrackedPage() {
 
         <div className="flex gap-1 mb-5 border-b border-[#22251f] pb-0">
           {([
+            { key: "watching", label: `Watching (${watchedGames.length})` },
             { key: "active", label: `Active (${pending.length})` },
             { key: "history", label: `History (${settled.length})` },
             { key: "stats", label: "Confidence Accuracy" },
@@ -242,6 +262,84 @@ export default function TrackedPage() {
             </button>
           ))}
         </div>
+
+        {tab === "watching" && (
+          <div className="space-y-3">
+            {watchLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-4 w-4 text-[#3a4033] animate-spin" />
+              </div>
+            ) : watchedGames.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#2e332a] py-12 text-center">
+                <Star className="h-6 w-6 text-[#27272a] mx-auto mb-2" />
+                <p className="text-[13px] text-[#6b7068] font-medium">No watched games</p>
+                <p className="text-[11px] text-[#6b7068] mt-1">Star a game on the main board to track it here.</p>
+              </div>
+            ) : watchedGames.map((g: any) => {
+              const homeAbbr = g.home_team.split(" ").at(-1);
+              const awayAbbr = g.away_team.split(" ").at(-1);
+              const isLive = g.status === "live";
+              const hs = g.scoreboard?.home_score != null ? Number(g.scoreboard.home_score) : null;
+              const as_ = g.scoreboard?.away_score != null ? Number(g.scoreboard.away_score) : null;
+              const allSpreads = g.bookmakers?.flatMap((b: any) => b.markets?.spreads ?? []) ?? [];
+              const homeSpread = allSpreads.find((s: any) => s.name === g.home_team);
+              const homeLine = homeSpread?.point ?? null;
+              let coverMargin: number | null = null;
+              if (hs !== null && as_ !== null && homeLine !== null) {
+                coverMargin = (hs - as_) + homeLine;
+              }
+              const coverTeam = coverMargin !== null && coverMargin !== 0
+                ? (coverMargin > 0 ? homeAbbr : awayAbbr)
+                : null;
+              return (
+                <Link href={`/dashboard/tracked/${g.id}`} key={g.id} className="block rounded-xl border border-[#22251f] bg-[#121412] p-4 hover:border-[#2e332a] transition-all group">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[12px] font-semibold text-white">{awayAbbr} @ {homeAbbr}</p>
+                      <p className="text-[10px] text-[#6b7068] mt-0.5">{g.sport_title} · {new Date(g.commence_time).toLocaleDateString([], { month: "short", day: "numeric" })}</p>
+                    </div>
+                    {isLive ? (
+                      <div className="text-right">
+                        <p className="text-[10px] font-bold text-[#ef4444] flex items-center gap-1 justify-end">
+                          <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse inline-block" />LIVE
+                        </p>
+                        {hs !== null && as_ !== null && (
+                          <p className="text-[16px] font-black font-mono text-white">{as_}–{hs}</p>
+                        )}
+                      </div>
+                    ) : hs !== null && as_ !== null ? (
+                      <div className="text-right">
+                        <p className="text-[10px] text-[#4a524a]">FINAL</p>
+                        <p className="text-[16px] font-black font-mono text-white">{as_}–{hs}</p>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-[#4a524a]">
+                        {new Date(g.commence_time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                      </p>
+                    )}
+                  </div>
+                  {(homeLine !== null || coverTeam) && (
+                    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[#22251f]">
+                      {homeLine !== null && (
+                        <span className="text-[10px] text-[#6b7068] font-mono">
+                          {homeAbbr} {homeLine > 0 ? "+" : ""}{homeLine}
+                        </span>
+                      )}
+                      {coverTeam && (
+                        <span className="text-[10px] font-bold text-[#3ee68a]">
+                          {coverTeam} covering ✓
+                        </span>
+                      )}
+                      <span className="ml-auto text-[10px] text-[#3ee68a] opacity-0 group-hover:opacity-100 transition-opacity font-medium">
+                        View intel →
+                      </span>
+                    </div>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        )}
 
         {tab === "active" && (
           <div className="space-y-3">

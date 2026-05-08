@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { PriceAlert } from "@/lib/alerts";
 import { requestNotificationPermission } from "@/lib/alerts";
 import { cn } from "@/lib/utils";
-import { Bell, BellOff, Plus, Trash2, CheckCircle2, Clock, X, RefreshCw } from "lucide-react";
+import { Bell, BellOff, Plus, Trash2, CheckCircle2, Clock, X, RefreshCw, Star } from "lucide-react";
 
 const MARKET_LABELS: Record<string, string> = { ml: "Moneyline", spread: "Spread", total: "Total" };
 const CONDITION_LABELS: Record<string, string> = { rises_above: "rises above", drops_below: "drops below" };
@@ -66,13 +66,24 @@ function AlertCard({ alert, onDelete, onDismiss }: { alert: PriceAlert; onDelete
   );
 }
 
-const BLANK = {
+type AlertForm = {
+  gameId: string;
+  matchup: string;
+  team: string;
+  market: "ml" | "spread" | "total";
+  side: "away" | "home" | "over" | "under";
+  condition: "rises_above" | "drops_below";
+  threshold: number;
+  book: string;
+};
+
+const BLANK: AlertForm = {
   gameId: "",
   matchup: "",
   team: "",
-  market: "ml" as const,
-  side: "away" as const,
-  condition: "drops_below" as const,
+  market: "ml",
+  side: "away",
+  condition: "drops_below",
   threshold: -110,
   book: "any",
 };
@@ -83,6 +94,7 @@ export default function AlertsPage() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ ...BLANK });
+  const [watchedGames, setWatchedGames] = useState<any[]>([]);
 
   const fetchAlerts = useCallback(async () => {
     try {
@@ -99,6 +111,18 @@ export default function AlertsPage() {
   useEffect(() => {
     fetchAlerts();
     if ("Notification" in window) setNotifPermission(Notification.permission);
+
+    async function loadWatching() {
+      try {
+        const [wl, board] = await Promise.all([
+          fetch("/api/watchlist").then((r) => r.json()),
+          fetch("/api/board").then((r) => r.json()),
+        ]);
+        const ids = new Set<string>(wl.gameIds ?? []);
+        setWatchedGames((board.games ?? []).filter((g: any) => ids.has(g.id)));
+      } catch {}
+    }
+    loadWatching();
   }, [fetchAlerts]);
 
   async function enableNotifications() {
@@ -261,6 +285,56 @@ export default function AlertsPage() {
               <button onClick={() => setShowForm(false)} className="px-4 py-2 rounded-lg border border-[#2e332a] text-[#6b7068] text-[11px] hover:text-[#d4d7d0] transition-colors">
                 Cancel
               </button>
+            </div>
+          </div>
+        )}
+
+        {watchedGames.length > 0 && (
+          <div className="mb-6">
+            <p className="text-[10px] text-[#6b7068] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Star className="h-3 w-3 fill-current text-[#3ee68a]" /> Watched Games
+            </p>
+            <div className="space-y-2">
+              {watchedGames.map((g: any) => {
+                const homeAbbr = g.home_team.split(" ").at(-1);
+                const awayAbbr = g.away_team.split(" ").at(-1);
+                const allSpreads = g.bookmakers?.flatMap((b: any) => b.markets?.spreads ?? []) ?? [];
+                const homeSpread = allSpreads.find((s: any) => s.name === g.home_team);
+                const homeLine = homeSpread?.point ?? null;
+                const spreadOdds = homeSpread?.price ?? -110;
+                const matchupLabel = `${awayAbbr} @ ${homeAbbr}`;
+                return (
+                  <div key={g.id} className="rounded-xl border border-[#22251f] bg-[#121412] p-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold text-white">{matchupLabel}</p>
+                      {homeLine !== null && (
+                        <p className="text-[10px] text-[#6b7068] mt-0.5">
+                          {homeAbbr} {homeLine > 0 ? "+" : ""}{homeLine} · {spreadOdds > 0 ? "+" : ""}{spreadOdds}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setForm({
+                          gameId: g.id,
+                          matchup: matchupLabel,
+                          team: g.home_team,
+                          market: "spread",
+                          side: "home",
+                          condition: "drops_below",
+                          threshold: spreadOdds,
+                          book: "any",
+                        });
+                        setShowForm(true);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#2e332a] text-[#6b7068] text-[10px] font-semibold hover:text-[#3ee68a] hover:border-[#3ee68a]/30 transition-colors"
+                    >
+                      <Bell className="h-3 w-3" /> Set alert
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

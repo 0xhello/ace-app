@@ -425,10 +425,10 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
                             {homeAbbr} {homeLine > 0 ? "+" : ""}{homeLine}
                           </span>
                         )}
-                        {/* Cover status (home perspective) */}
+                        {/* Cover status — show which team is currently covering */}
                         {coverMargin !== null && (
-                          <span className="text-[10px] font-bold shrink-0" style={{ color: coverMargin > 0 ? "#3ee68a" : coverMargin < 0 ? "#ef4444" : "#6b7068" }}>
-                            {homeAbbr} {coverMargin > 0 ? `+${coverMargin.toFixed(1)} ✓` : coverMargin < 0 ? `${coverMargin.toFixed(1)} ✗` : "PUSH"}
+                          <span className="text-[10px] font-bold shrink-0" style={{ color: coverMargin !== 0 ? "#3ee68a" : "#6b7068" }}>
+                            {coverMargin > 0 ? `${homeAbbr} covering ✓` : coverMargin < 0 ? `${awayAbbr} covering ✓` : "PUSH"}
                           </span>
                         )}
                         {/* Unstar */}
