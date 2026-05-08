@@ -9,7 +9,7 @@ Schedule (all times ET):
   Every 60s (within 6h of tip) / every 10min (otherwise) — odds snapshot + divergence check
   08:00 daily  — update_team_state
   09:00 daily  — grade_results
-  12:00 daily  — fetch_and_predict (full model run)
+  09:30 daily  — fetch_and_predict (full model run)
   15:30 daily  — check_injury_updates
   Sun 05:00    — player_values
   Sun 05:30    — fetch_team_styles + compute_archetypes + segment_model_performance
@@ -122,7 +122,7 @@ def _run_scheduled_tasks() -> None:
     if _daily_due("grade_results_latenight", hour=1):
         _run_task("ml.nba_spread.grade_results", "--days", "2")
 
-    if _daily_due("fetch_and_predict", hour=12):
+    if _daily_due("fetch_and_predict", hour=9, minute=30):
         _run_task("ml.nba_spread.fetch_and_predict")
 
     if _daily_due("check_injury_updates", hour=15, minute=30):

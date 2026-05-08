@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import { spawnSync } from "child_process";
 import path from "path";
@@ -123,6 +123,34 @@ except Exception as e:
   } catch {
     return { lastPollAt: null, lastPollOk: null, jobMeta: {} };
   }
+}
+
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}));
+  const job = body?.job ?? "fetch_and_predict"; // "fetch_and_predict" | "grade_results" | "both"
+
+  const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
+
+  function runJob(module: string, extraArgs: string[] = []): { ok: boolean; output: string } {
+    const result = spawnSync(
+      "python3", ["-m", module, ...extraArgs],
+      { encoding: "utf-8", timeout: 120_000, cwd: appRoot }
+    );
+    const output = (result.stdout ?? "") + (result.stderr ?? "");
+    return { ok: result.status === 0, output: output.slice(-2000) };
+  }
+
+  const results: Record<string, { ok: boolean; output: string }> = {};
+
+  if (job === "grade_results" || job === "both") {
+    results.grade = runJob("ml.nba_spread.grade_results", ["--days", "2"]);
+  }
+  if (job === "fetch_and_predict" || job === "both") {
+    results.fetch = runJob("ml.nba_spread.fetch_and_predict");
+  }
+
+  const allOk = Object.values(results).every((r) => r.ok);
+  return NextResponse.json({ ok: allOk, results }, { status: allOk ? 200 : 500 });
 }
 
 export async function GET() {

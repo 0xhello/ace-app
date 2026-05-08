@@ -293,6 +293,7 @@ export default function OpsPage() {
   const [perfTab,     setPerfTab]     = useState<"all" | "bets" | "conf" | "source">("all");
   const [loggingBet,  setLoggingBet]  = useState<number | null>(null);
   const [liveWatch,   setLiveWatch]   = useState<WatchedGame[]>([]);
+  const [running,     setRunning]     = useState<null | "fetch" | "grade" | "both">(null);
 
   // ── Invite codes state ────────────────────────────────────────────────────────
   interface InviteCode {
@@ -387,6 +388,20 @@ export default function OpsPage() {
     }
   }
 
+  async function runPipeline(job: "fetch" | "grade" | "both") {
+    setRunning(job);
+    try {
+      await fetch("/api/ops/pipeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job: job === "fetch" ? "fetch_and_predict" : job === "grade" ? "grade_results" : "both" }),
+      });
+      await loadAll();
+    } finally {
+      setRunning(null);
+    }
+  }
+
   // ── Derived ──────────────────────────────────────────────────────────────────
 
   const m      = pipeline?.model;
@@ -458,8 +473,24 @@ export default function OpsPage() {
             <h1 className="text-[18px] font-bold text-white tracking-tight">ACE Ops</h1>
             <Tag label="internal" />
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <span className="text-[10px] text-[#3a4033] font-mono">{today}</span>
+            <button
+              onClick={() => runPipeline("grade")}
+              disabled={running !== null}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#1e2220] text-[10px] font-semibold text-[#6b7068] hover:text-[#9ca39a] hover:border-[#2e332a] transition-colors disabled:opacity-40"
+            >
+              {running === "grade" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+              Grade
+            </button>
+            <button
+              onClick={() => runPipeline("fetch")}
+              disabled={running !== null}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#3ee68a]/20 bg-[#3ee68a]/5 text-[10px] font-bold text-[#3ee68a] hover:bg-[#3ee68a]/10 transition-colors disabled:opacity-40"
+            >
+              {running === "fetch" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+              Run Picks
+            </button>
             <button onClick={loadAll} className="flex items-center gap-1.5 text-[10px] text-[#4a524a] hover:text-[#9ca39a] transition-colors">
               <RefreshCw className="h-3 w-3" />
               {lastRefresh ? `${Math.round((Date.now() - lastRefresh.getTime()) / 1000)}s` : "—"}
