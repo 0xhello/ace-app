@@ -175,6 +175,19 @@ function fmtDollars(units: number | null, unitVal: number) {
   const d = units * unitVal;
   return (d >= 0 ? "+" : "") + "$" + Math.abs(d).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
+const TEAM_CODE_LABELS: Record<string, string> = {
+  atl: "Hawks", bos: "Celtics", bkn: "Nets", cha: "Hornets", chi: "Bulls",
+  cle: "Cavaliers", dal: "Mavericks", den: "Nuggets", det: "Pistons", gs: "Warriors",
+  hou: "Rockets", ind: "Pacers", lac: "Clippers", lal: "Lakers", mem: "Grizzlies",
+  mia: "Heat", mil: "Bucks", min: "Timberwolves", no: "Pelicans", ny: "Knicks",
+  okc: "Thunder", orl: "Magic", phi: "76ers", phx: "Suns", por: "Trail Blazers",
+  sa: "Spurs", sac: "Kings", tor: "Raptors", utah: "Jazz", wsh: "Wizards",
+};
+
+function teamLabelFromCode(code: string) {
+  return TEAM_CODE_LABELS[code.toLowerCase()] ?? code.toUpperCase();
+}
+
 function abbrevTeam(full: string)            { const p = full.split(" "); const l = p[p.length - 1]; return (l.length > 6 ? l.slice(0,3) : l).toUpperCase(); }
 
 function kellyColor(k: number | null): string {
@@ -1448,15 +1461,18 @@ export default function OpsPage() {
                       <div className="mt-5">
                         <p className="text-[9px] text-[#3a4033] uppercase tracking-widest mb-3">Team archetypes</p>
                         <div className="rounded-xl border border-[#181c18] bg-[#0d0f0d] overflow-hidden">
-                          <div className="grid grid-cols-[44px_76px_96px_68px_88px_60px_56px_56px] gap-2 px-4 py-2.5 border-b border-[#181c18]">
+                          <div className="grid grid-cols-[132px_76px_96px_68px_88px_60px_56px_56px] gap-2 px-4 py-2.5 border-b border-[#181c18]">
                             {["Team","Pace","Offense","Defense","Movement","Clutch","oRtg","dRtg"].map(h => (
                               <span key={h} className="text-[8px] font-bold uppercase tracking-[0.14em] text-[#2e3328]">{h}</span>
                             ))}
                           </div>
                           <div className="max-h-72 overflow-y-auto">
                             {teams.map(([code, a]) => (
-                              <div key={code} className="grid grid-cols-[44px_76px_96px_68px_88px_60px_56px_56px] gap-2 items-center px-4 py-2 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors">
-                                <span className="text-[10px] font-bold text-white uppercase">{code}</span>
+                              <div key={code} className="grid grid-cols-[132px_76px_96px_68px_88px_60px_56px_56px] gap-2 items-center px-4 py-2 border-b border-[#0d0f0d] last:border-0 hover:bg-[#111412] transition-colors">
+                                <div className="min-w-0">
+                                  <span className="text-[10px] font-bold text-white uppercase">{code}</span>
+                                  <span className="text-[9px] text-[#6b7068] ml-2 truncate">{teamLabelFromCode(code)}</span>
+                                </div>
                                 <span className="text-[9px] font-mono" style={{ color: tierC(a.pace_tier) }}>{a.pace_tier}</span>
                                 <span className="text-[9px] font-mono" style={{ color: tierC(a.offense_style) }}>{a.offense_style.replace("_"," ")}</span>
                                 <span className="text-[9px] font-mono" style={{ color: tierC(a.defense_tier) }}>{a.defense_tier}</span>
