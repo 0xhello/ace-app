@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
-import { spawnSync, spawn } from "child_process";
+import { spawnSync } from "child_process";
 import path from "path";
 
 export const dynamic = "force-dynamic";
@@ -127,28 +127,33 @@ except Exception as e:
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const job = body?.job ?? "fetch_and_predict"; // "fetch_and_predict" | "grade_results" | "both"
+  const job = body?.job ?? "fetch_and_predict";
 
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
 
-  // Fire jobs in background — don't block the HTTP response (Railway proxy times out at ~60s)
-  function fireJob(module: string, extraArgs: string[] = []) {
-    const child = spawn("python3", ["-m", module, ...extraArgs], {
-      cwd: appRoot,
-      detached: true,
-      stdio: "ignore",
-    });
-    child.unref(); // let it run after response is sent
+  // Run via run_job wrapper — updates the meta table before/after so the
+  // ops job-status strip reflects the run immediately on next loadAll().
+  function runJob(module: string, extraArgs: string[] = []): { ok: boolean; output: string } {
+    const result = spawnSync(
+      "python3",
+      ["-m", "ml.nba_spread.run_job", module, ...extraArgs],
+      { encoding: "utf-8", timeout: 100_000, cwd: appRoot }
+    );
+    const output = ((result.stdout ?? "") + (result.stderr ?? "")).slice(-3000);
+    return { ok: (result.status ?? 1) === 0, output };
   }
+
+  const results: Record<string, { ok: boolean; output: string }> = {};
 
   if (job === "grade_results" || job === "both") {
-    fireJob("ml.nba_spread.grade_results", ["--days", "2"]);
+    results.grade = runJob("ml.nba_spread.grade_results", ["--days", "2"]);
   }
   if (job === "fetch_and_predict" || job === "both") {
-    fireJob("ml.nba_spread.fetch_and_predict");
+    results.fetch = runJob("ml.nba_spread.fetch_and_predict");
   }
 
-  return NextResponse.json({ ok: true, started: job });
+  const allOk = Object.values(results).every((r) => r.ok);
+  return NextResponse.json({ ok: allOk, results });
 }
 
 export async function GET() {

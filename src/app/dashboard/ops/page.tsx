@@ -390,27 +390,20 @@ export default function OpsPage() {
 
   async function runPipeline(job: "fetch" | "grade" | "both") {
     setRunning(job);
-    // Fire-and-forget POST — backend spawns the job and returns immediately
-    fetch("/api/ops/pipeline", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ job: job === "fetch" ? "fetch_and_predict" : job === "grade" ? "grade_results" : "both" }),
-    }).catch(() => {});
-
-    // Poll every 8s for up to 2 minutes, then stop
-    let polls = 0;
-    const maxPolls = 15;
-    const interval = setInterval(async () => {
+    try {
+      // Blocking request — backend runs the job synchronously and returns when done.
+      // Railway web services support up to 120s; grade takes ~15s, fetch ~60s.
+      await fetch("/api/ops/pipeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job: job === "fetch" ? "fetch_and_predict" : job === "grade" ? "grade_results" : "both" }),
+      });
+    } catch {
+      // Network error — still reload so we at least get fresh state
+    } finally {
       await loadAll();
-      polls++;
-      if (polls >= maxPolls) {
-        clearInterval(interval);
-        setRunning(null);
-      }
-    }, 8_000);
-
-    // Also reload after a short delay for quick jobs (grade_results ~10s)
-    setTimeout(loadAll, 5_000);
+      setRunning(null);
+    }
   }
 
   // ── Derived ──────────────────────────────────────────────────────────────────
