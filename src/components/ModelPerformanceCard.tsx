@@ -180,7 +180,11 @@ export default function ModelPerformanceCard() {
                   {picks.map((p) => {
                     const hasInj = p.home_injury_impact > 0 || p.away_injury_impact > 0;
                     const injSide = p.home_injury_impact > p.away_injury_impact ? "home" : "away";
-                    const line = p.home_line >= 0 ? `+${p.home_line}` : String(p.home_line);
+                    const pickTeam = p.pick_side === "home"
+                      ? p.matchup.split(" @ ")[1] ?? "HOME"
+                      : p.matchup.split(" @ ")[0] ?? "AWAY";
+                    const pickLineValue = p.pick_side === "home" ? p.home_line : -p.home_line;
+                    const pickLine = pickLineValue > 0 ? `+${pickLineValue}` : String(pickLineValue);
                     const confPct = Math.round(p.pick_confidence * 100);
                     const confColor = confPct >= 62 ? "#3ee68a" : confPct >= 58 ? "#87d7aa" : "#a3aca0";
                     const edge = p.edge_vs_pinnacle;
@@ -212,7 +216,7 @@ export default function ModelPerformanceCard() {
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
                             <span className="text-[9px] text-[#6b7068]">
-                              {p.pick_side.toUpperCase()} {p.home_line !== 0 ? `(line ${line})` : ""}
+                              {pickTeam} {p.home_line !== 0 ? pickLine : "PK"}
                             </span>
                             {edgePct && (
                               <span className="text-[8px] font-mono font-semibold" style={{ color: edgeColor }}>
