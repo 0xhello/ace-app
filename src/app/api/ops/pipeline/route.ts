@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
-import { spawnSync } from "child_process";
+import { spawnSync, spawn } from "child_process";
 import path from "path";
 
 export const dynamic = "force-dynamic";
@@ -131,26 +131,24 @@ export async function POST(req: NextRequest) {
 
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
 
-  function runJob(module: string, extraArgs: string[] = []): { ok: boolean; output: string } {
-    const result = spawnSync(
-      "python3", ["-m", module, ...extraArgs],
-      { encoding: "utf-8", timeout: 120_000, cwd: appRoot }
-    );
-    const output = (result.stdout ?? "") + (result.stderr ?? "");
-    return { ok: result.status === 0, output: output.slice(-2000) };
+  // Fire jobs in background — don't block the HTTP response (Railway proxy times out at ~60s)
+  function fireJob(module: string, extraArgs: string[] = []) {
+    const child = spawn("python3", ["-m", module, ...extraArgs], {
+      cwd: appRoot,
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref(); // let it run after response is sent
   }
-
-  const results: Record<string, { ok: boolean; output: string }> = {};
 
   if (job === "grade_results" || job === "both") {
-    results.grade = runJob("ml.nba_spread.grade_results", ["--days", "2"]);
+    fireJob("ml.nba_spread.grade_results", ["--days", "2"]);
   }
   if (job === "fetch_and_predict" || job === "both") {
-    results.fetch = runJob("ml.nba_spread.fetch_and_predict");
+    fireJob("ml.nba_spread.fetch_and_predict");
   }
 
-  const allOk = Object.values(results).every((r) => r.ok);
-  return NextResponse.json({ ok: allOk, results }, { status: allOk ? 200 : 500 });
+  return NextResponse.json({ ok: true, started: job });
 }
 
 export async function GET() {

@@ -390,16 +390,27 @@ export default function OpsPage() {
 
   async function runPipeline(job: "fetch" | "grade" | "both") {
     setRunning(job);
-    try {
-      await fetch("/api/ops/pipeline", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job: job === "fetch" ? "fetch_and_predict" : job === "grade" ? "grade_results" : "both" }),
-      });
+    // Fire-and-forget POST — backend spawns the job and returns immediately
+    fetch("/api/ops/pipeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job: job === "fetch" ? "fetch_and_predict" : job === "grade" ? "grade_results" : "both" }),
+    }).catch(() => {});
+
+    // Poll every 8s for up to 2 minutes, then stop
+    let polls = 0;
+    const maxPolls = 15;
+    const interval = setInterval(async () => {
       await loadAll();
-    } finally {
-      setRunning(null);
-    }
+      polls++;
+      if (polls >= maxPolls) {
+        clearInterval(interval);
+        setRunning(null);
+      }
+    }, 8_000);
+
+    // Also reload after a short delay for quick jobs (grade_results ~10s)
+    setTimeout(loadAll, 5_000);
   }
 
   // ── Derived ──────────────────────────────────────────────────────────────────
@@ -481,7 +492,7 @@ export default function OpsPage() {
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#1e2220] text-[10px] font-semibold text-[#6b7068] hover:text-[#9ca39a] hover:border-[#2e332a] transition-colors disabled:opacity-40"
             >
               {running === "grade" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-              Grade
+              {running === "grade" ? "Grading…" : "Grade"}
             </button>
             <button
               onClick={() => runPipeline("fetch")}
@@ -489,7 +500,7 @@ export default function OpsPage() {
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#3ee68a]/20 bg-[#3ee68a]/5 text-[10px] font-bold text-[#3ee68a] hover:bg-[#3ee68a]/10 transition-colors disabled:opacity-40"
             >
               {running === "fetch" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-              Run Picks
+              {running === "fetch" ? "Running…" : "Run Picks"}
             </button>
             <button onClick={loadAll} className="flex items-center gap-1.5 text-[10px] text-[#4a524a] hover:text-[#9ca39a] transition-colors">
               <RefreshCw className="h-3 w-3" />
