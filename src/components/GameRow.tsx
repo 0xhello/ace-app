@@ -371,6 +371,15 @@ export default function GameRow({
   const marketConfidence = boardIntel?.market_confidence ?? {};
   const injuryAlerts: Array<{ playerName: string; status: string; teamAffected: "home" | "away"; teamName: string }> = boardIntel?.injury_alerts ?? [];
   const topModelSignal = boardIntel?.top_model_signal ?? null;
+  const topModelTeam = topModelSignal
+    ? (topModelSignal.bet_side === "home" ? home : away)
+    : null;
+  const topModelLine = topModelSignal?.line_at_signal != null
+    ? (topModelSignal.bet_side === "home" ? topModelSignal.line_at_signal : -topModelSignal.line_at_signal)
+    : null;
+  const topModelEdgePct = topModelSignal?.edge_vs_pinnacle != null
+    ? `${topModelSignal.edge_vs_pinnacle >= 0 ? "+" : ""}${(topModelSignal.edge_vs_pinnacle * 100).toFixed(1)}%`
+    : null;
   const noVigHomeProb: number | null = boardIntel?.no_vig_home_prob ?? null;
   const scoreboard = boardIntel?.scoreboard || game.scoreboard;
   const awayScore = scoreboard?.away_score;
@@ -520,17 +529,17 @@ export default function GameRow({
 
                   {topModelSignal && (
                     <span
-                      title={`ACE Model: ${topModelSignal.signal_type.replace(/_/g, " ")} · ${topModelSignal.bet_side} side${topModelSignal.line_at_signal != null ? ` at ${topModelSignal.line_at_signal > 0 ? "+" : ""}${topModelSignal.line_at_signal}` : ""}`}
+                      title={`ACE Model: ${topModelSignal.signal_type.replace(/_/g, " ")} · ${topModelTeam ?? topModelSignal.bet_side}${topModelLine != null ? ` ${topModelLine > 0 ? "+" : ""}${topModelLine}` : ""}${topModelEdgePct ? ` · edge ${topModelEdgePct}` : ""}`}
                       className="inline-flex items-center gap-1 rounded-[3px] bg-[#0b1a0f] border border-[#3ee68a]/30 px-[5px] py-[2px] text-[9px] font-semibold leading-none text-[#3ee68a]"
                     >
-                      ◆ ACE {topModelSignal.bet_side.toUpperCase()}
-                      {topModelSignal.line_at_signal != null && (
+                      ◆ ACE {topModelTeam ?? topModelSignal.bet_side.toUpperCase()}
+                      {topModelLine != null && (
                         <span className="text-[#3ee68a]/70">
-                          {topModelSignal.line_at_signal > 0 ? "+" : ""}{topModelSignal.line_at_signal}
+                          {topModelLine > 0 ? "+" : ""}{topModelLine}
                         </span>
                       )}
-                      {topModelSignal.edge_vs_pinnacle != null && topModelSignal.edge_vs_pinnacle > 0 && (
-                        <span className="text-[#3ee68a]/60">+{topModelSignal.edge_vs_pinnacle.toFixed(1)}%</span>
+                      {topModelEdgePct && (
+                        <span className="text-[#3ee68a]/60">{topModelEdgePct}</span>
                       )}
                     </span>
                   )}

@@ -48,6 +48,8 @@ try:
 
     result = []
     for r in rows:
+        raw_edge = r['edge_vs_pinnacle']
+        bet_edge = (raw_edge if r['bet_side'] == 'home' else -raw_edge) if raw_edge is not None else None
         result.append({
             'home_team': r['home_team'],
             'away_team': r['away_team'],
@@ -55,7 +57,7 @@ try:
             'signal_type': r['signal_type'],
             'line_at_signal': r['line_at_signal'],
             'home_cover_prob': r['home_cover_prob'],
-            'edge_vs_pinnacle': r['edge_vs_pinnacle'],
+            'edge_vs_pinnacle': bet_edge,
             'kelly_fraction': kelly(r['bet_side'], r['home_cover_prob']),
         })
     conn.close()

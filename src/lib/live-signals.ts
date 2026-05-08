@@ -187,18 +187,38 @@ function gameSignalToSignal(gs: GameSignal, gameId: string, idx: number): Signal
   };
 }
 
+function modelSignalLineValue(s: ModelSignal): number | null {
+  if (s.line_at_signal == null) return null;
+  return s.bet_side === "home" ? s.line_at_signal : -s.line_at_signal;
+}
+
+function modelSignalSideLabel(s: ModelSignal): string {
+  return s.bet_side === "home" ? s.home_team : s.away_team;
+}
+
+function formatModelSignalLine(s: ModelSignal): string | null {
+  const line = modelSignalLineValue(s);
+  if (line == null) return null;
+  return `${line > 0 ? "+" : ""}${line}`;
+}
+
+function formatEdgePct(edge: number | null | undefined): string | null {
+  if (edge == null) return null;
+  return `${edge >= 0 ? "+" : ""}${(edge * 100).toFixed(1)}%`;
+}
+
 const SIGNAL_TYPE_LABELS: Record<string, { title: string; detail: (s: ModelSignal) => string }> = {
   soft_book_divergence: {
     title: "ACE: Soft-book divergence from Pinnacle",
-    detail: (s) => `Model flagged a line discrepancy versus Pinnacle on the ${s.bet_side} spread${s.line_at_signal != null ? ` (line: ${s.line_at_signal > 0 ? "+" : ""}${s.line_at_signal})` : ""}.${s.edge_vs_pinnacle != null ? ` Edge vs Pinnacle: ${s.edge_vs_pinnacle.toFixed(1)}%.` : ""}${s.kelly_fraction != null && s.kelly_fraction > 0 ? ` Kelly: ${(s.kelly_fraction * 100).toFixed(1)}%.` : ""}`,
+    detail: (s) => `Model flagged a line discrepancy versus Pinnacle on ${modelSignalSideLabel(s)} spread${formatModelSignalLine(s) ? ` (${formatModelSignalLine(s)})` : ""}.${formatEdgePct(s.edge_vs_pinnacle) ? ` Edge vs Pinnacle: ${formatEdgePct(s.edge_vs_pinnacle)}.` : ""}${s.kelly_fraction != null && s.kelly_fraction > 0 ? ` Kelly: ${(s.kelly_fraction * 100).toFixed(1)}%.` : ""}`,
   },
   line_movement: {
     title: "ACE: Line movement detected",
-    detail: (s) => `Model detected significant line movement on the ${s.bet_side} side${s.line_at_signal != null ? ` (signal line: ${s.line_at_signal > 0 ? "+" : ""}${s.line_at_signal})` : ""}.`,
+    detail: (s) => `Model detected significant line movement on ${modelSignalSideLabel(s)}${formatModelSignalLine(s) ? ` (signal line: ${formatModelSignalLine(s)})` : ""}.`,
   },
   steam_move: {
     title: "ACE: Steam move — sharp action",
-    detail: (s) => `Rapid line movement consistent with sharp/syndicate betting on the ${s.bet_side}${s.line_at_signal != null ? ` at ${s.line_at_signal > 0 ? "+" : ""}${s.line_at_signal}` : ""}.`,
+    detail: (s) => `Rapid line movement consistent with sharp/syndicate betting on ${modelSignalSideLabel(s)}${formatModelSignalLine(s) ? ` at ${formatModelSignalLine(s)}` : ""}.`,
   },
 };
 
@@ -206,7 +226,7 @@ function modelSignalToGameSignal(s: ModelSignal): GameSignal {
   const edge = s.edge_vs_pinnacle ?? 0;
   const tmpl = SIGNAL_TYPE_LABELS[s.signal_type] ?? {
     title: `ACE: ${s.signal_type.replace(/_/g, " ")}`,
-    detail: (ms: ModelSignal) => `Model signal on ${ms.bet_side} side${ms.line_at_signal != null ? ` at line ${ms.line_at_signal}` : ""}.`,
+    detail: (ms: ModelSignal) => `Model signal on ${modelSignalSideLabel(ms)}${formatModelSignalLine(ms) ? ` at line ${formatModelSignalLine(ms)}` : ""}.`,
   };
   return {
     type: "model",
