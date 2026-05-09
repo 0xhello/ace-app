@@ -12,9 +12,9 @@ interface OpsShellProps {
 
 export default function OpsShell({ activeSport, onSportChange, children }: OpsShellProps) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#0a0b0a]">
+    <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
       <OpsTabBar activeSport={activeSport} onChange={onSportChange} />
-      <div className="min-h-0 flex-1">{children}</div>
+      {children}
     </div>
   );
 }
