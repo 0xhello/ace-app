@@ -33,8 +33,8 @@ export const OPS_SPORTS: OpsSportConfig[] = [
   {
     key: "soccer",
     label: "Soccer",
-    status: "planned",
-    description: "1X2, totals, BTTS, lineup timing, and market movement signals.",
+    status: "soon",
+    description: "FIFA World Cup 2026 — Pinnacle divergence signals on h2h and totals. Launches Jun 11.",
     component: SoccerOpsTab,
   },
   {

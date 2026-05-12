@@ -49,11 +49,11 @@ load_dotenv(_ENV_PATH)
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
 ODDS_BASE = "https://api.the-odds-api.com/v4"
 SPORT = "basketball_nba"
-MARKETS = "h2h,spreads,totals"
+MARKETS = "spreads,totals"
 # Pinnacle must be requested explicitly — it's not in the default book set.
 # Soft books ordered by execution priority (US-licensed first, offshore last).
 # All are tracked for divergence detection; execution preference uses _PREFERRED_BOOKS.
-BOOKS = "pinnacle,fanduel,draftkings,betmgm,williamhill_us,betrivers,lowvig,fanatics,betonlineag,bovada,betus,mybookieag"
+BOOKS = "pinnacle,fanduel,draftkings,betmgm,williamhill_us,betrivers"
 
 # Minimum divergence from Pinnacle's de-vigged probability to count as a bet.
 # 0.04 = model must disagree with Pinnacle by ≥4 percentage points in our pick's direction.

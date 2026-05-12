@@ -8,11 +8,15 @@ previously split across cron jobs and the local LaunchAgent watcher.
 Schedule (all times ET):
   Every 60s (within 6h of tip) / every 10min (otherwise) — odds snapshot + divergence check
   08:00 daily  — update_team_state
-  09:00 daily  — grade_results
+  09:00 daily  — grade_results (NBA)
   09:30 daily  — fetch_and_predict (full model run)
   15:30 daily  — check_injury_updates
   Sun 05:00    — player_values
   Sun 05:30    — fetch_team_styles + compute_archetypes + segment_model_performance
+
+  World Cup (Jun 11 – Jul 19):
+  Every poll tick  — wc_fetch_signals (divergence scan)
+  09:00 daily      — wc_grade_results
 
 Usage:
     python3 -m ml.nba_spread.worker         # production (blocking)
@@ -31,6 +35,18 @@ from zoneinfo import ZoneInfo
 
 from .fetch_and_predict import run as _snapshot_run
 from .signal_logger import update_meta
+
+# World Cup module — imported lazily so a missing dep doesn't kill the NBA worker
+try:
+    from ml.world_cup.fetch_signals import run as _wc_fetch_run
+    from ml.world_cup.signal_logger import update_meta as _wc_update_meta
+    _WC_AVAILABLE = True
+except Exception:
+    _WC_AVAILABLE = False
+
+# World Cup active window — start polling a week early to test the integration
+_WC_START = date(2026, 6, 4)
+_WC_END   = date(2026, 7, 20)
 
 _TZ_ET = ZoneInfo("America/New_York")
 _RUNNING = True
@@ -132,6 +148,11 @@ def _run_scheduled_tasks() -> None:
 
     if _daily_due("check_injury_updates", hour=15, minute=30):
         _run_task("ml.nba_spread.check_injury_updates")
+
+    # ── World Cup tasks (active Jun 4 – Jul 20) ───────────────────────────────
+    if _WC_AVAILABLE and _WC_START <= datetime.now(_TZ_ET).date() <= _WC_END:
+        if _daily_due("wc_grade_results", hour=9):
+            _run_task("ml.world_cup.grade_results", "--days", "3")
 
     # ── Weekly tasks (Sunday) ─────────────────────────────────────────────────
     if _weekly_due("player_values", weekday=6, hour=5):
@@ -245,6 +266,20 @@ def run_loop(once: bool = False) -> None:
                 update_meta("last_poll_ok", "0")
             except Exception:
                 pass
+
+        # World Cup signal scan (when active window)
+        if _WC_AVAILABLE and _WC_START <= datetime.now(_TZ_ET).date() <= _WC_END:
+            try:
+                _wc_fetch_run(snapshot_only=False)
+                _wc_update_meta("last_poll_at", datetime.now(timezone.utc).isoformat())
+                _wc_update_meta("last_poll_ok", "1")
+            except Exception as e:
+                print(f"  [worker] WC scan error: {e}", file=sys.stderr, flush=True)
+                try:
+                    _wc_update_meta("last_poll_at", datetime.now(timezone.utc).isoformat())
+                    _wc_update_meta("last_poll_ok", "0")
+                except Exception:
+                    pass
 
         if once:
             break
