@@ -40,6 +40,7 @@ from .signal_logger import update_meta
 try:
     from ml.world_cup.fetch_signals import run as _wc_fetch_run
     from ml.world_cup.signal_logger import update_meta as _wc_update_meta
+    from ml.world_cup.context import sync_all as _wc_sync_context, sync_lineups as _wc_sync_lineups
     _WC_AVAILABLE = True
 except Exception:
     _WC_AVAILABLE = False
@@ -153,6 +154,12 @@ def _run_scheduled_tasks() -> None:
     if _WC_AVAILABLE and _WC_START <= datetime.now(_TZ_ET).date() <= _WC_END:
         if _daily_due("wc_grade_results", hour=9):
             _run_task("ml.world_cup.grade_results", "--days", "3")
+        # Refresh fixtures + standings + card counts once per day at 7am ET
+        if _daily_due("wc_context_sync", hour=7):
+            try:
+                _wc_sync_context()
+            except Exception as e:
+                print(f"  [worker] WC context sync error: {e}", file=sys.stderr, flush=True)
 
     # ── Weekly tasks (Sunday) ─────────────────────────────────────────────────
     if _weekly_due("player_values", weekday=6, hour=5):

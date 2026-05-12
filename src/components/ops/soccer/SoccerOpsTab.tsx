@@ -27,6 +27,7 @@ interface SoccerSignal {
   result: string | null;
   correct: number | null;
   status: string;
+  notes: string | null;
 }
 
 interface Stats {
@@ -124,21 +125,27 @@ function SignalRow({ sig }: { sig: SoccerSignal }) {
   const won      = sig.correct === 1;
   const lost     = sig.correct === 0;
 
+  const flags = sig.notes
+    ? sig.notes.split(";").map((n: string) => n.trim()).filter(Boolean)
+    : [];
+  const isDeadRubber = flags.some((f: string) => f.startsWith("DEAD RUBBER"));
+  const hasCardRisk  = flags.some((f: string) => f.startsWith("CARD RISK"));
+
   let statusBadge = null;
-  if (isGraded && won)  statusBadge = <span className="text-emerald-400 font-semibold text-xs">WIN</span>;
-  if (isGraded && lost) statusBadge = <span className="text-red-400 font-semibold text-xs">LOSS</span>;
-  if (isOpen)           statusBadge = <span className="text-amber-400 font-semibold text-xs">OPEN</span>;
+  if (isGraded && won)       statusBadge = <span className="text-emerald-400 font-semibold text-xs">WIN</span>;
+  if (isGraded && lost)      statusBadge = <span className="text-red-400 font-semibold text-xs">LOSS</span>;
+  if (isOpen)                statusBadge = <span className="text-amber-400 font-semibold text-xs">OPEN</span>;
   if (sig.status === "void") statusBadge = <span className="text-zinc-500 text-xs">VOID</span>;
 
   return (
-    <tr className="border-t border-zinc-800 hover:bg-zinc-800/30 transition-colors">
+    <tr className={`border-t border-zinc-800 hover:bg-zinc-800/30 transition-colors ${isDeadRubber ? "opacity-60" : ""}`}>
       <td className="px-3 py-2 text-xs text-zinc-500 whitespace-nowrap">{sig.game_date}</td>
       <td className="px-3 py-2 text-sm text-zinc-200 whitespace-nowrap">
         {sig.away_team} <span className="text-zinc-500">@</span> {sig.home_team}
       </td>
       <td className="px-3 py-2">
         <span className="text-xs bg-zinc-700 rounded px-1.5 py-0.5 text-zinc-300">
-          {sig.market.toUpperCase()}
+          {sig.market === "asian_handicap" ? "AH" : sig.market.toUpperCase()}
         </span>
       </td>
       <td className="px-3 py-2 text-sm font-medium text-white">
@@ -152,7 +159,19 @@ function SignalRow({ sig }: { sig: SoccerSignal }) {
           ? <span className="text-zinc-400">{sig.home_score}–{sig.away_score}</span>
           : <span className="text-zinc-600">—</span>}
       </td>
-      <td className="px-3 py-2">{statusBadge}</td>
+      <td className="px-3 py-2 text-xs">
+        <div className="flex items-center gap-1 flex-wrap">
+          {statusBadge}
+          {isDeadRubber && (
+            <span title="Dead rubber — team may rest starters"
+              className="text-zinc-500 cursor-help">⚠ DR</span>
+          )}
+          {hasCardRisk && (
+            <span title={flags.find((f) => f.startsWith("CARD RISK")) ?? "Card risk"}
+              className="text-amber-500 cursor-help">🟨</span>
+          )}
+        </div>
+      </td>
     </tr>
   );
 }

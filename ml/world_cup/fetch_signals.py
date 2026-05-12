@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 from .signal_logger import (
     devig, init_db, log_signal, update_meta, DB_PATH,
 )
+from .context import get_game_context, init_context_tables
 
 _ENV_PATH = Path(__file__).resolve().parents[2] / ".env.local"
 load_dotenv(_ENV_PATH)
@@ -452,6 +453,10 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
         if snapshot_only:
             continue
 
+        # Pull game context (dead rubber, suspension risk, lineup status)
+        ctx = get_game_context(home_name, away_name, game_date)
+        ctx_notes = "; ".join(ctx["notes"]) if ctx["notes"] else ""
+
         # 1X2 divergence (draw market is the key structural edge vs US books)
         if pin_h2h:
             sig = _detect_h2h_divergence(game, pin_h2h)
@@ -462,17 +467,19 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
                     home_team     = home_name,
                     away_team     = away_name,
                     commence_time = game["commence_time"],
+                    notes         = ctx_notes,
                     **sig,
                 )
                 if row_id:
                     signals_fired += 1
                     pct = sig["edge_pp"] * 100
+                    flag = " ⚠ " + ctx_notes if ctx_notes else ""
                     print(
                         f"  [SIGNAL] {away_name} @ {home_name}  "
                         f"h2h/{sig['bet_side'].upper()}  "
                         f"pin={sig['pinnacle_prob']:.1%}  "
                         f"{sig['book']}={sig['book_prob']:.1%}  "
-                        f"edge={pct:.1f}pp"
+                        f"edge={pct:.1f}pp{flag}"
                     )
                 else:
                     signals_skipped += 1
@@ -487,15 +494,17 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
                     home_team     = home_name,
                     away_team     = away_name,
                     commence_time = game["commence_time"],
+                    notes         = ctx_notes,
                     **sig,
                 )
                 if row_id:
                     signals_fired += 1
-                    div = (sig["total_line"] or 0)
+                    div  = (sig["total_line"] or 0)
+                    flag = " ⚠ " + ctx_notes if ctx_notes else ""
                     print(
                         f"  [SIGNAL] {away_name} @ {home_name}  "
                         f"AH/{sig['bet_side'].upper()} {div:+.1f}  "
-                        f"{sig['book']}  edge={sig['edge_pp']*100:.1f}pp"
+                        f"{sig['book']}  edge={sig['edge_pp']*100:.1f}pp{flag}"
                     )
                 else:
                     signals_skipped += 1
@@ -510,17 +519,19 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
                     home_team     = home_name,
                     away_team     = away_name,
                     commence_time = game["commence_time"],
+                    notes         = ctx_notes,
                     **sig,
                 )
                 if row_id:
                     signals_fired += 1
-                    pct = sig["edge_pp"] * 100
+                    pct  = sig["edge_pp"] * 100
+                    flag = " ⚠ " + ctx_notes if ctx_notes else ""
                     print(
                         f"  [SIGNAL] {away_name} @ {home_name}  "
                         f"totals/{sig['bet_side'].upper()} {sig['total_line']}  "
                         f"pin={sig['pinnacle_prob']:.1%}  "
                         f"{sig['book']}={sig['book_prob']:.1%}  "
-                        f"edge={pct:.1f}pp"
+                        f"edge={pct:.1f}pp{flag}"
                     )
                 else:
                     signals_skipped += 1
