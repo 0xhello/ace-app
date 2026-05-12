@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  Activity, AlertTriangle, CheckCircle2, Clock, RefreshCw,
-  Target, TrendingUp, Zap, Trophy,
+  Activity, AlertTriangle, CheckCircle2, Clock,
+  RefreshCw, Target, TrendingUp, Zap, Trophy,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -80,95 +80,106 @@ function fmtOdds(v: number | null) {
 
 function betLabel(market: string, side: string, line: number | null) {
   if (market === "totals") return `${side.toUpperCase()} ${line ?? ""}`;
+  if (market === "asian_handicap") return `AH ${side === "home" ? "Home" : "Away"} ${line != null ? (line >= 0 ? `+${line}` : line) : ""}`;
   return side.charAt(0).toUpperCase() + side.slice(1);
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+function winRateColor(v: number | null): string {
+  if (v === null) return "#6b7068";
+  if (v >= 0.524) return "#3ee68a";
+  if (v >= 0.48)  return "#f5c062";
+  return "#ef4444";
+}
 
-function JobChip({ label, meta }: { label: string; meta: JobMeta }) {
-  const isErr = !!meta.lastError;
+// ─── Primitive components ─────────────────────────────────────────────────────
+
+function Dot({ color, pulse = false }: { color: string; pulse?: boolean }) {
   return (
-    <div className="flex items-center gap-1.5 text-xs">
-      {isErr
-        ? <AlertTriangle size={12} className="text-red-400" />
-        : <CheckCircle2 size={12} className="text-emerald-400" />}
-      <span className="text-zinc-400">{label}</span>
-      <span className={isErr ? "text-red-300" : "text-zinc-300"}>
-        {meta.lastRunAt ? timeAgo(meta.lastRunAt) : "never"}
-      </span>
-      {isErr && (
-        <span className="text-red-400 truncate max-w-[160px]" title={meta.lastError ?? ""}>
-          · {meta.lastError?.slice(0, 60)}
-        </span>
-      )}
+    <span className="relative flex h-2.5 w-2.5 shrink-0">
+      {pulse && <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-40" style={{ background: color }} />}
+      <span className="relative inline-flex rounded-full h-2.5 w-2.5" style={{ background: color }} />
+    </span>
+  );
+}
+
+function Tag({ label, color = "#6b7068" }: { label: string; color?: string }) {
+  return (
+    <span className="text-[8px] font-bold uppercase tracking-widest border rounded px-1.5 py-0.5"
+          style={{ color, borderColor: `${color}35` }}>
+      {label}
+    </span>
+  );
+}
+
+function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div className="flex-1 min-w-0 rounded-xl border border-[#1e2220] bg-[#0f110f] px-4 py-4">
+      <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-[#3a4033] mb-2.5">{label}</p>
+      <p className="text-[26px] font-black font-mono leading-none" style={{ color: color ?? "#d4d7d0" }}>{value}</p>
+      {sub && <p className="text-[10px] text-[#4a524a] mt-1.5 leading-tight">{sub}</p>}
     </div>
   );
 }
 
-function StatCard({
-  label, value, sub, accent,
-}: {
-  label: string; value: string | number; sub?: string; accent?: string;
-}) {
+function SectionHead({ title, icon: Icon, right }: { title: string; icon: React.ElementType; right?: React.ReactNode }) {
   return (
-    <div className="bg-zinc-800/60 rounded-lg p-3 flex flex-col gap-0.5 min-w-[90px]">
-      <span className="text-[10px] text-zinc-500 uppercase tracking-wide">{label}</span>
-      <span className={`text-xl font-semibold ${accent ?? "text-white"}`}>{value}</span>
-      {sub && <span className="text-[11px] text-zinc-500">{sub}</span>}
+    <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center gap-2">
+        <Icon className="h-3.5 w-3.5 text-[#3ee68a]" />
+        <p className="text-[11px] font-bold text-[#3ee68a] uppercase tracking-[0.2em]">{title}</p>
+      </div>
+      {right}
     </div>
   );
 }
 
 function SignalRow({ sig }: { sig: SoccerSignal }) {
-  const isOpen   = sig.status === "open";
-  const isGraded = sig.status === "graded";
-  const won      = sig.correct === 1;
-  const lost     = sig.correct === 0;
+  const isOpen    = sig.status === "open";
+  const isGraded  = sig.status === "graded";
+  const won       = sig.correct === 1;
+  const lost      = sig.correct === 0;
 
-  const flags = sig.notes
-    ? sig.notes.split(";").map((n: string) => n.trim()).filter(Boolean)
-    : [];
+  const flags       = sig.notes ? sig.notes.split(";").map((n: string) => n.trim()).filter(Boolean) : [];
   const isDeadRubber = flags.some((f: string) => f.startsWith("DEAD RUBBER"));
   const hasCardRisk  = flags.some((f: string) => f.startsWith("CARD RISK"));
 
-  let statusBadge = null;
-  if (isGraded && won)       statusBadge = <span className="text-emerald-400 font-semibold text-xs">WIN</span>;
-  if (isGraded && lost)      statusBadge = <span className="text-red-400 font-semibold text-xs">LOSS</span>;
-  if (isOpen)                statusBadge = <span className="text-amber-400 font-semibold text-xs">OPEN</span>;
-  if (sig.status === "void") statusBadge = <span className="text-zinc-500 text-xs">VOID</span>;
+  const marketLabel = sig.market === "asian_handicap" ? "AH"
+    : sig.market === "totals" ? "TOT"
+    : "1X2";
 
   return (
-    <tr className={`border-t border-zinc-800 hover:bg-zinc-800/30 transition-colors ${isDeadRubber ? "opacity-60" : ""}`}>
-      <td className="px-3 py-2 text-xs text-zinc-500 whitespace-nowrap">{sig.game_date}</td>
-      <td className="px-3 py-2 text-sm text-zinc-200 whitespace-nowrap">
-        {sig.away_team} <span className="text-zinc-500">@</span> {sig.home_team}
+    <tr className={`border-t border-[#181c18] hover:bg-[#0d0f0d] transition-colors ${isDeadRubber ? "opacity-50" : ""}`}>
+      <td className="px-3 py-2.5 text-[11px] text-[#4a524a] font-mono whitespace-nowrap">{sig.game_date}</td>
+      <td className="px-3 py-2.5 text-[12px] text-[#c4c7c0] whitespace-nowrap">
+        {sig.away_team} <span className="text-[#3a4033]">@</span> {sig.home_team}
       </td>
-      <td className="px-3 py-2">
-        <span className="text-xs bg-zinc-700 rounded px-1.5 py-0.5 text-zinc-300">
-          {sig.market === "asian_handicap" ? "AH" : sig.market.toUpperCase()}
+      <td className="px-3 py-2.5">
+        <span className="text-[8px] font-bold uppercase tracking-[0.15em] border rounded px-1.5 py-0.5"
+              style={{ color: "#9ca39a", borderColor: "#1e2220" }}>
+          {marketLabel}
         </span>
       </td>
-      <td className="px-3 py-2 text-sm font-medium text-white">
+      <td className="px-3 py-2.5 text-[12px] font-semibold text-[#d4d7d0]">
         {betLabel(sig.market, sig.bet_side, sig.total_line)}
       </td>
-      <td className="px-3 py-2 text-xs text-zinc-400">{sig.book}</td>
-      <td className="px-3 py-2 text-xs text-zinc-300">{fmtOdds(sig.book_odds)}</td>
-      <td className="px-3 py-2 text-xs text-emerald-400 font-medium">{fmtEdge(sig.edge_pp)}</td>
-      <td className="px-3 py-2 text-xs">
-        {isGraded && sig.home_score !== null
-          ? <span className="text-zinc-400">{sig.home_score}–{sig.away_score}</span>
-          : <span className="text-zinc-600">—</span>}
+      <td className="px-3 py-2.5 text-[11px] text-[#6b7068]">{sig.book}</td>
+      <td className="px-3 py-2.5 text-[11px] font-mono text-[#9ca39a]">{fmtOdds(sig.book_odds)}</td>
+      <td className="px-3 py-2.5 text-[11px] font-mono font-bold" style={{ color: "#3ee68a" }}>{fmtEdge(sig.edge_pp)}</td>
+      <td className="px-3 py-2.5 text-[11px] font-mono text-[#6b7068]">
+        {isGraded && sig.home_score !== null ? `${sig.home_score}–${sig.away_score}` : "—"}
       </td>
-      <td className="px-3 py-2 text-xs">
-        <div className="flex items-center gap-1 flex-wrap">
-          {statusBadge}
+      <td className="px-3 py-2.5">
+        <div className="flex items-center gap-1.5">
+          {isGraded && won  && <span className="text-[9px] font-bold text-[#3ee68a]">WIN</span>}
+          {isGraded && lost && <span className="text-[9px] font-bold text-[#ef4444]">LOSS</span>}
+          {isOpen           && <span className="text-[9px] font-bold text-[#f5c062]">OPEN</span>}
+          {sig.status === "void" && <span className="text-[9px] text-[#4a524a]">VOID</span>}
           {isDeadRubber && (
-            <span title="Dead rubber — team may rest starters"
-              className="text-zinc-500 cursor-help">⚠ DR</span>
+            <span title="Dead rubber — team may rest starters" className="text-[9px] text-[#4a524a] cursor-help">DR</span>
           )}
           {hasCardRisk && (
             <span title={flags.find((f) => f.startsWith("CARD RISK")) ?? "Card risk"}
-              className="text-amber-500 cursor-help">🟨</span>
+                  className="text-[9px] cursor-help" style={{ color: "#f5c062" }}>YC</span>
           )}
         </div>
       </td>
@@ -181,7 +192,7 @@ function SignalRow({ sig }: { sig: SoccerSignal }) {
 export default function SoccerOpsTab() {
   const [data,    setData]    = useState<WCPayload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState<null | "fetch" | "grade" | "both">(null);
+  const [running, setRunning] = useState<null | "fetch" | "grade">(null);
   const [tab,     setTab]     = useState<"open" | "graded">("open");
 
   const loadAll = useCallback(async () => {
@@ -189,13 +200,13 @@ export default function SoccerOpsTab() {
       const res  = await fetch("/api/ops/soccer");
       const json = await res.json() as WCPayload;
       setData(json);
-    } catch { /* silently ignore */ }
+    } catch { /* silent */ }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { void loadAll(); }, [loadAll]);
 
-  async function runJob(job: "fetch" | "grade" | "both") {
+  async function runJob(job: "fetch" | "grade") {
     setRunning(job);
     try {
       await fetch("/api/ops/soccer", {
@@ -204,22 +215,31 @@ export default function SoccerOpsTab() {
         body: JSON.stringify({ job }),
       });
     } catch { /* ignore */ }
-    finally {
-      await loadAll();
-      setRunning(null);
-    }
+    finally { await loadAll(); setRunning(null); }
   }
 
-  // Pre-tournament holding state
   const WC_START = new Date("2026-06-11");
-  const today    = new Date();
-  const daysOut  = Math.ceil((WC_START.getTime() - today.getTime()) / 86_400_000);
+  const daysOut  = Math.ceil((WC_START.getTime() - Date.now()) / 86_400_000);
   const preEvent = daysOut > 0;
+
+  const workerColor = data?.worker.lastPollOk === false ? "#ef4444"
+    : data?.worker.lastPollAt ? "#3ee68a"
+    : "#3a4033";
+
+  const jobColor = (meta: JobMeta | undefined): string => {
+    if (!meta) return "#3a4033";
+    if (meta.lastError) return "#ef4444";
+    if (!meta.lastRunAt) return "#3a4033";
+    return "#3ee68a";
+  };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48 text-zinc-500">
-        <RefreshCw size={18} className="animate-spin mr-2" /> Loading…
+      <div className="flex-1 overflow-y-auto bg-[#0a0b0a] flex items-center justify-center">
+        <div className="flex items-center gap-2 text-[#4a524a]">
+          <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+          <span className="text-[12px]">Loading…</span>
+        </div>
       </div>
     );
   }
@@ -229,182 +249,200 @@ export default function SoccerOpsTab() {
   const open    = signals.filter((s) => s.status === "open");
   const graded  = signals.filter((s) => s.status === "graded");
 
+  const fetchMeta = data?.jobs.fetch;
+  const gradeMeta = data?.jobs.grade;
+
+  const errors: Array<{ msg: string }> = [];
+  if (fetchMeta?.lastError) errors.push({ msg: `Scan error: ${fetchMeta.lastError.slice(0, 80)}` });
+  if (gradeMeta?.lastError) errors.push({ msg: `Grade error: ${gradeMeta.lastError.slice(0, 80)}` });
+
   return (
-    <div className="space-y-6">
+    <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
+      <div className="max-w-[1200px] mx-auto px-6 py-7 space-y-5">
 
-      {/* ── Header ── */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Trophy size={18} className="text-amber-400" />
-            <h2 className="text-lg font-semibold text-white">FIFA World Cup 2026</h2>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              preEvent
-                ? "bg-zinc-700 text-zinc-400"
-                : "bg-emerald-500/20 text-emerald-400"
-            }`}>
-              {preEvent ? `Starts in ${daysOut}d` : "LIVE"}
-            </span>
+        {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Trophy className="h-4 w-4 text-[#3ee68a]" />
+            <h1 className="text-[18px] font-bold text-white tracking-tight">FIFA World Cup 2026</h1>
+            <Tag label={preEvent ? `in ${daysOut}d` : "live"} color={preEvent ? "#6b7068" : "#3ee68a"} />
           </div>
-          <p className="text-sm text-zinc-500">
-            Pinnacle divergence signals · h2h + totals · Jun 11 – Jul 19
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => runJob("grade")}
-            disabled={!!running}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 transition-colors text-zinc-200"
-          >
-            {running === "grade"
-              ? <><RefreshCw size={11} className="animate-spin" /> Grading…</>
-              : <><CheckCircle2 size={11} /> Grade</>}
-          </button>
-          <button
-            onClick={() => runJob("fetch")}
-            disabled={!!running}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-600/80 hover:bg-emerald-600 disabled:opacity-50 transition-colors text-white"
-          >
-            {running === "fetch"
-              ? <><RefreshCw size={11} className="animate-spin" /> Scanning…</>
-              : <><Zap size={11} /> Scan</>}
-          </button>
-          <button
-            onClick={loadAll}
-            className="p-1.5 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700 transition-colors"
-          >
-            <RefreshCw size={13} />
-          </button>
-        </div>
-      </div>
-
-      {/* ── Job status strip ── */}
-      <div className="flex items-center gap-4 px-4 py-2.5 bg-zinc-800/40 rounded-lg border border-zinc-700/50">
-        <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-          <Activity size={11} />
-          <span>Worker</span>
-          <span className={data?.worker.lastPollOk === false ? "text-red-400" : "text-zinc-300"}>
-            {timeAgo(data?.worker.lastPollAt ?? null)}
-          </span>
-        </div>
-        <div className="w-px h-3 bg-zinc-700" />
-        {data?.jobs.fetch && <JobChip label="Scan" meta={data.jobs.fetch} />}
-        <div className="w-px h-3 bg-zinc-700" />
-        {data?.jobs.grade && <JobChip label="Grade" meta={data.jobs.grade} />}
-      </div>
-
-      {/* ── Stats ── */}
-      {stats && (
-        <div className="flex flex-wrap gap-3">
-          <StatCard label="Signals" value={stats.total} />
-          <StatCard label="Open"    value={stats.open}  accent="text-amber-400" />
-          <StatCard label="Graded"  value={stats.graded} />
-          <StatCard
-            label="Record"
-            value={stats.graded > 0 ? `${stats.wins}W / ${stats.losses}L` : "—"}
-            accent={stats.winRate !== null && stats.winRate >= 0.524 ? "text-emerald-400" : "text-zinc-300"}
-          />
-          <StatCard
-            label="Win Rate"
-            value={fmtPct(stats.winRate)}
-            sub="break-even 52.4%"
-            accent={stats.winRate !== null && stats.winRate >= 0.524 ? "text-emerald-400" : "text-red-400"}
-          />
-          <StatCard
-            label="ROI"
-            value={fmtRoi(stats.roi)}
-            accent={stats.roi !== null && stats.roi >= 0 ? "text-emerald-400" : "text-red-400"}
-          />
-          {stats.h2h.graded > 0 && (
-            <StatCard
-              label="1X2"
-              value={`${stats.h2h.wins}/${stats.h2h.graded}`}
-              sub={fmtPct(stats.h2h.wins / stats.h2h.graded)}
-            />
-          )}
-          {stats.totals.graded > 0 && (
-            <StatCard
-              label="Totals"
-              value={`${stats.totals.wins}/${stats.totals.graded}`}
-              sub={fmtPct(stats.totals.wins / stats.totals.graded)}
-            />
-          )}
-        </div>
-      )}
-
-      {/* ── Pre-event notice ── */}
-      {preEvent && signals.length === 0 && (
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-5 text-center space-y-2">
-          <Clock size={24} className="text-amber-400 mx-auto" />
-          <p className="text-amber-300 font-medium">Tournament starts in {daysOut} days</p>
-          <p className="text-sm text-zinc-500 max-w-md mx-auto">
-            The Odds API will publish World Cup odds as the tournament approaches.
-            Signals will start appearing once Pinnacle posts lines — typically 1–2 weeks before kickoff.
-          </p>
-          <div className="flex items-center justify-center gap-6 pt-2 text-xs text-zinc-600">
-            <span className="flex items-center gap-1"><Target size={11} /> 3pp edge threshold</span>
-            <span className="flex items-center gap-1"><TrendingUp size={11} /> Pinnacle de-vig reference</span>
-            <span className="flex items-center gap-1"><Activity size={11} /> h2h + totals markets</span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => runJob("grade")}
+              disabled={running !== null}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#1e2220] text-[10px] font-semibold text-[#6b7068] hover:text-[#9ca39a] hover:border-[#2e332a] transition-colors disabled:opacity-40"
+            >
+              {running === "grade" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+              {running === "grade" ? "Grading…" : "Grade"}
+            </button>
+            <button
+              onClick={() => runJob("fetch")}
+              disabled={running !== null}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#3ee68a]/20 bg-[#3ee68a]/5 text-[10px] font-bold text-[#3ee68a] hover:bg-[#3ee68a]/10 transition-colors disabled:opacity-40"
+            >
+              {running === "fetch" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+              {running === "fetch" ? "Scanning…" : "Scan"}
+            </button>
+            <button onClick={loadAll} className="flex items-center gap-1.5 text-[10px] text-[#4a524a] hover:text-[#9ca39a] transition-colors">
+              <RefreshCw className="h-3 w-3" />
+            </button>
           </div>
         </div>
-      )}
 
-      {/* ── Signals table ── */}
-      {signals.length > 0 && (
-        <div className="rounded-xl border border-zinc-700/60 overflow-hidden">
-          {/* Tab bar */}
-          <div className="flex border-b border-zinc-700/60 bg-zinc-800/30">
-            {(["open", "graded"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`px-4 py-2 text-xs font-medium transition-colors ${
-                  tab === t
-                    ? "text-white border-b-2 border-emerald-500 bg-zinc-800/60"
-                    : "text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-                <span className="ml-1.5 text-zinc-600">
-                  {t === "open" ? open.length : graded.length}
-                </span>
-              </button>
+        {/* ══ STATUS STRIP ════════════════════════════════════════════════════ */}
+        <div className="flex items-center gap-4 rounded-xl border border-[#181c18] bg-[#0d0f0d] px-4 py-3 flex-wrap gap-y-2">
+          <div className="flex items-center gap-1.5">
+            <Dot color={workerColor} pulse={workerColor === "#3ee68a"} />
+            <span className="text-[10px] text-[#6b7068]">Worker</span>
+            <span className="text-[10px] font-mono text-[#4a524a]">{timeAgo(data?.worker.lastPollAt ?? null)}</span>
+          </div>
+          <div className="h-3 w-px bg-[#1e2220]" />
+          <div className="flex items-center gap-1.5">
+            <Dot color={jobColor(fetchMeta)} />
+            <span className="text-[10px] text-[#6b7068]">Scan</span>
+            <span className="text-[10px] font-mono text-[#4a524a]">{timeAgo(fetchMeta?.lastRunAt ?? null)}</span>
+          </div>
+          <div className="h-3 w-px bg-[#1e2220]" />
+          <div className="flex items-center gap-1.5">
+            <Dot color={jobColor(gradeMeta)} />
+            <span className="text-[10px] text-[#6b7068]">Grade</span>
+            <span className="text-[10px] font-mono text-[#4a524a]">{timeAgo(gradeMeta?.lastRunAt ?? null)}</span>
+          </div>
+          {errors.length > 0 && (
+            <>
+              <div className="h-3 w-px bg-[#1e2220]" />
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
+                <span className="text-[9px] font-bold text-[#ef4444]">{errors.length} error{errors.length !== 1 ? "s" : ""}</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ══ ERRORS ══════════════════════════════════════════════════════════ */}
+        {errors.length > 0 && (
+          <div className="rounded-xl border border-[#ef4444]/20 bg-[#ef4444]/[0.03] px-4 py-3.5 space-y-2">
+            {errors.map((e, i) => (
+              <div key={i} className="flex items-start gap-2.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-[#ef4444]" />
+                <p className="text-[11px] text-[#c4c7c0]">{e.msg}</p>
+              </div>
             ))}
           </div>
+        )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-[10px] text-zinc-500 uppercase tracking-wide bg-zinc-800/40">
-                  <th className="px-3 py-2 text-left">Date</th>
-                  <th className="px-3 py-2 text-left">Matchup</th>
-                  <th className="px-3 py-2 text-left">Market</th>
-                  <th className="px-3 py-2 text-left">Side</th>
-                  <th className="px-3 py-2 text-left">Book</th>
-                  <th className="px-3 py-2 text-left">Odds</th>
-                  <th className="px-3 py-2 text-left">Edge</th>
-                  <th className="px-3 py-2 text-left">Score</th>
-                  <th className="px-3 py-2 text-left">Result</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(tab === "open" ? open : graded).map((sig) => (
-                  <SignalRow key={sig.id} sig={sig} />
-                ))}
-                {(tab === "open" ? open : graded).length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-zinc-600 text-sm">
-                      {tab === "open" ? "No open signals." : "No graded signals yet."}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+        {/* ══ STATS ═══════════════════════════════════════════════════════════ */}
+        {stats && (
+          <div className="flex gap-3 flex-wrap">
+            <KpiCard label="Signals"  value={String(stats.total)} />
+            <KpiCard label="Open"     value={String(stats.open)}  color="#f5c062" />
+            <KpiCard label="Graded"   value={String(stats.graded)} />
+            <KpiCard
+              label="Record"
+              value={stats.graded > 0 ? `${stats.wins}–${stats.losses}` : "—"}
+              color={stats.winRate !== null && stats.winRate >= 0.524 ? "#3ee68a" : "#d4d7d0"}
+            />
+            <KpiCard
+              label="Win Rate"
+              value={fmtPct(stats.winRate)}
+              sub="52.4% break-even"
+              color={winRateColor(stats.winRate)}
+            />
+            <KpiCard
+              label="ROI"
+              value={fmtRoi(stats.roi)}
+              color={stats.roi !== null ? (stats.roi >= 0 ? "#3ee68a" : "#ef4444") : "#6b7068"}
+            />
+            {stats.h2h.graded > 0 && (
+              <KpiCard
+                label="1X2"
+                value={`${stats.h2h.wins}/${stats.h2h.graded}`}
+                sub={fmtPct(stats.h2h.wins / stats.h2h.graded)}
+              />
+            )}
+            {stats.totals.graded > 0 && (
+              <KpiCard
+                label="Totals"
+                value={`${stats.totals.wins}/${stats.totals.graded}`}
+                sub={fmtPct(stats.totals.wins / stats.totals.graded)}
+              />
+            )}
           </div>
-        </div>
-      )}
+        )}
 
+        {/* ══ PRE-EVENT NOTICE ════════════════════════════════════════════════ */}
+        {preEvent && signals.length === 0 && (
+          <div className="rounded-xl border border-[#f5c062]/15 bg-[#f5c062]/[0.03] px-5 py-6 text-center space-y-3">
+            <Clock className="h-6 w-6 mx-auto" style={{ color: "#f5c062" }} />
+            <p className="text-[14px] font-bold text-[#d4d7d0]">Tournament starts in {daysOut} days</p>
+            <p className="text-[12px] text-[#4a524a] max-w-md mx-auto leading-relaxed">
+              Pinnacle will post World Cup odds 1–2 weeks before kickoff.
+              Hit <span className="text-[#3ee68a] font-semibold">Scan</span> once odds appear to start logging divergences.
+            </p>
+            <div className="flex items-center justify-center gap-6 pt-1 text-[10px] text-[#3a4033]">
+              <span className="flex items-center gap-1.5"><Target className="h-3 w-3" /> 3pp edge threshold</span>
+              <span className="flex items-center gap-1.5"><TrendingUp className="h-3 w-3" /> Pinnacle de-vig reference</span>
+              <span className="flex items-center gap-1.5"><Activity className="h-3 w-3" /> h2h · totals · asian handicap</span>
+            </div>
+          </div>
+        )}
+
+        {/* ══ SIGNALS ═════════════════════════════════════════════════════════ */}
+        {signals.length > 0 && (
+          <div className="rounded-xl border border-[#181c18] bg-[#0d0f0d] overflow-hidden">
+            <SectionHead
+              title="Signals"
+              icon={Activity}
+              right={
+                <div className="flex border border-[#1e2220] rounded-lg overflow-hidden">
+                  {(["open", "graded"] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setTab(t)}
+                      className="px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition-colors"
+                      style={{
+                        background: tab === t ? "#3ee68a15" : "transparent",
+                        color: tab === t ? "#3ee68a" : "#4a524a",
+                      }}
+                    >
+                      {t} <span style={{ color: "#3a4033" }}>
+                        {t === "open" ? open.length : graded.length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              }
+            />
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-t border-[#181c18]">
+                    {["Date","Matchup","Mkt","Side","Book","Odds","Edge","Score","Result"].map((h) => (
+                      <th key={h} className="px-3 py-2 text-left text-[9px] font-bold uppercase tracking-[0.15em] text-[#3a4033]">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(tab === "open" ? open : graded).map((sig) => (
+                    <SignalRow key={sig.id} sig={sig} />
+                  ))}
+                  {(tab === "open" ? open : graded).length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="px-3 py-8 text-center text-[11px] text-[#3a4033]">
+                        {tab === "open" ? "No open signals." : "No graded signals yet."}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
