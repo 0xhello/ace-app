@@ -307,7 +307,6 @@ export default function NBAOpsTab() {
   const [loggingBet,  setLoggingBet]  = useState<number | null>(null);
   const [liveWatch,   setLiveWatch]   = useState<WatchedGame[]>([]);
   const [running,     setRunning]     = useState<null | "fetch" | "grade" | "both">(null);
-  const [innerTab,    setInnerTab]    = useState<"today" | "performance" | "analysis" | "system">("today");
 
   async function loadAll() {
     try {
@@ -445,8 +444,7 @@ export default function NBAOpsTab() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Terminal className="h-4 w-4 text-[#3ee68a]" />
-            <h1 className="text-[18px] font-bold text-white tracking-tight">ACE Ops</h1>
-            <Tag label="internal" />
+            <h1 className="text-[18px] font-bold text-white tracking-tight">NBA</h1>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-[10px] text-[#3a4033] font-mono">{today}</span>
@@ -537,21 +535,9 @@ export default function NBAOpsTab() {
           </div>
         )}
 
-        {/* ══ INNER NAV ════════════════════════════════════════════════════════ */}
-        <div className="flex gap-0.5 border-b border-[#181c18]">
-          {(["today", "performance", "analysis", "system"] as const).map(t => (
-            <button key={t} onClick={() => setInnerTab(t)}
-              className={cn("px-3.5 py-2 text-[11px] font-semibold capitalize border-b-2 -mb-px transition-colors",
-                innerTab === t
-                  ? "text-white border-[#3ee68a]"
-                  : "text-[#4a524a] border-transparent hover:text-[#9ca39a]")}>
-              {t}
-            </button>
-          ))}
-        </div>
 
         {/* ══ PERFORMANCE — Paper Bankroll ═════════════════════════════════════ */}
-        {innerTab === "performance" && signalTrack && (
+        {signalTrack && (
           <div className="rounded-xl border border-[#1e2220] bg-[#0d0f0d] px-5 py-4">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
@@ -613,7 +599,7 @@ export default function NBAOpsTab() {
         )}
 
         {/* ══ PERFORMANCE — Paper Bet History ════════════════════════════════ */}
-        {innerTab === "performance" && paperBets.length > 0 && signalTrack && (
+        {paperBets.length > 0 && signalTrack && (
           <div className="rounded-xl border border-[#1e2220] bg-[#0d0f0d] overflow-hidden">
             <div className="px-4 py-2.5 border-b border-[#181c18]">
               <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#3a4033]">Paper Bet History</span>
@@ -685,7 +671,7 @@ export default function NBAOpsTab() {
         )}
 
         {/* ══ TODAY — Live Watch ════════════════════════════════════════════════ */}
-        {innerTab === "today" && liveWatch.length > 0 && (
+        {liveWatch.length > 0 && (
           <div className="ace-panel p-5">
             <SectionHead
               title="Live Watch"
@@ -815,7 +801,7 @@ export default function NBAOpsTab() {
         )}
 
         {/* ══ TODAY — Signals + Slate ══════════════════════════════════════════ */}
-        {innerTab === "today" && <div className="ace-panel p-5">
+        <div className="ace-panel p-5">
           <SectionHead
             title={`Today · ${today}`}
             icon={Zap}
@@ -963,10 +949,10 @@ export default function NBAOpsTab() {
               ))}
             </div>
           )}
-        </div>}
+        </div>
 
-        {/* ══ PERFORMANCE — My Bets ════════════════════════════════════════════ */}
-        {innerTab === "performance" && <div className="ace-panel p-5">
+        {/* ══ MY BETS ══════════════════════════════════════════════════════════ */}
+        <div className="ace-panel p-5">
           <SectionHead title="My Bets" icon={Target} />
 
           {realSummary && realSummary.total > 0 ? (
@@ -1055,10 +1041,10 @@ export default function NBAOpsTab() {
               </p>
             </div>
           )}
-        </div>}
+        </div>
 
-        {/* ══ PERFORMANCE — Edge Validation ═══════════════════════════════════ */}
-        {innerTab === "performance" && <div className="ace-panel p-5">
+        {/* ══ EDGE VALIDATION ══════════════════════════════════════════════════ */}
+        <div className="ace-panel p-5">
           <SectionHead title="Edge Validation" icon={BarChart2} />
 
           {sig?.error ? (
@@ -1203,10 +1189,10 @@ export default function NBAOpsTab() {
           ) : (
             <p className="text-[11px] text-[#4a524a]">Signal data unavailable.</p>
           )}
-        </div>}
+        </div>
 
-        {/* ══ ANALYSIS — Model Performance ════════════════════════════════════ */}
-        {innerTab === "analysis" && <div className="ace-panel p-5">
+        {/* ══ MODEL PERFORMANCE ════════════════════════════════════════════════ */}
+        <div className="ace-panel p-5">
           <SectionHead title="Model Performance" icon={TrendingUp} />
 
           <div className="flex gap-0.5 mb-5 border-b border-[#181c18]">
@@ -1277,10 +1263,10 @@ export default function NBAOpsTab() {
               ))}
             </div>
           )}
-        </div>}
+        </div>
 
-        {/* ══ PERFORMANCE — Live Divergences ══════════════════════════════════ */}
-        {innerTab === "performance" && sig && !sig.error && (
+        {/* ══ LIVE DIVERGENCES ═════════════════════════════════════════════════ */}
+        {sig && !sig.error && (
           <div className="ace-panel p-5">
             <SectionHead
               title="Live Divergences"
@@ -1320,8 +1306,8 @@ export default function NBAOpsTab() {
           </div>
         )}
 
-        {/* ══ ANALYSIS — Picks Log ════════════════════════════════════════════ */}
-        {innerTab === "analysis" && pipeline?.picks && pipeline.picks.length > 0 && (
+        {/* ══ PICKS LOG ════════════════════════════════════════════════════════ */}
+        {pipeline?.picks && pipeline.picks.length > 0 && (
           <div className="ace-panel p-5">
             <SectionHead title="Picks Log" icon={BookMarked}
               right={<span className="text-[10px] text-[#4a524a]">{pipeline.picks.length} total</span>} />
@@ -1365,8 +1351,8 @@ export default function NBAOpsTab() {
           </div>
         )}
 
-        {/* ══ ANALYSIS — Model Intelligence ═══════════════════════════════════ */}
-        {innerTab === "analysis" && (pipeline?.segments || pipeline?.archetypes) && (
+        {/* ══ MODEL INTELLIGENCE ═══════════════════════════════════════════════ */}
+        {(pipeline?.segments || pipeline?.archetypes) && (
           <div className="ace-panel p-5">
             <SectionHead title="Model Intelligence" icon={Brain} />
 
@@ -1464,8 +1450,8 @@ export default function NBAOpsTab() {
           </div>
         )}
 
-        {/* ══ SYSTEM — Pipeline Health ════════════════════════════════════════ */}
-        {innerTab === "system" && <div className="ace-panel p-5">
+        {/* ══ PIPELINE HEALTH ══════════════════════════════════════════════════ */}
+        <div className="ace-panel p-5">
           <SectionHead title="Pipeline Health" icon={Activity} />
 
           {/* Worker */}
@@ -1534,7 +1520,7 @@ export default function NBAOpsTab() {
               <p className="text-[10px] font-mono shrink-0" style={{ color: quotaColor }}>{pipeline.latestQuota} / 500</p>
             </div>
           )}
-        </div>}
+        </div>
 
         <p className="text-[8px] text-[#1a1e1a] text-center pb-4">ACE · auto-refreshes every 60s</p>
       </div>
