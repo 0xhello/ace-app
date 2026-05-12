@@ -81,9 +81,9 @@ export async function GET() {
   const dbPath = path.join(
     appRoot,
     "ml",
-    "world_cup",
+    "nba_spread",
     "data",
-    "signal_log.db",
+    "wc_signal_log.db",
   );
 
   const { signals, meta } = readWCData(dbPath);

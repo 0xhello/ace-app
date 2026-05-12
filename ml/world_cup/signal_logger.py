@@ -17,7 +17,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DB_PATH = Path(__file__).resolve().parent / "data" / "signal_log.db"
+# Store in the same volume-backed directory as the NBA data so no second
+# Railway volume is needed — ml/nba_spread/data/ is already persistent.
+DB_PATH = Path(__file__).resolve().parents[1] / "nba_spread" / "data" / "wc_signal_log.db"
 
 
 def _null_float(v: Any) -> Optional[float]:
