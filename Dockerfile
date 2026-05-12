@@ -23,8 +23,8 @@ RUN npm run build
 RUN cp -r .next/static .next/standalone/.next/static && \
     cp -r public .next/standalone/public
 
-# DB directory — Railway volume mounts here at runtime
-RUN mkdir -p ml/nba_spread/data
+# Data directories — Railway volumes mount here at runtime
+RUN mkdir -p ml/nba_spread/data ml/world_cup/data
 
 ENV NODE_ENV=production
 ENV PYTHONUNBUFFERED=1

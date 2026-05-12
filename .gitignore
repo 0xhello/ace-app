@@ -12,6 +12,7 @@ tsconfig.tsbuildinfo
 ml/**/__pycache__/
 ml/**/*.pyc
 ml/nba_spread/data/
+ml/world_cup/data/
 
 # Model binary is committed — it needs to ship with the Railway image.
 # Revisit only if it grows beyond ~50MB.
