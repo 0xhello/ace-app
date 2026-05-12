@@ -247,6 +247,21 @@ def grade_signal(
                 result = "away"
             correct = 1 if result == bet_side else 0
 
+        elif market == "asian_handicap":
+            ah_line = sig["total_line"]  # Pinnacle's home line (e.g. -0.5, +1.5)
+            if ah_line is None:
+                result = None
+                correct = None
+            else:
+                margin = (home_score - away_score) + ah_line
+                if margin > 0:
+                    result = "home"
+                elif margin < 0:
+                    result = "away"
+                else:
+                    result = "void"  # exact push (half-ball lines make this rare)
+                correct = (1 if result == bet_side else 0) if result != "void" else None
+
         elif market == "totals":
             total_line = sig["total_line"]
             goals = home_score + away_score

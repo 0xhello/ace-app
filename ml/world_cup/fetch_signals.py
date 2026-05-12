@@ -37,7 +37,8 @@ ODDS_BASE    = "https://api.the-odds-api.com/v4"
 # The Odds API sport key for the FIFA World Cup 2026.
 # Confirm/update at https://api.the-odds-api.com/v4/sports?apiKey=...
 SPORT   = "soccer_fifa_world_cup"
-MARKETS = "h2h,totals"
+# h2h = 1X2, spreads = Asian Handicap (best 2-way market), totals = goal over/under
+MARKETS = "h2h,spreads,totals"
 BOOKS   = "pinnacle,fanduel,draftkings,betmgm,williamhill_us,betrivers"
 
 # Minimum probability edge over Pinnacle to fire a signal (decimal, e.g. 0.03 = 3pp).
@@ -218,6 +219,92 @@ def _extract_totals_probs(
 
 
 # ---------------------------------------------------------------------------
+# Asian Handicap extraction
+# ---------------------------------------------------------------------------
+
+def _extract_ah_line(
+    bookmakers: List[Dict[str, Any]],
+    book_key: str,
+    home_name: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Returns {'home_line': float, 'home_odds': float, 'away_odds': float}
+    for the spreads (Asian Handicap) market, or None if not available.
+    home_line convention: negative = home favored (same as NBA).
+    """
+    for bm in bookmakers:
+        if bm["key"] != book_key:
+            continue
+        for market in bm.get("markets", []):
+            if market["key"] != "spreads":
+                continue
+            home_line: Optional[float] = None
+            home_odds: Optional[float] = None
+            away_odds: Optional[float] = None
+            for oc in market.get("outcomes", []):
+                if oc["name"] == home_name:
+                    home_line = float(oc["point"])
+                    home_odds = float(oc["price"])
+                else:
+                    away_odds = float(oc["price"])
+            if home_line is not None and home_odds is not None and away_odds is not None:
+                return {"home_line": home_line, "home_odds": home_odds, "away_odds": away_odds}
+    return None
+
+
+def _detect_ah_divergence(
+    game: Dict[str, Any],
+    pin_ah: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    """
+    Asian Handicap divergence: compare soft book's AH line against Pinnacle's.
+    Fires when a soft book gives a meaningfully different line (same as NBA spreads logic).
+    Threshold: 0.5 points difference (half-ball AH units).
+    """
+    home_name = game["home_team"]
+    pin_line  = pin_ah["home_line"]
+    best: Optional[Dict[str, Any]] = None
+    AH_DIVERGENCE_MIN = 0.5  # half a goal = meaningful in AH
+
+    for bm in game.get("bookmakers", []):
+        book_key = bm["key"]
+        if book_key == "pinnacle":
+            continue
+
+        soft = _extract_ah_line(game["bookmakers"], book_key, home_name)
+        if soft is None:
+            continue
+
+        divergence = soft["home_line"] - pin_line  # positive → soft book is more generous to home bettors
+        if abs(divergence) < AH_DIVERGENCE_MIN:
+            continue
+
+        bet_side = "home" if divergence > 0 else "away"
+        # De-vig to get edge in probability terms for storage
+        pin_probs  = devig([pin_ah["home_odds"], pin_ah["away_odds"]])
+        soft_probs = devig([soft["home_odds"],   soft["away_odds"]])
+        idx        = 0 if bet_side == "home" else 1
+        edge_pp    = pin_probs[idx] - soft_probs[idx]
+
+        if best is None or abs(divergence) > abs(best.get("_raw_div", 0)):
+            best = {
+                "market":        "asian_handicap",
+                "bet_side":      bet_side,
+                "pinnacle_prob": pin_probs[idx],
+                "book":          book_key,
+                "book_prob":     soft_probs[idx],
+                "book_odds":     soft["home_odds"] if bet_side == "home" else soft["away_odds"],
+                "edge_pp":       edge_pp,
+                "total_line":    pin_line,  # store the Pinnacle AH line
+                "_raw_div":      divergence,
+            }
+
+    if best:
+        best.pop("_raw_div", None)
+    return best
+
+
+# ---------------------------------------------------------------------------
 # Divergence detection
 # ---------------------------------------------------------------------------
 
@@ -249,7 +336,9 @@ def _detect_h2h_divergence(
             continue
 
         for side in ("home", "draw", "away"):
-            edge = soft_probs[side] - pin_probs.get(side, 0.0)
+            # Pinnacle prob > soft book prob → soft book has longer odds on this
+            # outcome than the sharp reference → value betting it at the soft book.
+            edge = pin_probs.get(side, 0.0) - soft_probs[side]
             if edge < EDGE_THRESHOLD:
                 continue
             if best is None or edge > best["edge_pp"]:
@@ -292,7 +381,7 @@ def _detect_totals_divergence(
             ("over",  "over_prob",  "over_odds"),
             ("under", "under_prob", "under_odds"),
         ):
-            edge = soft[prob_key] - pin_totals[f"{side}_prob"]
+            edge = pin_totals[f"{side}_prob"] - soft[prob_key]
             if edge < EDGE_THRESHOLD:
                 continue
             if best is None or edge > best["edge_pp"]:
@@ -352,19 +441,18 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
         game_id   = game["id"]
         game_date = _et_game_date(game["commence_time"])
 
-        # Extract Pinnacle probs — skip game if Pinnacle has no line
-        pin_h2h = _extract_h2h_probs(
-            game["bookmakers"], "pinnacle", home_name, away_name
-        )
+        # Extract Pinnacle reference lines — skip game if Pinnacle has nothing
+        pin_h2h    = _extract_h2h_probs(game["bookmakers"], "pinnacle", home_name, away_name)
+        pin_ah     = _extract_ah_line(game["bookmakers"], "pinnacle", home_name)
         pin_totals = _extract_totals_probs(game["bookmakers"], "pinnacle")
 
-        if pin_h2h is None and pin_totals is None:
+        if pin_h2h is None and pin_ah is None and pin_totals is None:
             continue  # no Pinnacle line — no edge reference
 
         if snapshot_only:
             continue
 
-        # H2H divergence
+        # 1X2 divergence (draw market is the key structural edge vs US books)
         if pin_h2h:
             sig = _detect_h2h_divergence(game, pin_h2h)
             if sig:
@@ -389,7 +477,30 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
                 else:
                     signals_skipped += 1
 
-        # Totals divergence
+        # Asian Handicap divergence (cleanest 2-way market)
+        if pin_ah:
+            sig = _detect_ah_divergence(game, pin_ah)
+            if sig:
+                row_id = log_signal(
+                    game_id       = game_id,
+                    game_date     = game_date,
+                    home_team     = home_name,
+                    away_team     = away_name,
+                    commence_time = game["commence_time"],
+                    **sig,
+                )
+                if row_id:
+                    signals_fired += 1
+                    div = (sig["total_line"] or 0)
+                    print(
+                        f"  [SIGNAL] {away_name} @ {home_name}  "
+                        f"AH/{sig['bet_side'].upper()} {div:+.1f}  "
+                        f"{sig['book']}  edge={sig['edge_pp']*100:.1f}pp"
+                    )
+                else:
+                    signals_skipped += 1
+
+        # Totals divergence (goal over/under)
         if pin_totals:
             sig = _detect_totals_divergence(game, pin_totals)
             if sig:
