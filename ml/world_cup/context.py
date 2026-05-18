@@ -170,12 +170,26 @@ def init_context_tables(path: Path = DB_PATH) -> None:
             UNIQUE(team_name, player_name)
         );
 
+        -- Player injuries / unavailability from API-Football. One row per
+        -- (team, player). Status reflects the most recent feed entry.
+        CREATE TABLE IF NOT EXISTS wc_injuries (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_name    TEXT NOT NULL,
+            player_name  TEXT NOT NULL,
+            status       TEXT NOT NULL,     -- 'out' | 'questionable' | 'suspended'
+            reason       TEXT,              -- 'Knee Injury' / 'Yellow Card Accumulation' / etc.
+            updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(team_name, player_name)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_wc_fix_teams
             ON wc_fixtures(home_team, away_team, game_date);
         CREATE INDEX IF NOT EXISTS idx_wc_fix_api_id
             ON wc_fixtures(api_id);
         CREATE INDEX IF NOT EXISTS idx_wc_stand_group
             ON wc_standings(group_name);
+        CREATE INDEX IF NOT EXISTS idx_wc_injuries_team
+            ON wc_injuries(team_name);
     """)
     conn.commit()
     conn.close()
@@ -396,6 +410,77 @@ def sync_player_cards(path: Path = DB_PATH) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Sync: injuries
+# ---------------------------------------------------------------------------
+
+def _normalize_injury_status(api_type: Optional[str], reason: Optional[str]) -> str:
+    """
+    Map API-Football injury 'type' + 'reason' to our internal status.
+      API examples:
+        type='Missing Fixture' + reason='Knee Injury'        → 'out'
+        type='Missing Fixture' + reason='Suspended'          → 'suspended'
+        type='Questionable'   + reason='Hamstring'           → 'questionable'
+        type='Missing Fixture' + reason='Yellow Card'        → 'suspended'
+    """
+    t = (api_type or "").lower()
+    r = (reason or "").lower()
+    if "suspend" in r or "yellow card" in r or "red card" in r:
+        return "suspended"
+    if t == "questionable" or "doubt" in r or "doubtful" in r:
+        return "questionable"
+    return "out"  # default for Missing Fixture / Banned / etc.
+
+
+def sync_injuries(path: Path = DB_PATH) -> int:
+    """Pull current WC injury / unavailability report. Returns row count.
+
+    API-Football /injuries returns one record per (player, fixture-they-miss).
+    We collapse to the most recent (team, player) row — i.e. their current
+    availability status.
+    """
+    data = _get("injuries", {"league": WC_LEAGUE_ID, "season": WC_SEASON})
+    if not data:
+        return 0
+
+    init_context_tables(path)
+    conn = get_db(path)
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Clear stale rows — injuries resolve and shouldn't linger as 'out' forever.
+    # Easiest: wipe and re-insert. With ~32 teams × maybe 5-10 unavailable
+    # players per squad, this is at most a few hundred rows.
+    conn.execute("DELETE FROM wc_injuries")
+
+    count = 0
+    seen: set = set()
+    for entry in data.get("response", []):
+        team_name = normalize(entry.get("team", {}).get("name", ""))
+        player = entry.get("player", {}) or {}
+        player_name = player.get("name", "")
+        if not player_name or not team_name:
+            continue
+        # Skip dupes within the same response (API may list per-fixture)
+        key = (team_name, player_name)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        status = _normalize_injury_status(player.get("type"), player.get("reason"))
+        conn.execute(
+            """INSERT INTO wc_injuries
+               (team_name, player_name, status, reason, updated_at)
+               VALUES (?,?,?,?,?)""",
+            (team_name, player_name, status, player.get("reason"), now),
+        )
+        count += 1
+
+    conn.commit()
+    conn.close()
+    print(f"  [context] Injuries synced: {count} unavailable player(s)")
+    return count
+
+
+# ---------------------------------------------------------------------------
 # Context lookup — called by fetch_signals.py before logging a signal
 # ---------------------------------------------------------------------------
 
@@ -427,16 +512,19 @@ def get_game_context(
 ) -> Dict[str, Any]:
     """
     Returns a context dict for a signal:
-      lineup_confirmed: bool | None (None = not yet available)
-      dead_rubber: bool             (True = one/both teams already through and math is resolved)
-      suspension_risk: List[str]    (players with 4 yellows — one more = ban)
-      notes: List[str]              (human-readable flags for the signal notes field)
+      lineup_confirmed: bool | None    (None = not yet available)
+      dead_rubber: bool                (one/both teams already through, math resolved)
+      suspension_risk: List[str]       (players with 4 yellows — one more = ban)
+      unavailable_players: List[dict]  (currently out / suspended / questionable)
+        each: {team, player, status, reason}
+      notes: List[str]                 (human-readable flags for the signal notes field)
     """
     ctx: Dict[str, Any] = {
-        "lineup_confirmed": None,
-        "dead_rubber":      False,
-        "suspension_risk":  [],
-        "notes":            [],
+        "lineup_confirmed":    None,
+        "dead_rubber":         False,
+        "suspension_risk":     [],
+        "unavailable_players": [],
+        "notes":               [],
     }
 
     try:
@@ -485,6 +573,29 @@ def get_game_context(
                 ctx["notes"].append(
                     f"CARD RISK: {r['player_name']} ({team}) has {r['yellow_total']} yellows"
                 )
+
+        # Injury / suspension feed — currently unavailable players for both teams
+        for team in (home_team, away_team):
+            unavail = conn.execute(
+                """SELECT player_name, status, reason FROM wc_injuries
+                   WHERE team_name = ?
+                   ORDER BY CASE status
+                       WHEN 'out' THEN 0
+                       WHEN 'suspended' THEN 1
+                       WHEN 'questionable' THEN 2
+                       ELSE 3 END""",
+                (team,),
+            ).fetchall()
+            for r in unavail:
+                ctx["unavailable_players"].append({
+                    "team":   team,
+                    "player": r["player_name"],
+                    "status": r["status"],
+                    "reason": r["reason"],
+                })
+                label = r["status"].upper()
+                reason_str = f" — {r['reason']}" if r["reason"] else ""
+                ctx["notes"].append(f"{label}: {r['player_name']} ({team}){reason_str}")
 
         # Lineup check — are confirmed lineups available for this game?
         api_id = find_fixture_id(home_team, away_team, game_date, path)
@@ -538,6 +649,8 @@ def sync_all(path: Path = DB_PATH) -> None:
     sync_standings(path)
     print("  [context] Syncing player cards...")
     sync_player_cards(path)
+    print("  [context] Syncing injuries...")
+    sync_injuries(path)
 
 
 # ---------------------------------------------------------------------------
@@ -568,9 +681,13 @@ if __name__ == "__main__":
         fix_count  = conn.execute("SELECT COUNT(*) FROM wc_fixtures").fetchone()[0]
         team_count = conn.execute("SELECT COUNT(*) FROM wc_standings").fetchone()[0]
         card_count = conn.execute("SELECT COUNT(*) FROM wc_player_cards").fetchone()[0]
+        inj_count  = conn.execute("SELECT COUNT(*) FROM wc_injuries").fetchone()[0]
+        out_count  = conn.execute("SELECT COUNT(*) FROM wc_injuries WHERE status='out'").fetchone()[0]
+        susp_count = conn.execute("SELECT COUNT(*) FROM wc_injuries WHERE status='suspended'").fetchone()[0]
         print(f"  Fixtures cached : {fix_count}")
         print(f"  Standings rows  : {team_count}")
         print(f"  Player cards    : {card_count}")
+        print(f"  Unavailable     : {inj_count}  ({out_count} out · {susp_count} suspended)")
         # Dead rubber candidates
         risk = conn.execute(
             "SELECT player_name, team_name, yellow_total FROM wc_player_cards WHERE yellow_total >= 3 ORDER BY yellow_total DESC LIMIT 10"

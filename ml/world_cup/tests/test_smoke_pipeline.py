@@ -322,3 +322,66 @@ def test_update_closing_lines_skips_missing_side(db: Path) -> None:
     )
     assert updated == 0
     assert get_all_signals(db)[0]["closing_pinnacle_prob"] is None
+
+
+# ---------------------------------------------------------------------------
+# Context enrichment — injuries + suspensions (player/team availability)
+# ---------------------------------------------------------------------------
+
+def test_injury_status_normalization() -> None:
+    """API-Football type/reason combos map to our internal status correctly."""
+    from ml.world_cup.context import _normalize_injury_status
+    assert _normalize_injury_status("Missing Fixture", "Knee Injury")           == "out"
+    assert _normalize_injury_status("Missing Fixture", "Suspended")             == "suspended"
+    assert _normalize_injury_status("Missing Fixture", "Yellow Card Accumulation") == "suspended"
+    assert _normalize_injury_status("Missing Fixture", "Red Card")              == "suspended"
+    assert _normalize_injury_status("Questionable",    "Hamstring")             == "questionable"
+    assert _normalize_injury_status("Missing Fixture", "Doubtful Match Status") == "questionable"
+    assert _normalize_injury_status(None,              "")                      == "out"
+
+
+def test_context_injury_table_created(db: Path) -> None:
+    """init_context_tables creates wc_injuries with the right columns."""
+    from ml.world_cup.context import init_context_tables
+    init_context_tables(db)
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(wc_injuries)").fetchall()}
+    conn.close()
+    for required in ("team_name", "player_name", "status", "reason", "updated_at"):
+        assert required in cols, f"missing column: {required}"
+
+
+def test_get_game_context_surfaces_injuries(db: Path) -> None:
+    """get_game_context returns unavailable_players from wc_injuries."""
+    from ml.world_cup.context import init_context_tables, get_game_context
+    init_context_tables(db)
+
+    conn = sqlite3.connect(db)
+    # Insert two injuries: one OUT, one SUSPENDED
+    conn.execute(
+        """INSERT INTO wc_injuries (team_name, player_name, status, reason, updated_at)
+           VALUES (?,?,?,?,datetime('now'))""",
+        ("Brazil", "Vinicius Jr.", "out", "Knee Injury"),
+    )
+    conn.execute(
+        """INSERT INTO wc_injuries (team_name, player_name, status, reason, updated_at)
+           VALUES (?,?,?,?,datetime('now'))""",
+        ("Argentina", "Rodrigo De Paul", "suspended", "Yellow Card Accumulation"),
+    )
+    conn.commit()
+    conn.close()
+
+    ctx = get_game_context("Brazil", "Argentina", "2026-06-20", path=db)
+    # Both players show up in unavailable_players
+    assert len(ctx["unavailable_players"]) == 2
+    names = {p["player"] for p in ctx["unavailable_players"]}
+    assert "Vinicius Jr." in names
+    assert "Rodrigo De Paul" in names
+
+    # Notes are human-readable
+    notes_str = "\n".join(ctx["notes"])
+    assert "OUT: Vinicius Jr." in notes_str
+    assert "SUSPENDED: Rodrigo De Paul" in notes_str
+    # Reason is included in notes
+    assert "Knee Injury" in notes_str
