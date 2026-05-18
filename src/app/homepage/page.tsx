@@ -388,11 +388,10 @@ function V4Hero() {
             </h1>
 
             <p style={{
-              marginTop: 36, fontSize: 18, color: V4.textDim, lineHeight: 1.55, maxWidth: 560,
+              marginTop: 36, fontSize: 18, color: V4.textDim, lineHeight: 1.5, maxWidth: 520,
             }}>
-              An AI intelligence layer for sports bettors. We grade every line against
-              its true fair value, stack the live signals — injuries, weather, line
-              movement — and tell you what to bet, why, and where the best price is.
+              Stop guessing. The AI does the work — finds the bets, shows you why,
+              points you to the best price.
             </p>
 
             <div style={{ display: "flex", gap: 12, marginTop: 36 }}>
@@ -477,9 +476,9 @@ function V4Ticker() {
 // ─── Loop ────────────────────────────────────────────────────────────────────
 function V4Loop() {
   const steps = [
-    { n: "01", title: "We watch every game.", body: "ACE scans every major sportsbook at once — NBA, NFL, MLB, NHL, soccer, World Cup. Every line, every market, all night. You stop refreshing apps." },
-    { n: "02", title: "AI calls the smart bet.", body: "Every line graded against fair price, every signal stacked, every pick scored by confidence. The conclusion is loud. The reasoning is one tap away." },
-    { n: "03", title: "You place it. We track it.", body: "ACE points you to the best-priced book. You go place the bet. We track every result so you learn what works for you over time. We never touch your money." },
+    { n: "01", title: "We watch every game.", body: "ACE watches every NBA, NFL, MLB, NHL, and soccer game across every major sportsbook. All night." },
+    { n: "02", title: "AI calls the smart bet.", body: "The picks worth your money — with confidence and reasoning attached. No spreadsheets." },
+    { n: "03", title: "You place it. We track it.", body: "ACE points you to the sportsbook with the best price. You place the bet. We track the result." },
   ];
   return (
     <section style={{ borderTop: `1px solid ${V4.line}`, background: V4.bgDeep }}>
@@ -599,8 +598,8 @@ function V4WCMoment() {
           {[
             ["104", "matches", "group stage through final"],
             ["48", "nations", "every roster, every match"],
-            ["1", "model", "continuous re-grade in-play"],
-            [cd ? String(cd.days) : "—", "days", "until kickoff at estadio azteca"],
+            ["1", "AI", "calling every match"],
+            [cd ? String(cd.days) : "—", "days", "until kickoff"],
           ].map(([n, t, sub], i) => (
             <div key={i}>
               <div className="v4-h2 v4-stat-fit" style={{
@@ -782,16 +781,14 @@ function V4ToolI() {
         <h3 className="v4-h3" style={{ fontSize: 42, color: V4.text, marginTop: 20, fontFamily: OUTFIT, maxWidth: 460 }}>
           ACE watches <br /><span style={{ color: V4.green }}>every game.</span>
         </h3>
-        <p style={{ fontSize: 15, color: V4.secondary, lineHeight: 1.6, marginTop: 18, maxWidth: 460 }}>
-          Our model runs every line through a no-vig fair-price benchmark and the
-          soft books in parallel — weighted with live injuries, scores, line movement,
-          and venue/weather signals. When the market drifts off real value, ACE catches
-          it before the line corrects.
+        <p style={{ fontSize: 15, color: V4.secondary, lineHeight: 1.55, marginTop: 18, maxWidth: 440 }}>
+          Every line at every major sportsbook, all night.
+          ACE knows the real price — and tells you the moment a book gets it wrong.
         </p>
         <div style={{ marginTop: 24, display: "flex", gap: 28 }}>
-          <V4Stat n="Fair price" label="benchmarked live" />
-          <V4Stat n="20+" label="books in parallel" />
-          <V4Stat n="Live" label="signal engine" />
+          <V4Stat n="Live" label="every line" />
+          <V4Stat n="20+" label="books watched" />
+          <V4Stat n="AI" label="scores them all" />
         </div>
       </div>
 
@@ -922,16 +919,14 @@ function V4ToolII() {
         <h3 className="v4-h3" style={{ fontSize: 42, color: V4.text, marginTop: 20, fontFamily: OUTFIT, maxWidth: 460 }}>
           Then tells you <br /><span style={{ color: V4.green }}>what to bet.</span>
         </h3>
-        <p style={{ fontSize: 15, color: V4.secondary, lineHeight: 1.6, marginTop: 18, maxWidth: 460 }}>
-          Every pick is a real edge — graded against fair price, weighted by live signals,
-          ranked by confidence. The conclusion is loud, the reasoning is one tap away.
-          Like your sharpest friend texting you the bet — except the friend never sleeps
-          and grades every market on the board.
+        <p style={{ fontSize: 15, color: V4.secondary, lineHeight: 1.55, marginTop: 18, maxWidth: 440 }}>
+          Just the picks worth your money — with the reasoning attached.
+          Like having the smartest bettor you know in your pocket.
         </p>
         <div style={{ marginTop: 24, display: "flex", gap: 28 }}>
-          <V4Stat n="Edge" label="vs no-vig fair" />
-          <V4Stat n="Why" label="shown every pick" />
-          <V4Stat n="Live" label="re-graded in-play" />
+          <V4Stat n="Picks" label="worth your money" />
+          <V4Stat n="Why" label="shown every time" />
+          <V4Stat n="Live" label="all night" />
         </div>
       </div>
     </div>
@@ -952,10 +947,9 @@ function V4ToolIII() {
         <h3 className="v4-h3" style={{ fontSize: 42, color: V4.text, marginTop: 20, fontFamily: OUTFIT, maxWidth: 460 }}>
           And gets you the <br /><span style={{ color: V4.green }}>best price.</span>
         </h3>
-        <p style={{ fontSize: 15, color: V4.secondary, lineHeight: 1.6, marginTop: 18, maxWidth: 440 }}>
-          Like the pick? ACE tells you exactly which sportsbook is offering the
-          best price for it, right now. You go place the bet over there. That&apos;s
-          it. Free money you used to leave on the table.
+        <p style={{ fontSize: 15, color: V4.secondary, lineHeight: 1.55, marginTop: 18, maxWidth: 440 }}>
+          ACE tells you which sportsbook has the best price right now.
+          Free money you used to leave on the table.
         </p>
         <div style={{ marginTop: 24, display: "flex", gap: 28 }}>
           <V4Stat n="+$8.40" label="avg saved / $100" />
@@ -1040,8 +1034,7 @@ function V4Tools() {
           The AI does the work. <br /><span style={{ color: V4.secondary }}>You just bet.</span>
         </h2>
         <p style={{ fontSize: 16, color: V4.secondary, maxWidth: 620, lineHeight: 1.6, marginBottom: 32 }}>
-          Three things happen automatically the moment you open ACE. No setup,
-          no settings, no learning curve.
+          Open ACE and the board is already doing the work.
         </p>
 
         <V4ToolI />
@@ -1099,8 +1092,8 @@ function V4TrackRecord() {
               We&apos;ll publish the <br /><span style={{ color: V4.secondary }}>losses too.</span>
             </h2>
             <p style={{ fontSize: 15, color: V4.secondary, lineHeight: 1.6, margin: 0, marginBottom: 26 }}>
-              Every graded pick will be logged, public, and auditable from beta day one.
-              When the model has cold weeks we&apos;ll run diagnostics on them — not press releases.
+              Every pick — win or loss — gets logged publicly from beta day one.
+              When ACE has cold weeks, you&apos;ll see them too.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
               {[
@@ -1149,8 +1142,7 @@ function V4Receipt() {
           A pick. <span style={{ color: V4.secondary }}>And why.</span>
         </h2>
         <p style={{ fontSize: 15, color: V4.secondary, lineHeight: 1.6, maxWidth: 620, margin: 0, marginBottom: 32 }}>
-          Every ACE pick comes with its reasoning, right there in the card. No mystery, no
-          black box. Here&apos;s exactly what you&apos;d see on tonight&apos;s biggest match.
+          Every pick comes with the reasoning. Here&apos;s what tonight&apos;s biggest match looks like in ACE.
         </p>
 
         <div className="v4-card-pad" style={{
@@ -1199,13 +1191,6 @@ function V4Receipt() {
                     </span>
                   </div>
                 ))}
-              </div>
-              <div className="v4-mono" style={{
-                marginTop: 22, paddingTop: 14, borderTop: `1px solid ${V4.line}`,
-                fontSize: 11.5, color: V4.textDim, lineHeight: 1.55, fontStyle: "italic",
-              }}>
-                <span style={{ color: V4.green, fontStyle: "normal" }}>↳</span> Translation: the AI thinks
-                Argentina wins this — and the price is still worth taking.
               </div>
             </div>
 
@@ -1505,19 +1490,15 @@ function V4Pricing() {
 function V4FAQ() {
   const items: Array<[string, string]> = [
     ["Is ACE a sportsbook?",
-      "No. ACE pulls odds and edge data from every major sportsbook, runs them through our model, and tells you what to bet — so you can place it wherever you already have an account. Your money never touches us."],
-    ["How accurate are the AI picks?",
-      "Backtest accuracy targets 68%+ on graded picks with +4.8% avg edge vs market. The full math behind every pick is public — we&apos;ll publish the losses with the wins from beta day one."],
-    ["Where does the odds data come from?",
-      "Live feeds from every major US and international sportsbook, with each line graded against its true fair value. Beta users get full real-time access."],
+      "No. ACE picks the bets — you place them wherever you already have an account."],
+    ["How accurate are the picks?",
+      "Backtest accuracy targets 68%+ on graded picks. Every pick — win or loss — is logged publicly from beta day one."],
     ["How does ACE decide which picks to show me?",
-      "Every line gets scored on edge vs fair price, signal strength (injuries, weather, line movement), and confidence. The best picks get surfaced; questionable ones get flagged; obvious bad bets (player not playing, retired) get blocked. You always see the reasoning — never just a number."],
+      "Every game gets scored on real value, live signals, and confidence. The best ones get surfaced. Bad bets (player not playing, retired) get blocked. The reasoning is always shown."],
     ["Will ACE cover the World Cup?",
-      "Yes — WC2026 is our launch focal point. Every match, every group, every knockout. Group standings, win probabilities, and live picks all live in the dashboard from kickoff on June 11."],
-    ["Do you take a cut of winnings?",
-      "Never. Flat subscription post-beta. What you bet and what you win stays with you and your sportsbook."],
+      "Yes — WC2026 is our launch focus. Every match, every group, every knockout. Live picks from kickoff on June 11."],
   ];
-  const [open, setOpen] = useState<number>(3);
+  const [open, setOpen] = useState<number>(2);
   return (
     <section style={{ borderTop: `1px solid ${V4.line}` }}>
       <div className="v4-pad-x v4-pad-tall" style={{ maxWidth: 1320, margin: "0 auto", padding: "88px 36px" }}>
