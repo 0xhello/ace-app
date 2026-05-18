@@ -6,9 +6,11 @@ import { generateIntelMap } from "@/lib/live-signals";
 import { generateLivePicks } from "@/lib/live-picks";
 import { fetchWeatherForGames } from "@/lib/weather";
 import { fetchModelSignals } from "@/lib/model-signals";
+import { getMockGames } from "@/lib/mock-games";
 import * as serverCache from "@/lib/server-cache";
 
 const CACHE_KEY = "board-games";
+const IS_DEV = process.env.NODE_ENV === "development";
 
 async function getGames(): Promise<{
   games: Game[];
@@ -52,7 +54,15 @@ async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 export default async function GamesFeed() {
-  const { games, errors, fetchedAt } = await getGames();
+  let { games, errors, fetchedAt } = await getGames();
+
+  // Local dev fallback: when the Odds API is unavailable / out of credits
+  // we don't want to dead-end developers with the prod maintenance screen.
+  // Drop in mock games instead so the dashboard is usable end-to-end on local.
+  if (games.length === 0 && IS_DEV) {
+    games = getMockGames();
+    fetchedAt = fetchedAt ?? new Date().toISOString();
+  }
 
   if (games.length === 0) {
     return (
@@ -67,7 +77,7 @@ export default async function GamesFeed() {
             ACE is Temporarily Offline
           </p>
           <p className="text-[13px] text-[#6b7068] leading-relaxed mb-6">
-            Our servers are currently under maintenance. We'll be back online shortly — please check back in a few minutes.
+            Our servers are currently under maintenance. We&apos;ll be back online shortly — please check back in a few minutes.
           </p>
           <div className="flex items-center justify-center gap-1.5 text-[10px] text-[#3a4033] uppercase tracking-widest font-semibold">
             <span className="h-1.5 w-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
