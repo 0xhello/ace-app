@@ -19,16 +19,22 @@ import os
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 import httpx
 from dotenv import load_dotenv
 
 from .signal_logger import (
-    devig, init_db, log_signal, update_meta, DB_PATH,
+    devig, init_db, log_signal, update_closing_lines,
 )
-from .context import get_game_context, init_context_tables
+from .context import get_game_context
+
+# Window around kickoff in which we treat the current odds as "closing".
+# Worker polls every ~60s near kickoff, so a 15-min pre / 5-min post window
+# guarantees at least one snapshot lands per game.
+CLOSING_WINDOW_PRE_MIN  = 15
+CLOSING_WINDOW_POST_MIN = 5
 
 _ENV_PATH = Path(__file__).resolve().parents[2] / ".env.local"
 load_dotenv(_ENV_PATH)
@@ -122,6 +128,66 @@ def filter_upcoming(games: List[Dict[str, Any]], horizon_hours: int = 48) -> Lis
 def _et_game_date(commence_time: str) -> str:
     dt = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
     return dt.astimezone(_TZ_ET).strftime("%Y-%m-%d")
+
+
+def _is_in_closing_window(commence_time: str) -> bool:
+    """True when commence_time is within the closing-line snapshot window:
+    from CLOSING_WINDOW_PRE_MIN before kickoff to CLOSING_WINDOW_POST_MIN after.
+    """
+    try:
+        start = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+    except Exception:
+        return False
+    delta = (start - datetime.now(timezone.utc)).total_seconds()
+    return -CLOSING_WINDOW_POST_MIN * 60 <= delta <= CLOSING_WINDOW_PRE_MIN * 60
+
+
+def _build_closing_snapshot(
+    game: Dict[str, Any],
+    pin_h2h:    Optional[Dict[str, float]],
+    pin_totals: Optional[Dict[str, Any]],
+) -> tuple[Dict[str, float], Dict[tuple, float]]:
+    """
+    Build the two dicts update_closing_lines() expects from the current
+    Odds API snapshot for one game:
+
+      pinnacle_probs_by_side: per-side sharp truth probability (de-vigged)
+      book_odds_by_side_book: per-(book, side) current American odds
+
+    Covers h2h ('home'/'draw'/'away') and totals ('over'/'under'). AH/spreads
+    are intentionally omitted — closing-line CLV for AH is line-based, not
+    prob-based, and we'd need a different math path. Punt for now.
+    """
+    home_name = game["home_team"]
+    away_name = game["away_team"]
+
+    pinnacle_probs: Dict[str, float] = {}
+    if pin_h2h:
+        pinnacle_probs.update({
+            "home": pin_h2h.get("home", 0.0),
+            "draw": pin_h2h.get("draw", 0.0),
+            "away": pin_h2h.get("away", 0.0),
+        })
+    if pin_totals:
+        pinnacle_probs.update({
+            "over":  pin_totals.get("over_prob",  0.0),
+            "under": pin_totals.get("under_prob", 0.0),
+        })
+
+    odds_by_book_side: Dict[tuple, float] = {}
+    for bm in game.get("bookmakers", []):
+        book_key = bm["key"]
+        h2h_odds = _extract_h2h_odds(game["bookmakers"], book_key, home_name, away_name)
+        if h2h_odds:
+            for side in ("home", "draw", "away"):
+                if h2h_odds.get(side):
+                    odds_by_book_side[(book_key, side)] = h2h_odds[side]
+        tot = _extract_totals_probs(game["bookmakers"], book_key)
+        if tot:
+            odds_by_book_side[(book_key, "over")]  = tot["over_odds"]
+            odds_by_book_side[(book_key, "under")] = tot["under_odds"]
+
+    return pinnacle_probs, odds_by_book_side
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +516,17 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
 
         if pin_h2h is None and pin_ah is None and pin_totals is None:
             continue  # no Pinnacle line — no edge reference
+
+        # ── Closing-line snapshot ────────────────────────────────────────
+        # If kickoff is imminent (or just happened), stamp closing odds onto
+        # every still-open signal for this game so we can compute CLV later.
+        # Only updates rows where closing_pinnacle_prob is still NULL.
+        if _is_in_closing_window(game["commence_time"]):
+            pin_probs, odds_map = _build_closing_snapshot(game, pin_h2h, pin_totals)
+            if pin_probs:
+                updated = update_closing_lines(game_id, pin_probs, odds_map)
+                if updated:
+                    print(f"  [closing] {away_name} @ {home_name}: stamped {updated} signal(s)")
 
         if snapshot_only:
             continue

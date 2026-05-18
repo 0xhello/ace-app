@@ -21,7 +21,6 @@ from pathlib import Path
 import pytest
 
 from ml.world_cup.signal_logger import (
-    DB_PATH,
     confidence_tier,
     devig,
     get_all_signals,
@@ -30,6 +29,7 @@ from ml.world_cup.signal_logger import (
     init_db,
     kelly_fraction,
     log_signal,
+    update_closing_lines,
 )
 
 
@@ -256,3 +256,69 @@ def test_grade_signal_marks_incorrect(db: Path) -> None:
     assert graded[0]["result"] == "home"
     assert graded[0]["correct"] == 0
     assert get_all_signals(db)[0]["status"] == "graded"
+
+
+# ---------------------------------------------------------------------------
+# Closing-line capture (CLV equivalent for prob-based markets)
+# ---------------------------------------------------------------------------
+
+def test_update_closing_lines_computes_positive_clv(db: Path) -> None:
+    """
+    We logged a draw signal when FanDuel had ~32% implied. By kickoff, Pinnacle
+    has moved to 36% — the sharp truth caught up with our value. We beat the
+    close → clv_pp should be positive.
+    """
+    _insert_test_signal(db)
+    pre = get_open_signals(db)
+    assert pre[0]["closing_pinnacle_prob"] is None
+    book_prob_at_signal = pre[0]["book_prob"]
+
+    updated = update_closing_lines(
+        GAME_ID,
+        pinnacle_probs_by_side={"home": 0.40, "draw": 0.36, "away": 0.24},
+        book_odds_by_side_book={("fanduel", "draw"): 220},
+        path=db,
+    )
+    assert updated == 1
+
+    row = get_all_signals(db)[0]
+    assert row["closing_pinnacle_prob"] == 0.36
+    assert row["closing_book_odds"] == 220
+    # CLV = closing_pinnacle_prob (0.36) - book_prob_at_signal
+    assert row["clv_pp"] == pytest.approx(0.36 - book_prob_at_signal, abs=1e-6)
+    assert row["clv_pp"] > 0  # we beat the close
+
+
+def test_update_closing_lines_only_runs_once(db: Path) -> None:
+    """Idempotent — once a signal has closing_pinnacle_prob, never overwrite."""
+    _insert_test_signal(db)
+    first = update_closing_lines(
+        GAME_ID,
+        pinnacle_probs_by_side={"home": 0.40, "draw": 0.36, "away": 0.24},
+        book_odds_by_side_book={("fanduel", "draw"): 220},
+        path=db,
+    )
+    second = update_closing_lines(
+        GAME_ID,
+        pinnacle_probs_by_side={"home": 0.40, "draw": 0.50, "away": 0.10},  # different
+        book_odds_by_side_book={("fanduel", "draw"): 999},
+        path=db,
+    )
+    assert first == 1
+    assert second == 0  # nothing to update — already stamped
+    row = get_all_signals(db)[0]
+    assert row["closing_pinnacle_prob"] == 0.36  # first capture wins
+    assert row["closing_book_odds"] == 220
+
+
+def test_update_closing_lines_skips_missing_side(db: Path) -> None:
+    """If sharp benchmark for the bet_side is missing, skip — no garbage CLV."""
+    _insert_test_signal(db)
+    updated = update_closing_lines(
+        GAME_ID,
+        pinnacle_probs_by_side={"home": 0.40, "away": 0.24},  # no 'draw'
+        book_odds_by_side_book={("fanduel", "draw"): 220},
+        path=db,
+    )
+    assert updated == 0
+    assert get_all_signals(db)[0]["closing_pinnacle_prob"] is None

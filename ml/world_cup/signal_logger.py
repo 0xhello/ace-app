@@ -311,6 +311,72 @@ def get_all_signals(path: Path = DB_PATH) -> List[Dict[str, Any]]:
         return []
 
 
+def update_closing_lines(
+    game_id: str,
+    pinnacle_probs_by_side: Dict[str, float],
+    book_odds_by_side_book: Dict[tuple, float],
+    path: Path = DB_PATH,
+) -> int:
+    """
+    Stamp closing-line snapshots onto every still-open signal for a game.
+
+    Called near kickoff. For each open signal we already have:
+      - book_prob (logged at signal time — the price we'd have bet at)
+      - bet_side, book (so we can look up the matching closing odds now)
+
+    We compute:
+      - closing_pinnacle_prob = current Pinnacle de-vigged prob for bet_side
+      - closing_book_odds     = current American odds for (book, bet_side)
+      - clv_pp = closing_pinnacle_prob - book_prob_at_signal
+                 (positive → we beat the close; the sharp truth caught up
+                  with the value we spotted, validating our entry)
+
+    Returns the number of signals updated. Only updates rows where
+    closing_pinnacle_prob is still NULL — once captured, treated as
+    final and never overwritten.
+
+    Args:
+      pinnacle_probs_by_side: {'home': 0.42, 'draw': 0.28, 'away': 0.30}
+                              (or {'over': 0.55, 'under': 0.45} for totals)
+      book_odds_by_side_book: {('fanduel', 'draw'): +240, ...} — current
+                              American odds per (book, bet_side) pair
+    """
+    init_db(path)
+    conn = get_db(path)
+    open_rows = conn.execute(
+        """SELECT id, market, bet_side, book, book_prob
+           FROM soccer_signals
+           WHERE game_id = ? AND status = 'open' AND closing_pinnacle_prob IS NULL""",
+        (game_id,),
+    ).fetchall()
+
+    updated = 0
+    for row in open_rows:
+        side = row["bet_side"]
+        closing_pin = _null_float(pinnacle_probs_by_side.get(side))
+        closing_odds = _null_float(book_odds_by_side_book.get((row["book"], side)))
+
+        if closing_pin is None:
+            continue  # can't compute CLV without a sharp benchmark
+
+        book_prob = _null_float(row["book_prob"])
+        clv = (closing_pin - book_prob) if book_prob is not None else None
+
+        conn.execute(
+            """UPDATE soccer_signals
+               SET closing_pinnacle_prob = ?,
+                   closing_book_odds     = ?,
+                   clv_pp                = ?
+               WHERE id = ?""",
+            (closing_pin, closing_odds, clv, row["id"]),
+        )
+        updated += 1
+
+    conn.commit()
+    conn.close()
+    return updated
+
+
 def grade_signal(
     game_id: str,
     home_score: int,
