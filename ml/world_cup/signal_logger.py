@@ -40,6 +40,27 @@ def get_db(path: Path = DB_PATH) -> sqlite3.Connection:
     return conn
 
 
+_PICK_COLUMNS: List[tuple] = [
+    # (name, sql_type) — added by _migrate() if the row is missing.
+    # Keep additive only; never remove or rename a deployed column here.
+    ("confidence_tier",       "TEXT"),    # 'A' | 'B' | 'C' — set at log time from edge_pp
+    ("kelly_fraction",        "REAL"),    # half-Kelly bet sizing as decimal (0.024 = 2.4% of bankroll)
+    ("reasoning_json",        "TEXT"),    # JSON snapshot of context.py output at detection time
+    ("closing_pinnacle_prob", "REAL"),    # Pinnacle de-vigged prob captured at/near kickoff
+    ("closing_book_odds",     "REAL"),    # soft-book closing odds for CLV comparison
+    ("clv_pp",                "REAL"),    # book_prob_at_signal - closing_pinnacle_prob (>0 = beat the close)
+]
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Idempotently add new columns to soccer_signals. Safe to run repeatedly."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(soccer_signals)").fetchall()}
+    for col, typ in _PICK_COLUMNS:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE soccer_signals ADD COLUMN {col} {typ}")
+    conn.commit()
+
+
 def init_db(path: Path = DB_PATH) -> None:
     conn = get_db(path)
     conn.executescript("""
@@ -55,7 +76,7 @@ def init_db(path: Path = DB_PATH) -> None:
             tournament      TEXT DEFAULT 'FIFA World Cup',
 
             -- Signal
-            market          TEXT NOT NULL,   -- 'h2h' | 'totals'
+            market          TEXT NOT NULL,   -- 'h2h' | 'totals' | 'asian_handicap'
             bet_side        TEXT NOT NULL,   -- 'home'|'draw'|'away' | 'over'|'under'
             total_line      REAL,            -- goals line for totals signals (e.g. 2.5)
             signal_type     TEXT NOT NULL DEFAULT 'divergence',
@@ -92,7 +113,7 @@ def init_db(path: Path = DB_PATH) -> None:
             value TEXT NOT NULL DEFAULT ''
         );
     """)
-    conn.commit()
+    _migrate(conn)
     conn.close()
 
 
@@ -140,6 +161,57 @@ def devig(odds_list: List[float]) -> List[float]:
     return [p / total for p in raw]
 
 
+def _american_to_decimal(odds: float) -> float:
+    if odds == 0:
+        return 1.0
+    return odds / 100.0 + 1.0 if odds > 0 else 100.0 / abs(odds) + 1.0
+
+
+# ---------------------------------------------------------------------------
+# Pick-quality helpers — used by fetch_signals.py at log time
+# ---------------------------------------------------------------------------
+
+def confidence_tier(edge_pp: float) -> str:
+    """
+    Map edge size (decimal probability points) to an internal tier label.
+    Tiers are used by the front-end highlighting (invisible-classification,
+    visible-outcome pattern) and are kept simple on purpose:
+
+      A — strong play  (edge >= 7pp)
+      B — solid play   (edge >= 4pp)
+      C — marginal     (edge >= 3pp, the firing threshold)
+    """
+    if edge_pp is None:
+        return "C"
+    if edge_pp >= 0.07:
+        return "A"
+    if edge_pp >= 0.04:
+        return "B"
+    return "C"
+
+
+def kelly_fraction(true_prob: float, book_odds: float, kelly_mult: float = 0.5, cap: float = 0.05) -> float:
+    """
+    Half-Kelly suggested bet size as fraction of bankroll.
+
+    Uses pinnacle_prob (sharp benchmark) as our estimate of true win probability
+    and the soft-book American odds as the price we'd actually get. Returns 0
+    when there's no positive expected value. Capped at `cap` (default 5%) so a
+    single pick can't dominate the bankroll.
+    """
+    if true_prob is None or true_prob <= 0 or true_prob >= 1:
+        return 0.0
+    decimal = _american_to_decimal(book_odds)
+    b = decimal - 1.0
+    if b <= 0:
+        return 0.0
+    q = 1.0 - true_prob
+    f_star = (b * true_prob - q) / b
+    if f_star <= 0:
+        return 0.0
+    return min(f_star * kelly_mult, cap)
+
+
 # ---------------------------------------------------------------------------
 # Signal CRUD
 # ---------------------------------------------------------------------------
@@ -159,29 +231,39 @@ def log_signal(
     edge_pp: float,
     total_line: Optional[float] = None,
     notes: str = "",
+    reasoning_json: Optional[str] = None,
     path: Path = DB_PATH,
 ) -> int:
     """
-    Insert a new signal. Silently ignores duplicates (same game_id + market + bet_side).
-    Returns the new row id, or 0 if duplicate.
+    Insert a new signal-as-pick. Silently ignores duplicates (same game_id +
+    market + bet_side). Returns the new row id, or 0 if duplicate.
+
+    confidence_tier and kelly_fraction are derived from edge_pp / pinnacle_prob /
+    book_odds — no caller computation required.
     """
     init_db(path)
     conn = get_db(path)
     detected_at = datetime.now(timezone.utc).isoformat()
+
+    tier   = confidence_tier(edge_pp)
+    kelly  = kelly_fraction(_null_float(pinnacle_prob) or 0.0, _null_float(book_odds) or 0.0)
+
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO soccer_signals
             (game_id, game_date, home_team, away_team, commence_time,
              market, bet_side, total_line,
              pinnacle_prob, book, book_prob, book_odds, edge_pp,
+             confidence_tier, kelly_fraction, reasoning_json,
              notes, detected_at)
-        VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?)
+        VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?)
         """,
         (
             game_id, game_date, home_team, away_team, commence_time,
             market, bet_side, _null_float(total_line),
             _null_float(pinnacle_prob), book, _null_float(book_prob),
             _null_float(book_odds), _null_float(edge_pp),
+            tier, kelly, reasoning_json,
             notes, detected_at,
         ),
     )

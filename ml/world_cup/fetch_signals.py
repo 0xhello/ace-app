@@ -14,6 +14,7 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
@@ -456,6 +457,9 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
         # Pull game context (dead rubber, suspension risk, lineup status)
         ctx = get_game_context(home_name, away_name, game_date)
         ctx_notes = "; ".join(ctx["notes"]) if ctx["notes"] else ""
+        # Full context snapshot for future training data — captured at detection
+        # time so we know exactly what we knew when the signal fired.
+        reasoning_json = json.dumps(ctx, default=str)
 
         # 1X2 divergence (draw market is the key structural edge vs US books)
         if pin_h2h:
@@ -466,8 +470,9 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
                     game_date     = game_date,
                     home_team     = home_name,
                     away_team     = away_name,
-                    commence_time = game["commence_time"],
-                    notes         = ctx_notes,
+                    commence_time  = game["commence_time"],
+                    notes          = ctx_notes,
+                    reasoning_json = reasoning_json,
                     **sig,
                 )
                 if row_id:
@@ -493,8 +498,9 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
                     game_date     = game_date,
                     home_team     = home_name,
                     away_team     = away_name,
-                    commence_time = game["commence_time"],
-                    notes         = ctx_notes,
+                    commence_time  = game["commence_time"],
+                    notes          = ctx_notes,
+                    reasoning_json = reasoning_json,
                     **sig,
                 )
                 if row_id:
@@ -518,8 +524,9 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
                     game_date     = game_date,
                     home_team     = home_name,
                     away_team     = away_name,
-                    commence_time = game["commence_time"],
-                    notes         = ctx_notes,
+                    commence_time  = game["commence_time"],
+                    notes          = ctx_notes,
+                    reasoning_json = reasoning_json,
                     **sig,
                 )
                 if row_id:
