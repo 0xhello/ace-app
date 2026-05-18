@@ -1,11 +1,12 @@
 import type { ComponentType } from "react";
+import OverviewOpsTab from "@/components/ops/overview/OverviewOpsTab";
 import NBAOpsTab from "@/components/ops/nba/NBAOpsTab";
 import MLBOpsTab from "@/components/ops/mlb/MLBOpsTab";
 import SoccerOpsTab from "@/components/ops/soccer/SoccerOpsTab";
 import NFLOpsTab from "@/components/ops/nfl/NFLOpsTab";
 import UsersOpsTab from "@/components/ops/users/UsersOpsTab";
 
-export type OpsSportKey = "nba" | "mlb" | "soccer" | "nfl" | "users";
+export type OpsSportKey = "overview" | "nba" | "mlb" | "soccer" | "nfl" | "users";
 export type OpsSportStatus = "live" | "soon" | "planned";
 
 export interface OpsSportConfig {
@@ -18,6 +19,13 @@ export interface OpsSportConfig {
 
 export const OPS_SPORTS: OpsSportConfig[] = [
   {
+    key: "overview",
+    label: "Overview",
+    status: "live",
+    description: "Cross-sport signal volume, win rates, and worker health across NBA, WC, and MLB.",
+    component: OverviewOpsTab,
+  },
+  {
     key: "nba",
     label: "NBA",
     status: "live",
@@ -27,15 +35,15 @@ export const OPS_SPORTS: OpsSportConfig[] = [
   {
     key: "mlb",
     label: "MLB",
-    status: "soon",
-    description: "Pitchers, weather, F5/full-game markets, and bullpen-aware signals.",
+    status: "live",
+    description: "ML / run line / totals divergence vs Pinnacle benchmark with pick logging + CLV.",
     component: MLBOpsTab,
   },
   {
     key: "soccer",
     label: "Soccer",
-    status: "soon",
-    description: "FIFA World Cup 2026 — Pinnacle divergence signals on h2h and totals. Launches Jun 11.",
+    status: "live",
+    description: "FIFA World Cup 2026 — h2h / AH / totals divergence with pick logging + CLV. Kickoff Jun 11.",
     component: SoccerOpsTab,
   },
   {
