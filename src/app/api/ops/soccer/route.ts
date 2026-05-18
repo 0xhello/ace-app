@@ -26,25 +26,38 @@ interface SoccerSignal {
   status: string;
   notes: string | null;
   detected_at: string;
+  // Pick-quality fields (added by signal_logger _migrate)
+  confidence_tier: "A" | "B" | "C" | null;
+  kelly_fraction: number | null;
+  reasoning_json: string | null;
+  closing_pinnacle_prob: number | null;
+  closing_book_odds: number | null;
+  clv_pp: number | null;
 }
 
 interface WCData {
   signals: SoccerSignal[];
   meta: Record<string, string>;
+  error?: string;
 }
 
 function readWCData(dbPath: string): WCData {
+  // Calling init_db() here triggers _migrate() — keeps the prod schema
+  // current any time the ops dashboard is loaded. Idempotent and cheap.
   const script = `
-import sqlite3, json, sys
+import json, sys
+from pathlib import Path
 try:
-    conn = sqlite3.connect(${JSON.stringify(dbPath)})
-    conn.row_factory = sqlite3.Row
+    from ml.world_cup.signal_logger import init_db, get_db
+    db_path = Path(${JSON.stringify(dbPath)})
+    init_db(db_path)
+    conn = get_db(db_path)
     sigs = conn.execute("SELECT * FROM soccer_signals ORDER BY detected_at DESC").fetchall()
     meta_rows = conn.execute("SELECT key, value FROM meta").fetchall()
     conn.close()
     print(json.dumps({
         "signals": [dict(r) for r in sigs],
-        "meta":    {r[0]: r[1] for r in meta_rows},
+        "meta":    {r["key"]: r["value"] for r in meta_rows},
     }))
 except Exception as e:
     print(json.dumps({"signals": [], "meta": {}, "error": str(e)}))
@@ -86,7 +99,7 @@ export async function GET() {
     "wc_signal_log.db",
   );
 
-  const { signals, meta } = readWCData(dbPath);
+  const { signals, meta, error } = readWCData(dbPath);
 
   const toTs = (raw: string | null) =>
     raw ? new Date(raw).toISOString().replace("T", " ").slice(0, 19) : null;
@@ -124,6 +137,12 @@ export async function GET() {
   const totGraded  = graded.filter((s) => s.market === "totals");
   const totWins    = totGraded.filter((s) => s.correct === 1).length;
 
+  // Quick schema-presence check — surfaces in ops so we can see if the
+  // pick-quality columns are live without spelunking SQLite directly.
+  const hasPickFields = signals.length > 0
+    ? "confidence_tier" in (signals[0] as unknown as Record<string, unknown>)
+    : null;
+
   return NextResponse.json({
     worker: { lastPollAt, lastPollOk },
     jobs: { fetch: fetchMeta, grade: gradeMeta },
@@ -139,7 +158,9 @@ export async function GET() {
       h2h:    { graded: h2hGraded.length,  wins: h2hWins },
       totals: { graded: totGraded.length,   wins: totWins },
     },
+    schema: { hasPickFields, migrationRunAt: meta["schema:last_migration_at"] ?? null },
     refreshedAt: new Date().toISOString(),
+    ...(error ? { error } : {}),
   });
 }
 

@@ -53,11 +53,23 @@ _PICK_COLUMNS: List[tuple] = [
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Idempotently add new columns to soccer_signals. Safe to run repeatedly."""
+    """Idempotently add new columns to soccer_signals. Safe to run repeatedly.
+
+    Stamps `schema:last_migration_at` in the meta table when a column is
+    actually added so we can see in /api/ops/soccer when the production DB
+    received the new shape.
+    """
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(soccer_signals)").fetchall()}
+    added = False
     for col, typ in _PICK_COLUMNS:
         if col not in existing:
             conn.execute(f"ALTER TABLE soccer_signals ADD COLUMN {col} {typ}")
+            added = True
+    if added:
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            ("schema:last_migration_at", datetime.now(timezone.utc).isoformat()),
+        )
     conn.commit()
 
 
