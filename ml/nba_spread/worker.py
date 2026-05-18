@@ -14,8 +14,9 @@ Schedule (all times ET):
   Sun 05:00    — player_values
   Sun 05:30    — fetch_team_styles + compute_archetypes + segment_model_performance
 
-  World Cup (Jun 11 – Jul 19):
-  Every poll tick  — wc_fetch_signals (divergence scan)
+  World Cup (active window: May 18 – Jul 20; tournament Jun 11 – Jul 19):
+  Every poll tick  — wc_fetch_signals (divergence scan; no-op when API
+                     returns 422 for inactive sport keys)
   09:00 daily      — wc_grade_results
 
 Usage:
@@ -45,8 +46,11 @@ try:
 except Exception:
     _WC_AVAILABLE = False
 
-# World Cup active window — start polling a week early to test the integration
-_WC_START = date(2026, 6, 4)
+# World Cup active window — start polling early to collect pre-tournament
+# data and shake out the pipeline well before kickoff. The Odds API returns
+# 422 for sports without active markets, so polling early is essentially
+# free until the pre-tournament books open (~2 weeks out from June 11).
+_WC_START = date(2026, 5, 18)
 _WC_END   = date(2026, 7, 20)
 
 _TZ_ET = ZoneInfo("America/New_York")
