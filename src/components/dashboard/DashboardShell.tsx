@@ -12,7 +12,7 @@ import { Search, Sparkles, AlertTriangle, RefreshCw, Star, X } from "lucide-reac
 import { cn } from "@/lib/utils";
 import { checkAlertsAgainst, fireNotification, type PriceAlert } from "@/lib/alerts";
 
-type SportFilter = "ALL" | "NBA" | "NFL" | "MLB" | "NHL" | "NCAAB";
+type SportFilter = "ALL" | "SOCCER" | "NBA" | "NFL" | "MLB" | "NHL" | "NCAAB";
 type TimeFilter = "ALL" | "LIVE" | "TODAY";
 
 export interface SlipLeg {
@@ -26,15 +26,16 @@ export interface SlipLeg {
 }
 
 const SPORT_LABELS: Record<string, { emoji: string; label: string }> = {
-  ALL:   { emoji: "🏆", label: "All" },
-  NBA:   { emoji: "🏀", label: "NBA" },
-  NFL:   { emoji: "🏈", label: "NFL" },
-  MLB:   { emoji: "⚾", label: "MLB" },
-  NHL:   { emoji: "🏒", label: "NHL" },
-  NCAAB: { emoji: "🎓", label: "NCAAB" },
+  ALL:    { emoji: "🏆", label: "All" },
+  SOCCER: { emoji: "⚽", label: "Soccer" },
+  NBA:    { emoji: "🏀", label: "NBA" },
+  NFL:    { emoji: "🏈", label: "NFL" },
+  MLB:    { emoji: "⚾", label: "MLB" },
+  NHL:    { emoji: "🏒", label: "NHL" },
+  NCAAB:  { emoji: "🎓", label: "NCAAB" },
 };
 
-const SPORTS: SportFilter[] = ["ALL", "NBA", "NFL", "MLB", "NHL", "NCAAB"];
+const SPORTS: SportFilter[] = ["ALL", "SOCCER", "NBA", "NFL", "MLB", "NHL", "NCAAB"];
 
 function extractBestOdds(game: Game): Record<string, number | null> {
   const bk = game.bookmakers;

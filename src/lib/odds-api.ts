@@ -8,6 +8,9 @@ const BOOKS = "fanduel,draftkings,betmgm,caesars,pointsbet,bet365";
 const MARKETS = "h2h,spreads,totals";
 
 // All sports ACE monitors. The API returns [] for off-season sports — no wasted credits.
+// Soccer set is intentionally narrow during the WC window: the tournament itself
+// plus two leagues that overlap (UCL final, MLS regular season). Expand post-WC
+// if we want full year-round soccer coverage.
 export const SPORT_KEYS = [
   "basketball_nba",
   "baseball_mlb",
@@ -15,6 +18,9 @@ export const SPORT_KEYS = [
   "americanfootball_nfl",
   "basketball_ncaab",
   "americanfootball_ncaaf",
+  "soccer_fifa_world_cup",
+  "soccer_uefa_champs_league",
+  "soccer_usa_mls",
 ] as const;
 
 export type SportKey = (typeof SPORT_KEYS)[number];
