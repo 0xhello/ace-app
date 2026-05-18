@@ -19,6 +19,10 @@ Schedule (all times ET):
                      returns 422 for inactive sport keys)
   09:00 daily      — wc_grade_results
 
+  MLB (active window: Mar 1 – Nov 15):
+  Every poll tick  — mlb_fetch_signals (ML / run line / totals divergence)
+  06:00 daily      — mlb_grade_results (covers west-coast late games)
+
 Usage:
     python3 -m ml.nba_spread.worker         # production (blocking)
     python3 -m ml.nba_spread.worker --once  # single snapshot + exit (smoke test)
@@ -46,12 +50,25 @@ try:
 except Exception:
     _WC_AVAILABLE = False
 
+# MLB module — same lazy-load pattern. Divergence-only pipeline (no model yet).
+try:
+    from ml.mlb.fetch_signals import run as _mlb_fetch_run
+    from ml.mlb.signal_logger import update_meta as _mlb_update_meta
+    _MLB_AVAILABLE = True
+except Exception:
+    _MLB_AVAILABLE = False
+
 # World Cup active window — start polling early to collect pre-tournament
 # data and shake out the pipeline well before kickoff. The Odds API returns
 # 422 for sports without active markets, so polling early is essentially
 # free until the pre-tournament books open (~2 weeks out from June 11).
 _WC_START = date(2026, 5, 18)
 _WC_END   = date(2026, 7, 20)
+
+# MLB regular season + postseason window. Update annually.
+# (Spring training opens late Feb; World Series typically wraps early Nov.)
+_MLB_START = date(2026, 3, 1)
+_MLB_END   = date(2026, 11, 15)
 
 _TZ_ET = ZoneInfo("America/New_York")
 _RUNNING = True
@@ -154,7 +171,7 @@ def _run_scheduled_tasks() -> None:
     if _daily_due("check_injury_updates", hour=15, minute=30):
         _run_task("ml.nba_spread.check_injury_updates")
 
-    # ── World Cup tasks (active Jun 4 – Jul 20) ───────────────────────────────
+    # ── World Cup tasks (active May 18 – Jul 20) ──────────────────────────────
     if _WC_AVAILABLE and _WC_START <= datetime.now(_TZ_ET).date() <= _WC_END:
         if _daily_due("wc_grade_results", hour=9):
             _run_task("ml.world_cup.grade_results", "--days", "3")
@@ -164,6 +181,13 @@ def _run_scheduled_tasks() -> None:
                 _wc_sync_context()
             except Exception as e:
                 print(f"  [worker] WC context sync error: {e}", file=sys.stderr, flush=True)
+
+    # ── MLB tasks (active during season) ──────────────────────────────────────
+    if _MLB_AVAILABLE and _MLB_START <= datetime.now(_TZ_ET).date() <= _MLB_END:
+        # MLB schedules games every day during the season; grade at 6am ET
+        # so all west-coast late games are settled before the morning poll.
+        if _daily_due("mlb_grade_results", hour=6):
+            _run_task("ml.mlb.grade_results", "--days", "3")
 
     # ── Weekly tasks (Sunday) ─────────────────────────────────────────────────
     if _weekly_due("player_values", weekday=6, hour=5):
@@ -289,6 +313,20 @@ def run_loop(once: bool = False) -> None:
                 try:
                     _wc_update_meta("last_poll_at", datetime.now(timezone.utc).isoformat())
                     _wc_update_meta("last_poll_ok", "0")
+                except Exception:
+                    pass
+
+        # MLB signal scan (when active window)
+        if _MLB_AVAILABLE and _MLB_START <= datetime.now(_TZ_ET).date() <= _MLB_END:
+            try:
+                _mlb_fetch_run(snapshot_only=False)
+                _mlb_update_meta("last_poll_at", datetime.now(timezone.utc).isoformat())
+                _mlb_update_meta("last_poll_ok", "1")
+            except Exception as e:
+                print(f"  [worker] MLB scan error: {e}", file=sys.stderr, flush=True)
+                try:
+                    _mlb_update_meta("last_poll_at", datetime.now(timezone.utc).isoformat())
+                    _mlb_update_meta("last_poll_ok", "0")
                 except Exception:
                     pass
 
