@@ -297,6 +297,7 @@ function formatUpcomingStart(commenceTime: string) {
   const game = new Date(commenceTime);
   const isToday = now.toDateString() === game.toDateString();
   const primary = game.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const daysOut = Math.round((game.getTime() - now.getTime()) / 86_400_000);
 
   if (isToday) {
     return {
@@ -305,10 +306,13 @@ function formatUpcomingStart(commenceTime: string) {
     };
   }
 
-  return {
-    primary,
-    secondary: game.toLocaleDateString("en-US", { weekday: "short" }),
-  };
+  // < 7 days out: just the weekday is clear enough ("Wed")
+  // >= 7 days out: show month + day too so it's unambiguous ("Sep 9")
+  const secondary = daysOut < 7
+    ? game.toLocaleDateString("en-US", { weekday: "short" })
+    : game.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  return { primary, secondary };
 }
 
 function formatLiveState(game: Game, scoreboard: any) {

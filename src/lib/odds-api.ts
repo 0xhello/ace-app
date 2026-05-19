@@ -236,9 +236,22 @@ export async function fetchAllGames(): Promise<{
     if (result.error) errors.push(result.error);
   }
 
+  // Horizon filter — drop games more than HORIZON_DAYS out unless they're
+  // live or recently completed. The Odds API surfaces full-season schedules
+  // months in advance for NFL/MLB once published; showing September NFL
+  // games on the May board is confusing UX. We still pay one API credit
+  // either way (the response is the same), but the dashboard is cleaner.
+  // Past games (live/final within 12h) are kept.
+  const HORIZON_DAYS = 14;
+  const horizonMs    = Date.now() + HORIZON_DAYS * 24 * 60 * 60 * 1000;
+  const pastWindowMs = Date.now() - 12 * 60 * 60 * 1000;
+
   for (const result of oddsResults) {
     for (const raw of result.data) {
       try {
+        const startMs = new Date(raw.commence_time).getTime();
+        if (startMs > horizonMs)    continue; // too far in the future
+        if (startMs < pastWindowMs) continue; // too far in the past
         games.push(transformGame(raw, scoreMap));
       } catch (e: any) {
         errors.push(e.message);
