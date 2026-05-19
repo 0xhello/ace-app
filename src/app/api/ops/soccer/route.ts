@@ -35,32 +35,55 @@ interface SoccerSignal {
   clv_pp: number | null;
 }
 
+interface WCInjury {
+  team_name: string;
+  player_name: string;
+  status: "out" | "suspended" | "questionable";
+  reason: string | null;
+  updated_at: string;
+}
+
 interface WCData {
   signals: SoccerSignal[];
   meta: Record<string, string>;
+  injuries: WCInjury[];
   error?: string;
 }
 
 function readWCData(dbPath: string): WCData {
   // Calling init_db() here triggers _migrate() — keeps the prod schema
   // current any time the ops dashboard is loaded. Idempotent and cheap.
+  // Injuries are pulled from wc_injuries (populated by context.sync_injuries
+  // on the worker's daily 7am ET tick).
   const script = `
 import json, sys
 from pathlib import Path
 try:
     from ml.world_cup.signal_logger import init_db, get_db
+    from ml.world_cup.context import init_context_tables
     db_path = Path(${JSON.stringify(dbPath)})
     init_db(db_path)
+    init_context_tables(db_path)
     conn = get_db(db_path)
     sigs = conn.execute("SELECT * FROM soccer_signals ORDER BY detected_at DESC").fetchall()
     meta_rows = conn.execute("SELECT key, value FROM meta").fetchall()
+    inj_rows = []
+    try:
+        inj_rows = conn.execute(
+            "SELECT team_name, player_name, status, reason, updated_at "
+            "FROM wc_injuries "
+            "ORDER BY CASE status WHEN 'out' THEN 0 WHEN 'suspended' THEN 1 ELSE 2 END, team_name"
+        ).fetchall()
+    except Exception:
+        pass
     conn.close()
     print(json.dumps({
-        "signals": [dict(r) for r in sigs],
-        "meta":    {r["key"]: r["value"] for r in meta_rows},
+        "signals":  [dict(r) for r in sigs],
+        "meta":     {r["key"]: r["value"] for r in meta_rows},
+        "injuries": [dict(r) for r in inj_rows],
     }))
 except Exception as e:
-    print(json.dumps({"signals": [], "meta": {}, "error": str(e)}))
+    print(json.dumps({"signals": [], "meta": {}, "injuries": [], "error": str(e)}))
 `;
   const result = spawnSync("python3", ["-c", script], {
     encoding: "utf-8",
@@ -69,7 +92,7 @@ except Exception as e:
   try {
     return JSON.parse(result.stdout) as WCData;
   } catch {
-    return { signals: [], meta: {} };
+    return { signals: [], meta: {}, injuries: [] };
   }
 }
 
@@ -99,7 +122,7 @@ export async function GET() {
     "wc_signal_log.db",
   );
 
-  const { signals, meta, error } = readWCData(dbPath);
+  const { signals, meta, injuries, error } = readWCData(dbPath);
 
   const toTs = (raw: string | null) =>
     raw ? new Date(raw).toISOString().replace("T", " ").slice(0, 19) : null;
@@ -159,6 +182,7 @@ export async function GET() {
       totals: { graded: totGraded.length,   wins: totWins },
     },
     schema: { hasPickFields, migrationRunAt: meta["schema:last_migration_at"] ?? null },
+    injuries: injuries ?? [],
     refreshedAt: new Date().toISOString(),
     ...(error ? { error } : {}),
   });

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   Activity, AlertTriangle, CheckCircle2, Clock,
-  RefreshCw, Target, TrendingUp, Zap, Trophy,
+  RefreshCw, Target, TrendingUp, Zap, Trophy, UserX,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,11 +39,19 @@ interface Stats {
 }
 
 interface JobMeta { lastRunAt: string | null; lastError: string | null }
+interface WCInjury {
+  team_name: string;
+  player_name: string;
+  status: "out" | "suspended" | "questionable";
+  reason: string | null;
+  updated_at: string;
+}
 interface WCPayload {
   worker: { lastPollAt: string | null; lastPollOk: boolean | null };
   jobs:   { fetch: JobMeta; grade: JobMeta };
   signals: SoccerSignal[];
   stats:   Stats;
+  injuries: WCInjury[];
   refreshedAt: string;
 }
 
@@ -367,6 +375,70 @@ export default function SoccerOpsTab() {
                 value={`${stats.totals.wins}/${stats.totals.graded}`}
                 sub={fmtPct(stats.totals.wins / stats.totals.graded)}
               />
+            )}
+          </div>
+        )}
+
+        {/* ══ PLAYER AVAILABILITY ═════════════════════════════════════════════ */}
+        {data?.injuries && data.injuries.length > 0 && (
+          <div className="rounded-xl border border-[#181c18] bg-[#0d0f0d] p-5">
+            <SectionHead
+              title="Player availability"
+              icon={UserX}
+              right={
+                <div className="flex items-center gap-3 text-[10px]">
+                  <span className="text-[#ef4444]">
+                    {data.injuries.filter(i => i.status === "out").length} out
+                  </span>
+                  <span className="text-[#f5c062]">
+                    {data.injuries.filter(i => i.status === "suspended").length} suspended
+                  </span>
+                  <span className="text-[#9ca39a]">
+                    {data.injuries.filter(i => i.status === "questionable").length} doubtful
+                  </span>
+                </div>
+              }
+            />
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {data.injuries.slice(0, 18).map((inj, i) => {
+                const tone = inj.status === "out" ? {
+                  bg: "bg-[#ef4444]/[0.06]",
+                  border: "border-[#ef4444]/15",
+                  text: "text-[#ef8b8b]",
+                  label: "OUT",
+                } : inj.status === "suspended" ? {
+                  bg: "bg-[#f5c062]/[0.06]",
+                  border: "border-[#f5c062]/15",
+                  text: "text-[#f5c062]",
+                  label: "SUSP",
+                } : {
+                  bg: "bg-[#6b7068]/[0.06]",
+                  border: "border-[#6b7068]/15",
+                  text: "text-[#9ca39a]",
+                  label: "QUES",
+                };
+                return (
+                  <div
+                    key={`${inj.team_name}-${inj.player_name}-${i}`}
+                    className={`flex items-center gap-2 rounded-lg border ${tone.border} ${tone.bg} px-2.5 py-2 min-w-0`}
+                  >
+                    <span className={`text-[8px] font-bold tracking-widest ${tone.text} shrink-0`}>
+                      {tone.label}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-semibold text-white truncate">{inj.player_name}</p>
+                      <p className="text-[9px] text-[#6b7068] truncate">
+                        {inj.team_name}{inj.reason ? ` · ${inj.reason}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {data.injuries.length > 18 && (
+              <p className="text-[10px] text-[#4a524a] mt-3 text-center">
+                Showing 18 of {data.injuries.length} unavailable players
+              </p>
             )}
           </div>
         )}
