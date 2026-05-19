@@ -317,6 +317,55 @@ def test_weighted_goals_per_90_returns_none_low_sample() -> None:
     assert out is None
 
 
+def test_country_discovery_workaround_picks_mens_national_team(monkeypatch) -> None:
+    """When the league+season path returns None (plan restricted), the
+    fallback should iterate countries and pick the men's national team —
+    skipping women's teams (suffix ' W') and applying overrides."""
+    from ml.world_cup import players as players_mod
+
+    # Mock _get so it (a) returns None for the league+season call,
+    # (b) returns canned team responses for country queries.
+    calls = []
+    def mock_get(endpoint: str, params: dict):
+        calls.append((endpoint, dict(params)))
+        if endpoint == "teams" and "league" in params:
+            return None  # simulate plan restriction
+        if endpoint == "teams" and params.get("country") == "France":
+            return {"response": [
+                {"team": {"id": 2, "name": "France", "national": True}},
+            ]}
+        if endpoint == "teams" and params.get("country") == "Brazil":
+            # National team listed alongside non-national; should pick the national
+            return {"response": [
+                {"team": {"id": 999, "name": "Brazil U20", "national": False}},
+                {"team": {"id": 6,   "name": "Brazil",     "national": True}},
+            ]}
+        if endpoint == "teams" and params.get("country") == "England":
+            # Women's team appears before men's; should skip suffix ' W'
+            return {"response": [
+                {"team": {"id": 7777, "name": "England W", "national": True}},
+                {"team": {"id": 10,   "name": "England",   "national": True}},
+            ]}
+        return {"response": []}
+
+    monkeypatch.setattr(players_mod, "_get", mock_get)
+    # Run with a narrow country list so the test stays focused
+    monkeypatch.setattr(players_mod, "WC_2026_COUNTRIES",
+                        ["France", "Brazil", "England", "USA"])
+
+    teams = players_mod.get_wc_teams()
+    by_country = {t["country"]: t["api_team_id"] for t in teams}
+
+    assert by_country["France"]  == 2
+    assert by_country["Brazil"]  == 6
+    assert by_country["England"] == 10   # men's, not 7777 (women's)
+    assert by_country["USA"]     == 2384 # pinned via _TEAM_ID_OVERRIDES — no API call
+
+    # USA should have been resolved from the override, not the API
+    usa_calls = [c for c in calls if c[1].get("country") == "USA"]
+    assert len(usa_calls) == 0, "USA should be resolved from override, not network"
+
+
 def test_compute_prior_uses_weighted_aggregate(db: Path) -> None:
     """When a player has both current + previous club seasons, the weighted
     blend gives more weight to current. Verifying the prior actually USES

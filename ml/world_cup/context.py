@@ -88,7 +88,13 @@ def _headers() -> Dict[str, str]:
 
 
 def _get(endpoint: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Single GET call. Returns parsed JSON or None on error."""
+    """Single GET call. Returns parsed JSON or None on error.
+
+    API-Football returns HTTP 200 with a non-empty `errors` object when
+    a plan-restricted resource is requested (e.g. free-tier asking for
+    season 2026). raise_for_status won't catch these — we have to
+    inspect the body. Log loudly so prod failures don't silently degrade.
+    """
     if not API_FOOTBALL_KEY:
         print("  [context] API_FOOTBALL_KEY not set — skipping", file=sys.stderr)
         return None
@@ -103,9 +109,23 @@ def _get(endpoint: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if remaining and int(remaining) < 10:
             print(f"  [context] API-Football quota low: {remaining} remaining", file=sys.stderr)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        # Surface plan-restriction / auth / param errors (HTTP 200 + errors object)
+        if isinstance(data, dict):
+            err = data.get("errors")
+            # API-Football returns errors as either an object {plan: '...'} OR
+            # an empty list []. Only non-empty dict-style errors are real.
+            if isinstance(err, dict) and err:
+                print(
+                    f"  [context] API-Football {endpoint} restriction: {err}  params={params}",
+                    file=sys.stderr,
+                )
+                # Don't return data on plan errors — caller treats None as
+                # "skip this sync" rather than partial data.
+                return None
+        return data
     except Exception as e:
-        print(f"  [context] API error ({endpoint}): {e}", file=sys.stderr)
+        print(f"  [context] API error ({endpoint}): {e}  params={params}", file=sys.stderr)
         return None
 
 

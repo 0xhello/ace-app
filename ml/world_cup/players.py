@@ -39,6 +39,41 @@ from typing import Any, Dict, List, Optional
 from .signal_logger import get_db, init_db, DB_PATH
 from .context import _get, normalize, WC_LEAGUE_ID, WC_SEASON, API_FOOTBALL_KEY
 
+# WC 2026 qualified countries (48-team format). Used for the teams-by-country
+# workaround that lets us pull squads on the API-Football free tier — the
+# `/teams?league=1&season=2026` path is plan-restricted, but `/teams?country=X`
+# isn't. Update as final qualifiers settle (cross-confederation playoffs
+# resolve close to kickoff).
+WC_2026_COUNTRIES: List[str] = [
+    # Hosts
+    "USA", "Canada", "Mexico",
+    # UEFA (16 from European qualifying)
+    "France", "England", "Germany", "Spain", "Italy", "Netherlands",
+    "Portugal", "Belgium", "Croatia", "Denmark", "Switzerland", "Poland",
+    "Austria", "Czech-Republic", "Norway", "Ukraine",
+    # CONMEBOL (6 from South American qualifying)
+    "Argentina", "Brazil", "Uruguay", "Colombia", "Ecuador", "Paraguay",
+    # AFC (8 from Asian qualifying)
+    "Japan", "South-Korea", "Iran", "Saudi-Arabia", "Australia",
+    "Iraq", "Qatar", "Uzbekistan",
+    # CAF (9 from African qualifying)
+    "Morocco", "Senegal", "Tunisia", "Egypt", "Algeria",
+    "Nigeria", "Ghana", "Cameroon", "Ivory-Coast",
+    # CONCACAF (3 non-host qualifiers)
+    "Costa-Rica", "Jamaica", "Panama",
+    # OFC (1)
+    "New-Zealand",
+    # Inter-confederation playoff slots (likely candidates)
+    "Bolivia", "Congo-DR",
+]
+
+# Manual overrides where teams-by-country returns the wrong team
+# (e.g. women's team appears first in USA search). Keys are API-Football
+# country names; values are the verified men's national team_id.
+_TEAM_ID_OVERRIDES: Dict[str, int] = {
+    "USA": 2384,   # Women's USA returns first (id=1718) — pin the men's id
+}
+
 # Major club leagues to pull top-scorer / top-assist stats from. We use
 # these to backfill recent form for WC squad players — most WC players
 # play in one of these leagues year-round.
@@ -149,19 +184,83 @@ def init_player_tables(path: Path = DB_PATH) -> None:
 # ---------------------------------------------------------------------------
 
 def get_wc_teams(path: Path = DB_PATH) -> List[Dict[str, Any]]:
-    """List WC teams from API-Football — needs the league + season set."""
+    """Resolve all WC 2026 national-team IDs.
+
+    Order of attempts (graceful fallback):
+      1. League+season query (needs paid API-Football plan for season 2026)
+      2. Country-by-country search (works on free tier, slower — 48 calls)
+
+    Returns a list of {api_team_id, name, country, code} dicts.
+    """
+    # Path 1: try the proper league+season endpoint first. On paid plans
+    # this is cheaper (1 call vs 48) and returns the authoritative qualified
+    # team list. On free tier the context._get wrapper logs a plan error
+    # and returns None, falling through to path 2.
     data = _get("teams", {"league": WC_LEAGUE_ID, "season": WC_SEASON})
-    if not data:
-        return []
-    out = []
-    for entry in data.get("response", []):
-        team = entry.get("team", {}) or {}
-        out.append({
-            "api_team_id": team.get("id"),
-            "name":        normalize(team.get("name", "")),
-            "country":     team.get("country"),
-            "code":        team.get("code"),
-        })
+    if data:
+        out = []
+        for entry in data.get("response", []):
+            team = entry.get("team", {}) or {}
+            tid = team.get("id")
+            if not tid:
+                continue
+            out.append({
+                "api_team_id": tid,
+                "name":        normalize(team.get("name", "")),
+                "country":     team.get("country"),
+                "code":        team.get("code"),
+            })
+        if out:
+            return out
+
+    # Path 2: free-tier workaround — discover each WC country's national
+    # team via /teams?country=X. ~48 calls, runs once on the daily sync.
+    # Caller (sync_wc_squads) then issues 1 squads call per team.
+    print("  [players] Falling back to country-by-country team discovery (free-tier workaround)")
+    return _discover_teams_by_country(WC_2026_COUNTRIES)
+
+
+def _discover_teams_by_country(countries: List[str]) -> List[Dict[str, Any]]:
+    """For each country name, find its men's national team via teams-by-country.
+
+    Applies _TEAM_ID_OVERRIDES first when a country has a known disambiguation
+    issue (USA returns women's team first, etc.). Returns the same shape as
+    the league-based path so the rest of the pipeline doesn't care which
+    source was used."""
+    out: List[Dict[str, Any]] = []
+    for country in countries:
+        # Pinned override path — skip the API call when we know the ID
+        if country in _TEAM_ID_OVERRIDES:
+            out.append({
+                "api_team_id": _TEAM_ID_OVERRIDES[country],
+                "name":        normalize(country.replace("-", " ")),
+                "country":     country,
+                "code":        None,
+            })
+            continue
+
+        data = _get("teams", {"country": country})
+        if not data:
+            continue
+        teams = data.get("response", []) or []
+        # Pick the national=True team. Skip ones with 'W' suffix (women's).
+        for t in teams:
+            team = t.get("team", {}) or {}
+            if not team.get("national"):
+                continue
+            name = team.get("name", "") or ""
+            if name.endswith(" W"):
+                continue
+            tid = team.get("id")
+            if not tid:
+                continue
+            out.append({
+                "api_team_id": tid,
+                "name":        normalize(name),
+                "country":     country,
+                "code":        team.get("code"),
+            })
+            break  # first valid national team is enough
     return out
 
 
