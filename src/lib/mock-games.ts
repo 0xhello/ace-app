@@ -366,5 +366,70 @@ export function getMockGames(): Game[] {
         ),
       ],
     }),
+    // World Cup mock — gives the Soccer filter pill something to render
+    // locally and lets developers see the WC banner + chip pipeline without
+    // a live Odds API key for the WC sport.
+    makeGame({
+      id: "bra-arg-demo",
+      sport: "soccer_fifa_world_cup",
+      sportTitle: "Soccer FIFA World Cup",
+      away: "Argentina",
+      home: "Brazil",
+      status: "upcoming",
+      commenceOffsetHours: 6,
+      bookmakers: [
+        makeBook(
+          "betmgm",
+          "BetMGM",
+          [
+            { name: "Brazil", price: -135 },
+            { name: "Argentina", price: +265 },
+            { name: "Draw", price: +220 },
+          ],
+          [
+            { name: "Brazil", price: -110, point: -0.5 },
+            { name: "Argentina", price: -110, point: +0.5 },
+          ],
+          [
+            { name: "Over", price: -110, point: 2.5 },
+            { name: "Under", price: -110, point: 2.5 },
+          ]
+        ),
+        makeBook(
+          "fanduel",
+          "FanDuel",
+          [
+            { name: "Brazil", price: -125 },
+            { name: "Argentina", price: +280 },
+            { name: "Draw", price: +240 },
+          ],
+          [
+            { name: "Brazil", price: -105, point: -0.5 },
+            { name: "Argentina", price: -115, point: +0.5 },
+          ],
+          [
+            { name: "Over", price: -108, point: 2.5 },
+            { name: "Under", price: -112, point: 2.5 },
+          ]
+        ),
+        makeBook(
+          "draftkings",
+          "DraftKings",
+          [
+            { name: "Brazil", price: -130 },
+            { name: "Argentina", price: +270 },
+            { name: "Draw", price: +230 },
+          ],
+          [
+            { name: "Brazil", price: -110, point: -0.5 },
+            { name: "Argentina", price: -110, point: +0.5 },
+          ],
+          [
+            { name: "Over", price: -105, point: 2.5 },
+            { name: "Under", price: -115, point: 2.5 },
+          ]
+        ),
+      ],
+    }),
   ];
 }
