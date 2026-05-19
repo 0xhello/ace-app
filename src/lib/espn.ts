@@ -52,7 +52,9 @@ function classifyArticle(headline: string, desc: string): { type: ESPNNewsItem["
   return { type: "news", severity: "low" };
 }
 
-export type InjuryStatus = "out" | "doubtful" | "questionable" | "game-time" | "day-to-day";
+// "suspended" is used by WC injuries (yellow-card accumulation, red cards).
+// ESPN's NBA/NFL/etc feeds only use the others.
+export type InjuryStatus = "out" | "doubtful" | "questionable" | "game-time" | "day-to-day" | "suspended";
 
 export interface InjuryContext {
   playerName: string | null;

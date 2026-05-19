@@ -507,8 +507,8 @@ export default function GameRow({
               {(injuryAlerts.length > 0 || topModelSignal || noVigHomeProb != null) && (
                 <div className="pl-[26px] mt-1.5 flex flex-wrap items-center gap-1">
                   {injuryAlerts.slice(0, 3).map((a, i) => {
-                    const isOut = a.status === "out" || a.status === "doubtful";
-                    const statusLabel = a.status === "out" ? "OUT" : a.status === "doubtful" ? "DBTF" : a.status === "questionable" ? "QUES" : a.status === "game-time" ? "GTD" : "D2D";
+                    const isOut = a.status === "out" || a.status === "doubtful" || a.status === "suspended";
+                    const statusLabel = a.status === "out" ? "OUT" : a.status === "suspended" ? "SUSP" : a.status === "doubtful" ? "DBTF" : a.status === "questionable" ? "QUES" : a.status === "game-time" ? "GTD" : "D2D";
                     const lastName = a.playerName.split(" ").slice(-1)[0];
                     return (
                       <span

@@ -295,9 +295,51 @@ function buildInjuryAlerts(matched: ESPNNewsItem[], game: Game): InjuryAlert[] {
     });
   }
 
-  // Sort: out > doubtful > questionable > game-time > day-to-day
-  const ORDER: InjuryStatus[] = ["out", "doubtful", "questionable", "game-time", "day-to-day"];
+  // Sort: out > suspended > doubtful > questionable > game-time > day-to-day
+  const ORDER: InjuryStatus[] = ["out", "suspended", "doubtful", "questionable", "game-time", "day-to-day"];
   return alerts.sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status));
+}
+
+// ── WC injury merge ───────────────────────────────────────────────────────────
+
+function isWCGame(game: Game): boolean {
+  return (game.sport_title || "").toLowerCase().includes("world cup");
+}
+
+function mergeWCInjuries(
+  base: InjuryAlert[],
+  game: Game,
+  wcInjuryMap: Map<string, Array<{ team_name: string; player_name: string; status: "out" | "suspended" | "questionable"; reason: string | null }>> | null,
+): InjuryAlert[] {
+  if (!wcInjuryMap || !isWCGame(game)) return base;
+
+  const home = (game.home_team || "").trim().toLowerCase();
+  const away = (game.away_team || "").trim().toLowerCase();
+  const homeInj = wcInjuryMap.get(home) || [];
+  const awayInj = wcInjuryMap.get(away) || [];
+
+  const wcAlerts: InjuryAlert[] = [];
+  for (const i of homeInj) {
+    wcAlerts.push({
+      playerName: i.player_name,
+      status: i.status as InjuryStatus,
+      teamAffected: "home",
+      teamName: game.home_team,
+      published: new Date().toISOString(),
+    });
+  }
+  for (const i of awayInj) {
+    wcAlerts.push({
+      playerName: i.player_name,
+      status: i.status as InjuryStatus,
+      teamAffected: "away",
+      teamName: game.away_team,
+      published: new Date().toISOString(),
+    });
+  }
+
+  const ORDER: InjuryStatus[] = ["out", "suspended", "doubtful", "questionable", "game-time", "day-to-day"];
+  return [...base, ...wcAlerts].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status));
 }
 
 // ── Main export ────────────────────────────────────────────────────────────────
@@ -307,7 +349,8 @@ export function generateIntelMap(
   newsItems: ESPNNewsItem[],
   weatherMap: Map<string, WeatherData>,
   movementMap: Record<string, Record<string, "up" | "down" | null>>,
-  modelSignals: ModelSignal[] = []
+  modelSignals: ModelSignal[] = [],
+  wcInjuryMap: Map<string, Array<{ team_name: string; player_name: string; status: "out" | "suspended" | "questionable"; reason: string | null }>> | null = null,
 ): Record<string, GameIntel> {
   const result: Record<string, GameIntel> = {};
 
@@ -406,7 +449,7 @@ export function generateIntelMap(
       has_new_signal: hasNew || recentNews.length > 0,
       signals,
       top_signal: topGs ? gameSignalToSignal(topGs, game.id, 0) : null,
-      injury_alerts: buildInjuryAlerts(matched, game),
+      injury_alerts: mergeWCInjuries(buildInjuryAlerts(matched, game), game, wcInjuryMap),
       top_model_signal: topModelSignal,
       no_vig_home_prob: computeNoVigHomeProb(game),
       confidence,
