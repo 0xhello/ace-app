@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, Database, RefreshCw, Zap } from "lucide-react";
+import { Activity, CheckCircle2, Database, Play, RefreshCw, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface MLBSignal {
@@ -76,6 +76,8 @@ export default function MLBOpsTab() {
   const [data, setData] = useState<MLBResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [running, setRunning] = useState<null | "fetch" | "grade">(null);
+  const [lastJobResult, setLastJobResult] = useState<{ job: string; ok: boolean; at: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load(silent = false) {
@@ -91,6 +93,25 @@ export default function MLBOpsTab() {
     } finally {
       setLoading(false);
       if (!silent) setRefreshing(false);
+    }
+  }
+
+  async function runJob(job: "fetch" | "grade") {
+    setRunning(job);
+    try {
+      const apiJob = job === "fetch" ? "fetch_signals" : "grade_results";
+      const res = await fetch("/api/ops/mlb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job: apiJob }),
+      });
+      const json = await res.json() as { ok: boolean };
+      setLastJobResult({ job, ok: !!json.ok, at: new Date().toLocaleTimeString() });
+    } catch {
+      setLastJobResult({ job, ok: false, at: new Date().toLocaleTimeString() });
+    } finally {
+      await load(true);
+      setRunning(null);
     }
   }
 
@@ -124,27 +145,61 @@ export default function MLBOpsTab() {
       <div className="mx-auto max-w-[1200px] space-y-5">
 
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <p className="text-[10px] font-bold text-[#3ee68a] uppercase tracking-[0.18em] mb-1">
               ⚾ MLB
             </p>
             <h1 className="text-[20px] font-bold text-white">Signal Pipeline</h1>
           </div>
-          <button
-            onClick={() => void load(false)}
-            disabled={refreshing}
-            className={cn(
-              "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] font-bold",
-              "px-3 py-2 rounded-lg border border-[#22251f] bg-[#0d0f0d]",
-              "text-[#9ca39a] hover:text-white hover:border-[#3ee68a]/30",
-              "transition-colors",
-              refreshing && "opacity-50",
+          <div className="flex items-center gap-2">
+            {lastJobResult && (
+              <span className="flex items-center gap-1 text-[10px] text-[#9ca39a]">
+                <CheckCircle2 className={cn("h-3 w-3", lastJobResult.ok ? "text-[#3ee68a]" : "text-[#ef4444]")} />
+                {lastJobResult.job} · {lastJobResult.ok ? "ok" : "failed"} · {lastJobResult.at}
+              </span>
             )}
-          >
-            <RefreshCw className={cn("h-3 w-3", refreshing && "animate-spin")} />
-            Refresh
-          </button>
+            <button
+              onClick={() => void runJob("fetch")}
+              disabled={running !== null}
+              className={cn(
+                "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] font-bold",
+                "px-3 py-2 rounded-lg border border-[#3ee68a]/20 bg-[#3ee68a]/[0.05]",
+                "text-[#3ee68a] hover:bg-[#3ee68a]/10 hover:border-[#3ee68a]/40",
+                "transition-colors disabled:opacity-50",
+              )}
+            >
+              <Play className={cn("h-3 w-3", running === "fetch" && "animate-pulse")} />
+              {running === "fetch" ? "Scanning..." : "Scan now"}
+            </button>
+            <button
+              onClick={() => void runJob("grade")}
+              disabled={running !== null}
+              className={cn(
+                "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] font-bold",
+                "px-3 py-2 rounded-lg border border-[#22251f] bg-[#0d0f0d]",
+                "text-[#9ca39a] hover:text-white hover:border-[#3ee68a]/30",
+                "transition-colors disabled:opacity-50",
+              )}
+            >
+              <CheckCircle2 className={cn("h-3 w-3", running === "grade" && "animate-pulse")} />
+              {running === "grade" ? "Grading..." : "Grade now"}
+            </button>
+            <button
+              onClick={() => void load(false)}
+              disabled={refreshing || running !== null}
+              className={cn(
+                "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] font-bold",
+                "px-3 py-2 rounded-lg border border-[#22251f] bg-[#0d0f0d]",
+                "text-[#9ca39a] hover:text-white hover:border-[#3ee68a]/30",
+                "transition-colors",
+                refreshing && "opacity-50",
+              )}
+            >
+              <RefreshCw className={cn("h-3 w-3", refreshing && "animate-spin")} />
+              Refresh
+            </button>
+          </div>
         </div>
 
         {/* Worker & Job health */}

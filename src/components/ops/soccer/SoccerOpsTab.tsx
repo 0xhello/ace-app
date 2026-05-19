@@ -217,10 +217,13 @@ export default function SoccerOpsTab() {
   async function runJob(job: "fetch" | "grade") {
     setRunning(job);
     try {
+      // API expects "fetch_signals" / "grade_results" — translate from
+      // the short UI label so older button code keeps working.
+      const apiJob = job === "fetch" ? "fetch_signals" : "grade_results";
       await fetch("/api/ops/soccer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ job }),
+        body: JSON.stringify({ job: apiJob }),
       });
     } catch { /* ignore */ }
     finally { await loadAll(); setRunning(null); }
