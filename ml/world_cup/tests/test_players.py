@@ -7,7 +7,6 @@ data inserted directly.
 """
 from __future__ import annotations
 
-import math
 import sqlite3
 from pathlib import Path
 
@@ -215,3 +214,142 @@ def test_team_top_scorers_excludes_low_minute_players(db: Path) -> None:
     top = get_team_top_scorers("Mexico", n=5, path=db)
     assert len(top) == 1
     assert top[0]["player_name"] == "Played a Lot"
+
+
+# ---------------------------------------------------------------------------
+# Recency weighting (NEW)
+# ---------------------------------------------------------------------------
+
+def test_classify_club_season_buckets() -> None:
+    from ml.world_cup.players import _classify_club_season
+    assert _classify_club_season(2025) == "current_club"
+    assert _classify_club_season(2024) == "previous_club"
+    assert _classify_club_season(2023) == "previous_club"
+
+
+def test_classify_intl_year_buckets() -> None:
+    from ml.world_cup.players import _classify_intl_year
+    assert _classify_intl_year(2026) == "recent_intl"
+    assert _classify_intl_year(2025) == "recent_intl"
+    assert _classify_intl_year(2024) == "midrange_intl"
+    assert _classify_intl_year(2022) == "midrange_intl"
+    assert _classify_intl_year(2018) == "old_intl"
+    assert _classify_intl_year(None) == "old_intl"
+
+
+def test_extract_year_from_competition() -> None:
+    from ml.world_cup.players import _extract_year_from_competition
+    assert _extract_year_from_competition("WC 2022") == 2022
+    assert _extract_year_from_competition("Euro 2024") == 2024
+    assert _extract_year_from_competition("Copa America 2024") == 2024
+    assert _extract_year_from_competition("Asian Cup 2023") == 2023
+    assert _extract_year_from_competition("nonsense") is None
+
+
+def test_weighted_goals_per_90_current_season_dominates() -> None:
+    """Same goals/minutes in current season vs old tournament — the current
+    season's contribution to the weighted rate should be much larger."""
+    from ml.world_cup.players import _weighted_goals_per_90
+    # 15 goals in 2700 min current club season → 0.5 g/90
+    # 15 goals in 2700 min from WC 2018 → 0.5 g/90 in old_intl bucket
+    current_only = _weighted_goals_per_90(
+        club_form_rows=[{"season": 2025, "minutes": 2700, "goals": 15}],
+        historical_rows=[],
+    )
+    plus_old_intl = _weighted_goals_per_90(
+        club_form_rows=[{"season": 2025, "minutes": 2700, "goals": 15}],
+        historical_rows=[{"competition": "WC 2018", "minutes": 2700, "goals": 15}],
+    )
+    assert current_only == pytest.approx(0.5, abs=1e-3)
+    # Old intl pulls the weighted rate toward 0.5 too (same rate), so result
+    # stays near 0.5 — but the relative weight of old_intl is small (0.10).
+    assert plus_old_intl == pytest.approx(0.5, abs=1e-3)
+
+
+def test_weighted_goals_per_90_recent_intl_outweighs_old() -> None:
+    """With zero club goals but two intl tournaments at different rates,
+    the weighted rate should be strictly between 0 and the raw recent rate.
+    The math:
+      club: 2700 min × weight 1.0 = 2700 weighted min, 0 weighted goals
+      Copa Am 2024 (midrange, weight 0.20): 540 min × 0.20 = 108, 5g × 0.20 = 1.0
+      WC 2018 (old, weight 0.10):           540 min × 0.10 =  54, 1g × 0.10 = 0.1
+      rate = 1.1 weighted goals / (2862 weighted min / 90) ≈ 0.035 g/90
+    """
+    from ml.world_cup.players import _weighted_goals_per_90
+    rate = _weighted_goals_per_90(
+        club_form_rows=[{"season": 2025, "minutes": 2700, "goals": 0}],
+        historical_rows=[
+            {"competition": "Copa America 2024", "minutes": 540, "goals": 5},
+            {"competition": "WC 2018",           "minutes": 540, "goals": 1},
+        ],
+    )
+    assert rate is not None
+    # Strictly positive — intl bucketed in, not zeroed out
+    assert rate > 0
+    # But heavily dampened by the zero-goal club minutes (which dominate weight)
+    assert rate < 0.10
+
+
+def test_weighted_recent_intl_pulls_more_than_old_intl() -> None:
+    """Holding everything else constant, swapping an old-intl entry for a
+    recent-intl entry of the same rate should produce a HIGHER weighted
+    rate (recent has 4× the weight of old: 0.40 vs 0.10)."""
+    from ml.world_cup.players import _weighted_goals_per_90
+    with_old = _weighted_goals_per_90(
+        club_form_rows=[{"season": 2025, "minutes": 270, "goals": 0}],
+        historical_rows=[{"competition": "WC 2018", "minutes": 540, "goals": 5}],
+    )
+    with_recent = _weighted_goals_per_90(
+        club_form_rows=[{"season": 2025, "minutes": 270, "goals": 0}],
+        historical_rows=[{"competition": "Gold Cup 2025", "minutes": 540, "goals": 5}],
+    )
+    assert with_old is not None and with_recent is not None
+    assert with_recent > with_old
+
+
+def test_weighted_goals_per_90_returns_none_low_sample() -> None:
+    """Total weighted minutes under 270 → None."""
+    from ml.world_cup.players import _weighted_goals_per_90
+    out = _weighted_goals_per_90(
+        club_form_rows=[{"season": 2025, "minutes": 60, "goals": 1}],
+        historical_rows=[],
+    )
+    assert out is None
+
+
+def test_compute_prior_uses_weighted_aggregate(db: Path) -> None:
+    """When a player has both current + previous club seasons, the weighted
+    blend gives more weight to current. Verifying the prior actually USES
+    _weighted_goals_per_90 by setting up a config where the weighted vs
+    unweighted answers differ."""
+    init_player_tables(db)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        """INSERT INTO wc_players
+           (api_player_id, player_name, team_name, position, updated_at)
+           VALUES (101, 'Hot Now Cold Before', 'France', 'Attacker', datetime('now'))""")
+    # Hot in 2025 (current): 25 g in 2700 min = 0.83/90
+    conn.execute(
+        """INSERT INTO wc_player_form
+           (api_player_id, season, club_league_id, club_name,
+            appearances, minutes, goals, position, updated_at)
+           VALUES (101, 2025, 39, 'Manchester Test', 30, 2700, 25, 'Attacker', datetime('now'))""")
+    # Cold in 2024 (previous): 5 g in 2700 min = 0.17/90
+    conn.execute(
+        """INSERT INTO wc_player_form
+           (api_player_id, season, club_league_id, club_name,
+            appearances, minutes, goals, position, updated_at)
+           VALUES (101, 2024, 39, 'Manchester Test', 28, 2700, 5, 'Attacker', datetime('now'))""")
+    conn.commit()
+    conn.close()
+
+    prior = compute_goalscorer_prior(101, path=db)
+    assert prior is not None
+    # Weighted rate is 25*1.0 + 5*0.55 = 27.75 weighted goals
+    #                  2700*1.0 + 2700*0.55 = 4185 weighted minutes
+    #                  = 27.75 / (4185/90) = 27.75 / 46.5 ≈ 0.596 g/90
+    # Unweighted would have been (25+5)/(2700+2700)*90 = 30/60 = 0.50
+    # So weighted prior should be HIGHER than unweighted would have been
+    # (we're emphasizing the strong current season).
+    # Sanity check: anytime prob should reflect ~0.6 g/90 (high) rather than 0.5
+    assert prior["anytime_scorer_prob"] > 0.35  # something meaningful

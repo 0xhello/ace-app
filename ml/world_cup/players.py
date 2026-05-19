@@ -54,8 +54,29 @@ from .context import _get, normalize, WC_LEAGUE_ID, WC_SEASON, API_FOOTBALL_KEY
 #   307 = Saudi Pro League (where several stars play now)
 MAJOR_CLUB_LEAGUES = [39, 140, 78, 135, 61, 88, 71, 128, 253, 307]
 
-# Club season we pull form from — 2025 = the season ending May 2026
-CLUB_SEASON = 2025
+# Club seasons to pull form from. We keep two seasons so the recency-weighted
+# prior has a current + previous datapoint:
+#   2025 = 2025-26 season (current — strongest weight)
+#   2024 = 2024-25 season (previous — decayed weight)
+CLUB_SEASONS = [2025, 2024]
+
+# International tournaments to pull top-scorer stats from via API-Football.
+# These are the major competitions that ran in the 12-24 months leading up
+# to WC 2026 — most likely to contain the players we care about. Each entry:
+#   (league_id, season, display_name, weight_year)
+# weight_year is used by the recency weighting (a Copa 2024 tournament
+# played in 2024 weights ahead of WC 2018, behind WC 2022, etc.)
+#
+# IDs verified against api-football.com docs; if a season isn't published
+# yet for a given tournament, the fetch returns empty and we skip silently.
+INTL_TOURNAMENTS: List[tuple] = [
+    (9,   2024, "Copa America 2024",        2024),
+    (6,   2024, "AFCON 2024",               2024),
+    (7,   2023, "Asian Cup 2023",           2024),  # held Jan 2024
+    (22,  2025, "Gold Cup 2025",            2025),
+    (5,   2024, "UEFA Nations League 2024", 2024),
+    (24,  2024, "CONCACAF Nations League 2024", 2024),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -212,9 +233,9 @@ def sync_wc_squads(path: Path = DB_PATH) -> int:
 # ---------------------------------------------------------------------------
 
 def sync_club_form(path: Path = DB_PATH) -> int:
-    """Pull top-scorer + top-assist data from major club leagues, store
-    for any player that's on a WC squad. ~10 calls per stat type × 2 stat
-    types = 20 calls. Combined with squad sync = ~52 calls/day.
+    """Pull top-scorer + top-assist data from major club leagues for every
+    season in CLUB_SEASONS (current + previous). ~10 calls × 2 stat types ×
+    2 seasons = 40 calls. Combined with squad sync = ~72 calls/day.
 
     Returns the number of (player, season, league) form rows upserted.
     """
@@ -235,112 +256,113 @@ def sync_club_form(path: Path = DB_PATH) -> int:
     now = datetime.now(timezone.utc).isoformat()
     upserted = 0
 
-    for league_id in MAJOR_CLUB_LEAGUES:
-        # Top scorers gives goals + appearances + minutes for the league's
-        # top 20-30 scorers, which captures most of the prop-relevant
-        # players (forwards, attacking midfielders) on WC squads.
-        data = _get("players/topscorers", {"league": league_id, "season": CLUB_SEASON})
-        if not data:
-            continue
-
-        for entry in data.get("response", []):
-            player = entry.get("player", {}) or {}
-            pid = player.get("id")
-            if not pid or pid not in wc_player_ids:
-                continue  # ignore non-WC players
-
-            stats_list = entry.get("statistics", []) or []
-            if not stats_list:
-                continue
-            s = stats_list[0]  # one row per (player, season, club)
-
-            games = s.get("games", {}) or {}
-            goals = s.get("goals", {}) or {}
-            shots = s.get("shots", {}) or {}
-            cards = s.get("cards", {}) or {}
-
-            conn.execute(
-                """
-                INSERT INTO wc_player_form
-                    (api_player_id, season, club_league_id, club_name,
-                     appearances, minutes, goals, assists, shots, shots_on_target,
-                     yellow_cards, red_cards, position, updated_at)
-                VALUES (?,?,?,?, ?,?,?,?,?,?, ?,?,?, ?)
-                ON CONFLICT(api_player_id, season, club_league_id) DO UPDATE SET
-                    club_name       = excluded.club_name,
-                    appearances     = excluded.appearances,
-                    minutes         = excluded.minutes,
-                    goals           = excluded.goals,
-                    assists         = excluded.assists,
-                    shots           = excluded.shots,
-                    shots_on_target = excluded.shots_on_target,
-                    yellow_cards    = excluded.yellow_cards,
-                    red_cards       = excluded.red_cards,
-                    position        = excluded.position,
-                    updated_at      = excluded.updated_at
-                """,
-                (
-                    pid, CLUB_SEASON, league_id,
-                    (s.get("team") or {}).get("name"),
-                    games.get("appearences", 0) or 0,   # API-Football typo: "appearences"
-                    games.get("minutes", 0) or 0,
-                    goals.get("total", 0) or 0,
-                    goals.get("assists", 0) or 0,
-                    shots.get("total", 0) or 0,
-                    shots.get("on", 0) or 0,
-                    cards.get("yellow", 0) or 0,
-                    cards.get("red", 0) or 0,
-                    games.get("position"),
-                    now,
-                ),
-            )
-            upserted += 1
-
-    # Same pass for top assists — different endpoint, captures playmakers
-    # who don't always crack the top-scorer list.
-    for league_id in MAJOR_CLUB_LEAGUES:
-        data = _get("players/topassists", {"league": league_id, "season": CLUB_SEASON})
-        if not data:
-            continue
-
-        for entry in data.get("response", []):
-            player = entry.get("player", {}) or {}
-            pid = player.get("id")
-            if not pid or pid not in wc_player_ids:
+    for season in CLUB_SEASONS:
+        for league_id in MAJOR_CLUB_LEAGUES:
+            # Top scorers gives goals + appearances + minutes for the league's
+            # top 20-30 scorers, which captures most of the prop-relevant
+            # players (forwards, attacking midfielders) on WC squads.
+            data = _get("players/topscorers", {"league": league_id, "season": season})
+            if not data:
                 continue
 
-            stats_list = entry.get("statistics", []) or []
-            if not stats_list:
-                continue
-            s = stats_list[0]
-            games = s.get("games", {}) or {}
-            goals = s.get("goals", {}) or {}
+            for entry in data.get("response", []):
+                player = entry.get("player", {}) or {}
+                pid = player.get("id")
+                if not pid or pid not in wc_player_ids:
+                    continue  # ignore non-WC players
 
-            # Only upsert if we don't already have this player from topscorers
-            existing = conn.execute(
-                "SELECT id FROM wc_player_form WHERE api_player_id = ? AND season = ? AND club_league_id = ?",
-                (pid, CLUB_SEASON, league_id),
-            ).fetchone()
-            if existing:
+                stats_list = entry.get("statistics", []) or []
+                if not stats_list:
+                    continue
+                s = stats_list[0]  # one row per (player, season, club)
+
+                games = s.get("games", {}) or {}
+                goals = s.get("goals", {}) or {}
+                shots = s.get("shots", {}) or {}
+                cards = s.get("cards", {}) or {}
+
+                conn.execute(
+                    """
+                    INSERT INTO wc_player_form
+                        (api_player_id, season, club_league_id, club_name,
+                         appearances, minutes, goals, assists, shots, shots_on_target,
+                         yellow_cards, red_cards, position, updated_at)
+                    VALUES (?,?,?,?, ?,?,?,?,?,?, ?,?,?, ?)
+                    ON CONFLICT(api_player_id, season, club_league_id) DO UPDATE SET
+                        club_name       = excluded.club_name,
+                        appearances     = excluded.appearances,
+                        minutes         = excluded.minutes,
+                        goals           = excluded.goals,
+                        assists         = excluded.assists,
+                        shots           = excluded.shots,
+                        shots_on_target = excluded.shots_on_target,
+                        yellow_cards    = excluded.yellow_cards,
+                        red_cards       = excluded.red_cards,
+                        position        = excluded.position,
+                        updated_at      = excluded.updated_at
+                    """,
+                    (
+                        pid, season, league_id,
+                        (s.get("team") or {}).get("name"),
+                        games.get("appearences", 0) or 0,   # API-Football typo: "appearences"
+                        games.get("minutes", 0) or 0,
+                        goals.get("total", 0) or 0,
+                        goals.get("assists", 0) or 0,
+                        shots.get("total", 0) or 0,
+                        shots.get("on", 0) or 0,
+                        cards.get("yellow", 0) or 0,
+                        cards.get("red", 0) or 0,
+                        games.get("position"),
+                        now,
+                    ),
+                )
+                upserted += 1
+
+        # Same pass for top assists — different endpoint, captures playmakers
+        # who don't always crack the top-scorer list.
+        for league_id in MAJOR_CLUB_LEAGUES:
+            data = _get("players/topassists", {"league": league_id, "season": season})
+            if not data:
                 continue
 
-            conn.execute(
-                """
-                INSERT INTO wc_player_form
-                    (api_player_id, season, club_league_id, club_name,
-                     appearances, minutes, goals, assists, position, updated_at)
-                VALUES (?,?,?,?, ?,?,?,?, ?,?)
-                """,
-                (
-                    pid, CLUB_SEASON, league_id,
-                    (s.get("team") or {}).get("name"),
-                    games.get("appearences", 0) or 0,
-                    games.get("minutes", 0) or 0,
-                    goals.get("total", 0) or 0,
-                    goals.get("assists", 0) or 0,
-                    games.get("position"),
-                    now,
-                ),
+            for entry in data.get("response", []):
+                player = entry.get("player", {}) or {}
+                pid = player.get("id")
+                if not pid or pid not in wc_player_ids:
+                    continue
+
+                stats_list = entry.get("statistics", []) or []
+                if not stats_list:
+                    continue
+                s = stats_list[0]
+                games = s.get("games", {}) or {}
+                goals = s.get("goals", {}) or {}
+
+                # Only upsert if we don't already have this player from topscorers
+                existing = conn.execute(
+                    "SELECT id FROM wc_player_form WHERE api_player_id = ? AND season = ? AND club_league_id = ?",
+                    (pid, season, league_id),
+                ).fetchone()
+                if existing:
+                    continue
+
+                conn.execute(
+                    """
+                    INSERT INTO wc_player_form
+                        (api_player_id, season, club_league_id, club_name,
+                         appearances, minutes, goals, assists, position, updated_at)
+                    VALUES (?,?,?,?, ?,?,?,?, ?,?)
+                    """,
+                    (
+                        pid, season, league_id,
+                        (s.get("team") or {}).get("name"),
+                        games.get("appearences", 0) or 0,
+                        games.get("minutes", 0) or 0,
+                        goals.get("total", 0) or 0,
+                        goals.get("assists", 0) or 0,
+                        games.get("position"),
+                        now,
+                    ),
             )
             upserted += 1
 
@@ -351,11 +373,121 @@ def sync_club_form(path: Path = DB_PATH) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Sync: international tournament top-scorers (API-Football fallback)
+# ---------------------------------------------------------------------------
+
+def sync_intl_tournament_form(path: Path = DB_PATH) -> int:
+    """Pull top-scorer stats for the recent major international tournaments
+    that are NOT in StatsBomb open data — Copa America 2024, AFCON 2024,
+    Asian Cup 2023, Gold Cup, Nations League. Writes into wc_historical_form
+    so the same recency-weighted prior code path handles them.
+
+    ~12 API-Football calls (6 tournaments × 2 endpoints). Skips silently
+    if a tournament's season hasn't published or isn't covered by the plan.
+    """
+    # Defer import so cycles can't happen; the historical module owns the
+    # shared wc_historical_form schema.
+    from .historical import init_historical_tables
+
+    init_historical_tables(path)
+    conn = get_db(path)
+    now = datetime.now(timezone.utc).isoformat()
+
+    upserted = 0
+    for league_id, season, display_name, _year in INTL_TOURNAMENTS:
+        agg: Dict[str, Dict[str, Any]] = {}
+
+        # Top scorers
+        data = _get("players/topscorers", {"league": league_id, "season": season})
+        if data:
+            for entry in data.get("response", []):
+                player = entry.get("player", {}) or {}
+                name = player.get("name", "")
+                if not name:
+                    continue
+                stats_list = entry.get("statistics", []) or []
+                if not stats_list:
+                    continue
+                s = stats_list[0]
+                games = s.get("games", {}) or {}
+                goals = s.get("goals", {}) or {}
+                shots = s.get("shots", {}) or {}
+                d = agg.setdefault(name, {
+                    "country": (s.get("team") or {}).get("name"),
+                    "matches": 0, "minutes": 0,
+                    "goals": 0, "shots": 0, "sot": 0, "assists": 0,
+                })
+                # Tournament endpoint returns aggregate stats already
+                d["matches"] = max(d["matches"], games.get("appearences", 0) or 0)
+                d["minutes"] = max(d["minutes"], games.get("minutes",     0) or 0)
+                d["goals"]   = max(d["goals"],   goals.get("total",       0) or 0)
+                d["shots"]   = max(d["shots"],   shots.get("total",       0) or 0)
+                d["sot"]     = max(d["sot"],     shots.get("on",          0) or 0)
+                d["assists"] = max(d["assists"], goals.get("assists",     0) or 0)
+
+        # Top assists (fills in playmakers who didn't crack top scorers)
+        data2 = _get("players/topassists", {"league": league_id, "season": season})
+        if data2:
+            for entry in data2.get("response", []):
+                player = entry.get("player", {}) or {}
+                name = player.get("name", "")
+                if not name:
+                    continue
+                stats_list = entry.get("statistics", []) or []
+                if not stats_list:
+                    continue
+                s = stats_list[0]
+                games = s.get("games", {}) or {}
+                goals = s.get("goals", {}) or {}
+                d = agg.setdefault(name, {
+                    "country": (s.get("team") or {}).get("name"),
+                    "matches": 0, "minutes": 0,
+                    "goals": 0, "shots": 0, "sot": 0, "assists": 0,
+                })
+                d["matches"] = max(d["matches"], games.get("appearences", 0) or 0)
+                d["minutes"] = max(d["minutes"], games.get("minutes",     0) or 0)
+                d["assists"] = max(d["assists"], goals.get("assists",     0) or 0)
+
+        if not agg:
+            print(f"  [players] {display_name}: no data available (season {season})")
+            continue
+
+        for name, d in agg.items():
+            conn.execute(
+                """INSERT INTO wc_historical_form
+                   (player_name, competition, country, matches_played, minutes,
+                    goals, shots, shots_on_target, assists, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(player_name, competition) DO UPDATE SET
+                     country         = COALESCE(excluded.country, country),
+                     matches_played  = excluded.matches_played,
+                     minutes         = excluded.minutes,
+                     goals           = excluded.goals,
+                     shots           = excluded.shots,
+                     shots_on_target = excluded.shots_on_target,
+                     assists         = excluded.assists,
+                     updated_at      = excluded.updated_at""",
+                (name, display_name, d["country"],
+                 d["matches"], d["minutes"], d["goals"],
+                 d["shots"], d["sot"], d["assists"], now),
+            )
+            upserted += 1
+
+        print(f"  [players] {display_name}: {len(agg)} player rows")
+
+    conn.commit()
+    conn.close()
+    print(f"  [players] Intl tournament form synced: {upserted} rows")
+    return upserted
+
+
+# ---------------------------------------------------------------------------
 # Goalscorer prior — the math layer
 # ---------------------------------------------------------------------------
 
 def _player_goals_per_90(form_rows: List[Dict[str, Any]]) -> Optional[float]:
-    """Aggregate goals-per-90 across a player's reported form rows."""
+    """Aggregate goals-per-90 across a player's reported form rows
+    (unweighted — used as a fallback when we have no season context)."""
     total_min, total_goals = 0, 0
     for r in form_rows:
         total_min   += r.get("minutes",  0) or 0
@@ -363,6 +495,96 @@ def _player_goals_per_90(form_rows: List[Dict[str, Any]]) -> Optional[float]:
     if total_min < 270:  # less than ~3 full matches → not enough sample
         return None
     return total_goals / (total_min / 90.0)
+
+
+# Recency weight table. Heavier = more influence on the weighted average.
+# These are deliberately spread so a recent club season dominates a stale
+# international tournament, but a recent tournament still moves the needle.
+_RECENCY_WEIGHTS = {
+    "current_club":     1.00,   # 2025-26 club season
+    "previous_club":    0.55,   # 2024-25 club season
+    "recent_intl":      0.40,   # tournament within last ~12 months
+    "midrange_intl":    0.20,   # tournament 1-3 years ago
+    "old_intl":         0.10,   # 4+ years ago
+}
+
+# Current calendar year of the WC build-up. Update annually so the recency
+# bucketing stays accurate.
+_CURRENT_YEAR = 2026
+
+
+def _classify_club_season(season_year: int) -> str:
+    if season_year >= max(CLUB_SEASONS):
+        return "current_club"
+    return "previous_club"
+
+
+def _classify_intl_year(tournament_year: Optional[int]) -> str:
+    """
+    Bucketing:
+      gap 0-1 → recent_intl (current cycle: Gold Cup, Nations League finals
+                immediately preceding WC; weight 0.40)
+      gap 2-4 → midrange_intl (Euro/Copa/AFCON/Asian Cup of the cycle prior;
+                also the last WC played 4y ago; weight 0.20)
+      gap 5+  → old_intl (older tournaments; weight 0.10)
+    """
+    if tournament_year is None:
+        return "old_intl"
+    gap = _CURRENT_YEAR - tournament_year
+    if gap <= 1:
+        return "recent_intl"
+    if gap <= 4:
+        return "midrange_intl"
+    return "old_intl"
+
+
+def _extract_year_from_competition(comp: str) -> Optional[int]:
+    """'WC 2022' → 2022. 'Asian Cup 2023' → 2023. Returns None on no match."""
+    import re
+    m = re.search(r"(20\d{2})", comp or "")
+    return int(m.group(1)) if m else None
+
+
+def _weighted_goals_per_90(
+    club_form_rows: List[Dict[str, Any]],
+    historical_rows: List[Dict[str, Any]],
+) -> Optional[float]:
+    """Recency-weighted aggregate goals-per-90.
+
+    Combines:
+      - current club season (weight 1.00)
+      - previous club season (weight 0.55)
+      - most recent intl tournament (weight 0.40)
+      - mid-range intl tournaments  (weight 0.20)
+      - old intl tournaments        (weight 0.10)
+
+    Each bucket's goals and minutes are weighted by its bucket multiplier,
+    then summed. Final rate = sum(weighted_goals) / (sum(weighted_min) / 90).
+
+    Returns None if total weighted minutes < 270 (insufficient sample).
+    """
+    weighted_min, weighted_goals = 0.0, 0.0
+
+    for r in club_form_rows:
+        season = r.get("season")
+        if season is None:
+            continue
+        bucket = _classify_club_season(int(season))
+        w = _RECENCY_WEIGHTS[bucket]
+        weighted_min   += (r.get("minutes",  0) or 0) * w
+        weighted_goals += (r.get("goals",    0) or 0) * w
+
+    for r in historical_rows:
+        comp = r.get("competition", "")
+        year = _extract_year_from_competition(comp)
+        bucket = _classify_intl_year(year)
+        w = _RECENCY_WEIGHTS[bucket]
+        weighted_min   += (r.get("minutes", 0) or 0) * w
+        weighted_goals += (r.get("goals",   0) or 0) * w
+
+    if weighted_min < 270:
+        return None
+    return weighted_goals / (weighted_min / 90.0)
 
 
 def _position_factor(position: Optional[str]) -> float:
@@ -447,9 +669,26 @@ def compute_goalscorer_prior(
             "SELECT * FROM wc_player_form WHERE api_player_id = ?", (api_player_id,)
         ).fetchall()
     ]
+    # Pull historical rows by player name (StatsBomb + API-Football tournament
+    # data are name-keyed since they don't share API-Football's player IDs).
+    historical_rows: List[Dict[str, Any]] = []
+    try:
+        historical_rows = [
+            dict(r) for r in conn.execute(
+                "SELECT * FROM wc_historical_form WHERE player_name = ?",
+                (player["player_name"],),
+            ).fetchall()
+        ]
+    except Exception:
+        pass  # wc_historical_form may not exist yet on older DBs
     conn.close()
 
-    goals_per_90 = _player_goals_per_90(form_rows)
+    # Recency-weighted: current club dominates, previous club + recent intl
+    # tournaments contribute decayed, older tournaments minimal. Falls back
+    # to the unweighted aggregate if the weighted total minutes is too thin.
+    goals_per_90 = _weighted_goals_per_90(form_rows, historical_rows)
+    if goals_per_90 is None:
+        goals_per_90 = _player_goals_per_90(form_rows)
     if goals_per_90 is None:
         return None
 
@@ -514,12 +753,21 @@ def get_team_top_scorers(team_name: str, n: int = 5, path: Path = DB_PATH) -> Li
 # ---------------------------------------------------------------------------
 
 def sync_all_players(path: Path = DB_PATH) -> Dict[str, int]:
-    """Full player-context refresh. Called once daily from the worker."""
+    """Full player-context refresh. Called once daily from the worker.
+
+    Total quota cost (API-Football):
+      32 calls (squads) +
+      40 calls (club form: 10 leagues × 2 endpoints × 2 seasons) +
+      12 calls (6 intl tournaments × 2 endpoints) = ~84 calls/day
+    Within free-tier 100/day; comfortably within paid-tier budgets.
+    """
     print("  [players] Syncing WC squads...")
     squads = sync_wc_squads(path)
-    print("  [players] Syncing club form (top scorers + assists)...")
+    print("  [players] Syncing club form (top scorers + assists, 2 seasons)...")
     form = sync_club_form(path)
-    return {"squads": squads, "form": form}
+    print("  [players] Syncing international tournament top scorers...")
+    intl = sync_intl_tournament_form(path)
+    return {"squads": squads, "form": form, "intl_tournaments": intl}
 
 
 # ---------------------------------------------------------------------------
@@ -531,11 +779,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="World Cup player context")
     parser.add_argument(
         "command",
-        choices=["sync_squads", "sync_form", "sync_all", "priors", "status", "top"],
+        choices=["sync_squads", "sync_form", "sync_intl", "sync_all", "priors", "status", "top"],
         help=(
             "sync_squads = pull all 32 team rosters | "
-            "sync_form = pull club top-scorer stats | "
-            "sync_all = both | "
+            "sync_form = pull club top-scorer stats (2 seasons) | "
+            "sync_intl = pull intl tournament top-scorers (Copa Am, AFCON, Asian Cup, Nations League) | "
+            "sync_all = all three | "
             "priors = compute goalscorer priors for all players | "
             "status = show summary | "
             "top = show top 5 scorers per WC team"
@@ -552,6 +801,8 @@ if __name__ == "__main__":
         sync_wc_squads()
     elif args.command == "sync_form":
         sync_club_form()
+    elif args.command == "sync_intl":
+        sync_intl_tournament_form()
     elif args.command == "sync_all":
         sync_all_players()
     elif args.command == "status":
