@@ -46,6 +46,7 @@ try:
     from ml.world_cup.fetch_signals import run as _wc_fetch_run
     from ml.world_cup.signal_logger import update_meta as _wc_update_meta
     from ml.world_cup.context import sync_all as _wc_sync_context, sync_lineups as _wc_sync_lineups
+    from ml.world_cup.players import sync_all_players as _wc_sync_players
     _WC_AVAILABLE = True
 except Exception:
     _WC_AVAILABLE = False
@@ -181,6 +182,16 @@ def _run_scheduled_tasks() -> None:
                 _wc_sync_context()
             except Exception as e:
                 print(f"  [worker] WC context sync error: {e}", file=sys.stderr, flush=True)
+
+        # Refresh WC squads + club form (~52 API-Football calls). Runs at
+        # 7:30am ET so it doesn't collide with sync_context. This is the
+        # player-context layer the goalscorer-prop pipeline will need
+        # once Odds API surfaces player markets for WC.
+        if _daily_due("wc_players_sync", hour=7, minute=30):
+            try:
+                _wc_sync_players()
+            except Exception as e:
+                print(f"  [worker] WC players sync error: {e}", file=sys.stderr, flush=True)
 
     # ── MLB tasks (active during season) ──────────────────────────────────────
     if _MLB_AVAILABLE and _MLB_START <= datetime.now(_TZ_ET).date() <= _MLB_END:
