@@ -380,6 +380,31 @@ def _position_factor(position: Optional[str]) -> float:
     return 0.10  # goalkeeper or unknown
 
 
+def _tournament_uplift(player_name: str, club_gpm: float, path: Path = DB_PATH) -> float:
+    """Return a multiplier reflecting how this player has performed in
+    past WC / Euro tournaments vs their club rate.
+
+    >1.0 = player elevates in major tournaments (Mbappé at WC 2018/2022,
+    Müller, etc.)
+    <1.0 = player underperforms vs club (rare but happens — pressure,
+    role change)
+    1.0  = no historical data, or historical rate matches club rate
+
+    Only fires if we have historical data; otherwise returns a neutral 1.0.
+    """
+    try:
+        from .historical import historical_goals_per_90
+    except Exception:
+        return 1.0
+    intl = historical_goals_per_90(player_name, path)
+    if intl is None or club_gpm <= 0:
+        return 1.0
+    # Bound the uplift so a tiny tournament sample doesn't dominate.
+    # 0.50× floor / 2.00× ceiling — keeps the prior sane.
+    raw = intl / club_gpm
+    return max(0.50, min(2.00, raw))
+
+
 def compute_goalscorer_prior(
     api_player_id: int,
     expected_match_goals_for_team: float = 1.40,
@@ -433,7 +458,12 @@ def compute_goalscorer_prior(
     team_strength = max(0.5, min(2.0, expected_match_goals_for_team / 1.35))
     minute_factor = max(0.0, min(1.0, assumed_minutes / 90.0))
 
-    lambda_ = goals_per_90 * pos_factor * minute_factor * team_strength
+    # Tournament uplift: layer in past WC / Euro performance if we have it.
+    # Returns 1.0 when there's no historical data (neutral — won't distort
+    # priors for first-time tournament players).
+    intl_uplift = _tournament_uplift(player["player_name"], goals_per_90, path)
+
+    lambda_ = goals_per_90 * pos_factor * minute_factor * team_strength * intl_uplift
     anytime = 1.0 - math.exp(-lambda_)
     # First scorer is roughly anytime * (1 / (team_expected_goals + 1))
     first = anytime / max(1.0, expected_match_goals_for_team + 1.0)
@@ -447,6 +477,7 @@ def compute_goalscorer_prior(
         "anytime_scorer_prob":   round(anytime, 4),
         "first_scorer_prob":     round(first, 4),
         "assumed_minutes":       assumed_minutes,
+        "intl_uplift":           round(intl_uplift, 3),
     }
 
 
