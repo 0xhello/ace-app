@@ -6,6 +6,8 @@ import { generateIntelMap } from "@/lib/live-signals";
 import { generateLivePicks } from "@/lib/live-picks";
 import { fetchWeatherForGames } from "@/lib/weather";
 import { fetchModelSignals } from "@/lib/model-signals";
+import { fetchWCSignals } from "@/lib/wc-signals";
+import { fetchMLBSignals } from "@/lib/mlb-signals";
 import { fetchWCInjuries } from "@/lib/wc-injuries";
 import { getMockGames } from "@/lib/mock-games";
 import * as serverCache from "@/lib/server-cache";
@@ -89,13 +91,18 @@ export default async function GamesFeed() {
     );
   }
 
-  // Fetch ESPN news, weather, model signals, and WC injuries in parallel
-  const [newsItems, weatherMap, modelSignals, wcInjuryMap] = await Promise.all([
+  // Fetch ESPN news, weather, signals across all sports, and WC injuries in parallel
+  const [newsItems, weatherMap, nbaSignals, wcSignals, mlbSignals, wcInjuryMap] = await Promise.all([
     withTimeout(fetchAllESPNNews(), 5_000, []),
     withTimeout(fetchWeatherForGames(games), 6_000, new Map()),
     withTimeout(Promise.resolve(fetchModelSignals()), 5_000, []),
+    withTimeout(Promise.resolve(fetchWCSignals()),    4_000, []),
+    withTimeout(Promise.resolve(fetchMLBSignals()),   4_000, []),
     withTimeout(fetchWCInjuries(), 4_000, new Map()),
   ]);
+  // Cross-sport signal stream — same shape, all flow through generateIntelMap
+  // and get matched to games by (home_team, away_team).
+  const modelSignals = [...nbaSignals, ...wcSignals, ...mlbSignals];
 
   // Pull server-side movement map from cache (populated by /api/board on each refresh)
   const cachedEntry = await serverCache.get(CACHE_KEY);
