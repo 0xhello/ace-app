@@ -14,9 +14,12 @@ import pytest
 
 from ml.world_cup.historical import (
     _assists_by_player,
+    _normalize_player_name,
     _parse_clock,
     _player_minutes_from_lineups,
     _shot_outcomes_by_player,
+    dedupe_historical_form,
+    get_historical_form,
     historical_goals_per_90,
     init_historical_tables,
 )
@@ -165,6 +168,125 @@ def test_assists_via_dedicated_event_type() -> None:
     ]
     out = _assists_by_player(events)
     assert out == {"Modric": 1}
+
+
+# ---------------------------------------------------------------------------
+# Shootout filtering — penalty shootout events (period >= 5) are NOT real
+# goals / shots / assists statistically. They inflate goalscorer priors.
+# ---------------------------------------------------------------------------
+
+def test_shootout_goals_filtered_from_shot_outcomes() -> None:
+    """A goal in period 5 (penalty shootout) must NOT count."""
+    events = [
+        # Regulation: real goal
+        {"type": {"name": "Shot"}, "period": 1, "player": {"name": "Reg Striker"},
+         "shot": {"outcome": {"name": "Goal"}}},
+        # Extra time: still real goal
+        {"type": {"name": "Shot"}, "period": 4, "player": {"name": "ET Striker"},
+         "shot": {"outcome": {"name": "Goal"}}},
+        # Shootout: must be filtered
+        {"type": {"name": "Shot"}, "period": 5, "player": {"name": "Pens Taker"},
+         "shot": {"outcome": {"name": "Goal"}}},
+        # Shootout miss: must also be filtered (it's not a real shot either)
+        {"type": {"name": "Shot"}, "period": 5, "player": {"name": "Pens Taker"},
+         "shot": {"outcome": {"name": "Saved"}}},
+    ]
+    out = _shot_outcomes_by_player(events)
+    assert out["Reg Striker"]["goals"] == 1
+    assert out["ET Striker"]["goals"] == 1
+    assert "Pens Taker" not in out, "shootout shots must be excluded entirely"
+
+
+def test_shootout_assists_filtered() -> None:
+    """Assists never exist in a shootout; defensive — drop any goal_assist
+    that appears in a period-5 event."""
+    events = [
+        {"type": {"name": "Pass"}, "period": 1, "player": {"name": "Regulation Asst"},
+         "pass": {"goal_assist": True}},
+        {"type": {"name": "Pass"}, "period": 5, "player": {"name": "Bogus Asst"},
+         "pass": {"goal_assist": True}},
+    ]
+    out = _assists_by_player(events)
+    assert out == {"Regulation Asst": 1}
+
+
+# ---------------------------------------------------------------------------
+# Player name normalization
+# ---------------------------------------------------------------------------
+
+def test_normalize_known_aliases_collapse() -> None:
+    """The canonical multi-variant cases all collapse to one form."""
+    assert _normalize_player_name("Cristiano Ronaldo dos Santos Aveiro") == "Cristiano Ronaldo"
+    assert _normalize_player_name("Cristiano Ronaldo") == "Cristiano Ronaldo"
+    assert _normalize_player_name("Kylian Mbappé Lottin") == "Kylian Mbappe"
+    assert _normalize_player_name("Kylian Mbappé") == "Kylian Mbappe"
+    assert _normalize_player_name("Neymar da Silva Santos Junior") == "Neymar"
+    assert _normalize_player_name("Lionel Andrés Messi Cuccittini") == "Lionel Messi"
+    assert _normalize_player_name("Vinicius José Paixão de Oliveira Junior") == "Vinicius Junior"
+    assert _normalize_player_name("Erling Braut Haaland") == "Erling Haaland"
+
+
+def test_normalize_unknown_names_pass_through() -> None:
+    """An unknown name returns unchanged (just whitespace collapsed) — we
+    don't want to silently mangle players we haven't aliased yet."""
+    assert _normalize_player_name("Some Random Player") == "Some Random Player"
+    assert _normalize_player_name("  Extra   Whitespace  ") == "Extra Whitespace"
+
+
+def test_normalize_handles_empty_and_none() -> None:
+    assert _normalize_player_name("") == ""
+    assert _normalize_player_name(None) == ""
+
+
+# ---------------------------------------------------------------------------
+# Dedupe — collapse pre-normalization rows
+# ---------------------------------------------------------------------------
+
+def test_dedupe_collapses_ronaldo_variants(db: Path) -> None:
+    """Cristiano Ronaldo's stats stored under two name spellings should merge
+    into one row per competition after dedupe."""
+    init_historical_tables(db)
+    conn = sqlite3.connect(db)
+    # Two rows for the same player at the same competition under different spellings
+    conn.execute(
+        """INSERT INTO wc_historical_form
+           (player_name, competition, country, matches_played, minutes,
+            goals, shots, shots_on_target, assists, updated_at)
+           VALUES ('Cristiano Ronaldo dos Santos Aveiro', 'WC 2022', 'Portugal',
+                   5, 380, 1, 9, 4, 0, datetime('now')),
+                  ('Cristiano Ronaldo', 'UEFA Nations League 2024', 'Portugal',
+                   6, 540, 8, 18, 12, 1, datetime('now'))""",
+    )
+    conn.commit()
+    conn.close()
+
+    result = dedupe_historical_form(db)
+    # Two distinct competitions → still two rows, but both under canonical name
+    assert result["rows_after"] == 2
+    rows = get_historical_form("Cristiano Ronaldo dos Santos Aveiro", db)
+    # Lookup-side normalization means the long-name query now hits the
+    # canonical row too
+    assert len(rows) == 2
+    names = {r["player_name"] for r in rows}
+    assert names == {"Cristiano Ronaldo"}
+
+
+def test_dedupe_idempotent(db: Path) -> None:
+    """Running dedupe twice produces the same row count the second time."""
+    init_historical_tables(db)
+    conn = sqlite3.connect(db)
+    conn.execute(
+        """INSERT INTO wc_historical_form
+           (player_name, competition, country, matches_played, minutes,
+            goals, shots, shots_on_target, assists, updated_at)
+           VALUES ('Kylian Mbappé Lottin', 'WC 2022', 'France',
+                   7, 603, 9, 32, 15, 2, datetime('now'))""",
+    )
+    conn.commit()
+    conn.close()
+    first = dedupe_historical_form(db)
+    second = dedupe_historical_form(db)
+    assert first["rows_after"] == second["rows_after"]
 
 
 # ---------------------------------------------------------------------------

@@ -35,13 +35,78 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
 from .signal_logger import DB_PATH, get_db, init_db
+
+
+# Explicit aliases for canonical player names. Maps any-variant → canonical.
+# Each canonical form is the one used by Odds API / our prop feeds (typically
+# the form a casual bettor would type). Add here when we discover new variants
+# in the DB — they get applied on every write and to historical lookups.
+_PLAYER_NAME_ALIASES: Dict[str, str] = {
+    # StatsBomb full name → Odds API short form
+    "cristiano ronaldo dos santos aveiro": "Cristiano Ronaldo",
+    "kylian mbappe lottin":                "Kylian Mbappe",
+    "kylian mbappe":                       "Kylian Mbappe",
+    "k mbappe":                            "Kylian Mbappe",
+    "neymar da silva santos junior":       "Neymar",
+    "neymar jr":                           "Neymar",
+    "lionel andres messi cuccittini":      "Lionel Messi",
+    "leo messi":                           "Lionel Messi",
+    "l messi":                             "Lionel Messi",
+    "vinicius jose paixao de oliveira junior": "Vinicius Junior",
+    "vinicius jr":                         "Vinicius Junior",
+    "vinicius junior":                     "Vinicius Junior",
+    "rodrygo silva de goes":               "Rodrygo",
+    "robert lewandowski":                  "Robert Lewandowski",
+    "harry kane":                          "Harry Kane",
+    "jude bellingham":                     "Jude Bellingham",
+    "erling braut haaland":                "Erling Haaland",
+    "erling haaland":                      "Erling Haaland",
+    "lautaro javier martinez":             "Lautaro Martinez",
+    "lautaro martinez":                    "Lautaro Martinez",
+}
+
+
+def _normalize_player_name(name: Optional[str]) -> str:
+    """Canonicalize a player name across data sources.
+
+    StatsBomb uses full legal names ("Cristiano Ronaldo dos Santos Aveiro");
+    API-Football uses short forms ("C. Ronaldo" / "Cristiano Ronaldo"); Odds
+    API uses the casual-bettor form ("Cristiano Ronaldo"). Without a single
+    canonical key these are three separate rows and our prior lookup fails.
+
+    Strategy:
+      1. Strip accents/diacritics (Mbappé → Mbappe) so the alias map works
+         regardless of how the upstream encoded the name.
+      2. Lowercase, collapse whitespace, strip punctuation — produce a stable
+         lookup key.
+      3. If the key matches a known alias, return the canonical form.
+      4. Otherwise return the input name with whitespace collapsed (no other
+         changes — we don't want to mangle unknown names, just dedupe known
+         multi-variant cases).
+    """
+    if not name:
+        return ""
+    # Step 1+2: build a stable lookup key
+    stripped = unicodedata.normalize("NFKD", name)
+    stripped = "".join(c for c in stripped if not unicodedata.combining(c))
+    key = re.sub(r"[^a-z0-9 ]+", " ", stripped.lower())
+    key = re.sub(r"\s+", " ", key).strip()
+
+    # Step 3: known alias?
+    if key in _PLAYER_NAME_ALIASES:
+        return _PLAYER_NAME_ALIASES[key]
+
+    # Step 4: unknown name — return the original with whitespace collapsed
+    return re.sub(r"\s+", " ", name).strip()
 
 STATSBOMB_BASE = "https://raw.githubusercontent.com/statsbomb/open-data/master/data"
 
@@ -177,6 +242,19 @@ def _parse_clock(v: Any) -> int:
     return 0
 
 
+def _is_shootout_event(ev: Dict[str, Any]) -> bool:
+    """StatsBomb encodes the post-ET penalty shootout as period 5. Regulation
+    is 1-2, extra time is 3-4. Shootout 'goals' are not real goals in any
+    statistical sense — they don't count toward Golden Boot, don't appear in
+    g/90 stats, and inflate our priors. Filter them out."""
+    period = ev.get("period")
+    if isinstance(period, (int, float)) and period >= 5:
+        return True
+    # Defensive: some events tag shot.type.name == "Penalty" with a
+    # shootout-context marker. Real in-match penalties stay in period 1-4.
+    return False
+
+
 def _shot_outcomes_by_player(events: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
     """Process an events list into per-player shot/goal/SOT counts.
 
@@ -184,10 +262,15 @@ def _shot_outcomes_by_player(events: List[Dict[str, Any]]) -> Dict[str, Dict[str
     (one of: Goal, Saved, Saved To Post, Saved Off Target, Off T,
     Wayward, Blocked, Post). We treat 'Goal' as goal+shot+SOT,
     'Saved*' as shot+SOT (keeper handled it = was on target), and
-    everything else as shot only."""
+    everything else as shot only.
+
+    Penalty-shootout events (period >= 5) are excluded — they aren't goals
+    in any meaningful statistical sense and inflate priors."""
     by_player: Dict[str, Dict[str, int]] = {}
     for ev in events:
         if (ev.get("type") or {}).get("name") != "Shot":
+            continue
+        if _is_shootout_event(ev):
             continue
         player = (ev.get("player") or {}).get("name", "")
         if not player:
@@ -206,9 +289,13 @@ def _shot_outcomes_by_player(events: List[Dict[str, Any]]) -> Dict[str, Dict[str
 def _assists_by_player(events: List[Dict[str, Any]]) -> Dict[str, int]:
     """An assist in StatsBomb is encoded on the 'Pass' event preceding a
     goal as pass.goal_assist == True OR as ['Shot Assist', 'Goal Assist']
-    types depending on schema version. We accept either."""
+    types depending on schema version. We accept either.
+
+    Shootout events (period >= 5) are excluded — no assists in a shootout."""
     out: Dict[str, int] = {}
     for ev in events:
+        if _is_shootout_event(ev):
+            continue
         name = (ev.get("player") or {}).get("name", "")
         if not name:
             continue
@@ -302,12 +389,16 @@ def download_competition(
             t["sot"]            += stats["sot"]
             t["assists"]        += stats["assists"]
 
-    # Resolve each player's national team from the lineup data of any
-    # match they appeared in. The lineup file has team.name for each side.
-    # We do one extra pass to map name → country, accepting the first match
-    # the player appears in.
+    # Resolve each player's national team from the lineup data of any match
+    # they appeared in. The lineup file has team.name for each side. Iterate
+    # ALL matches (previously capped at 8 — that sample missed ~20 of 32 WC
+    # teams). Short-circuit per match as soon as every player in `totals`
+    # already has a country, so we don't waste fetches on later matches.
     name_to_country: Dict[str, str] = {}
-    for m in matches[:8]:  # sample of matches is usually enough; we cap for cost
+    target_names = set(totals.keys())
+    for m in matches:
+        if target_names and target_names.issubset(name_to_country.keys()):
+            break  # every player we care about already has a country
         lineup = fetch_lineup(m.get("match_id"))
         for team in lineup:
             country = team.get("team_name") or ""
@@ -316,10 +407,28 @@ def download_competition(
                 if pname and pname not in name_to_country:
                     name_to_country[pname] = country
 
+    # Collapse multi-variant names BEFORE writing, so a single player who
+    # appears under both their full and short form in StatsBomb data lands
+    # as one row, not two.
+    merged: Dict[str, Dict[str, Any]] = {}
+    for name, t in totals.items():
+        canonical = _normalize_player_name(name)
+        m = merged.setdefault(canonical, {
+            "matches_played": 0, "minutes": 0,
+            "goals": 0, "shots": 0, "sot": 0, "assists": 0,
+            "country": None,
+        })
+        m["matches_played"] += t["matches_played"]
+        m["minutes"]        += t["minutes"]
+        m["goals"]          += t["goals"]
+        m["shots"]          += t["shots"]
+        m["sot"]            += t["sot"]
+        m["assists"]        += t["assists"]
+        m["country"] = m["country"] or name_to_country.get(name)
+
     conn = get_db(path)
     upserted = 0
-    for name, t in totals.items():
-        country = name_to_country.get(name)
+    for canonical, t in merged.items():
         conn.execute(
             """INSERT INTO wc_historical_form
                (player_name, competition, country, matches_played, minutes,
@@ -334,7 +443,7 @@ def download_competition(
                  shots_on_target = excluded.shots_on_target,
                  assists         = excluded.assists,
                  updated_at      = excluded.updated_at""",
-            (name, display_name, country,
+            (canonical, display_name, t["country"],
              t["matches_played"], t["minutes"],
              t["goals"], t["shots"], t["sot"], t["assists"]),
         )
@@ -358,20 +467,84 @@ def download_default(path: Path = DB_PATH) -> Dict[str, int]:
     return out
 
 
+def dedupe_historical_form(path: Path = DB_PATH) -> Dict[str, int]:
+    """One-off cleanup: collapse multi-variant player rows in wc_historical_form
+    that were written before name normalization was added.
+
+    For each (canonical_name, competition) bucket, sum the stats across all
+    variant rows, take the first non-null country, then replace the variant
+    rows with the canonical aggregate. Returns counts: rows_before, rows_after,
+    rows_collapsed."""
+    init_historical_tables(path)
+    conn = get_db(path)
+
+    before = conn.execute("SELECT COUNT(*) FROM wc_historical_form").fetchone()[0]
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM wc_historical_form"
+    ).fetchall()]
+
+    merged: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for r in rows:
+        canonical = _normalize_player_name(r["player_name"])
+        key = (canonical, r["competition"])
+        m = merged.setdefault(key, {
+            "country": None,
+            "matches_played": 0, "minutes": 0,
+            "goals": 0, "shots": 0, "shots_on_target": 0, "assists": 0,
+        })
+        # When the *same* canonical key appears multiple times (the bug we're
+        # fixing), choose the max for each stat field rather than summing —
+        # the variants typically duplicate the same matches under different
+        # name spellings, so summing would double-count. Max is the
+        # conservative choice that preserves the larger sample's count.
+        m["matches_played"] = max(m["matches_played"], r["matches_played"] or 0)
+        m["minutes"]        = max(m["minutes"],        r["minutes"]        or 0)
+        m["goals"]          = max(m["goals"],          r["goals"]          or 0)
+        m["shots"]          = max(m["shots"],          r["shots"]          or 0)
+        m["shots_on_target"]= max(m["shots_on_target"],r["shots_on_target"]or 0)
+        m["assists"]        = max(m["assists"],        r["assists"]        or 0)
+        m["country"]        = m["country"] or r["country"]
+
+    # Wipe and rewrite the table in one transaction. Cheap — table is small.
+    conn.execute("DELETE FROM wc_historical_form")
+    for (canonical, comp), m in merged.items():
+        conn.execute(
+            """INSERT INTO wc_historical_form
+               (player_name, competition, country, matches_played, minutes,
+                goals, shots, shots_on_target, assists, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))""",
+            (canonical, comp, m["country"],
+             m["matches_played"], m["minutes"], m["goals"],
+             m["shots"], m["shots_on_target"], m["assists"]),
+        )
+    conn.commit()
+
+    after = conn.execute("SELECT COUNT(*) FROM wc_historical_form").fetchone()[0]
+    conn.close()
+    collapsed = before - after
+    print(f"  [historical] dedupe: {before} → {after} rows ({collapsed} collapsed)")
+    return {"rows_before": before, "rows_after": after, "rows_collapsed": collapsed}
+
+
 # ---------------------------------------------------------------------------
 # Lookup helpers — used by players.compute_goalscorer_prior to layer in
 # tournament history.
 # ---------------------------------------------------------------------------
 
 def get_historical_form(player_name: str, path: Path = DB_PATH) -> List[Dict[str, Any]]:
-    """Return all historical-tournament rows for a player, most recent first."""
+    """Return all historical-tournament rows for a player, most recent first.
+
+    Normalizes the input name through the alias map so a query for
+    "Cristiano Ronaldo" still matches a row stored under the canonical form,
+    even if the original write came from a source using the full legal name."""
     init_historical_tables(path)
+    canonical = _normalize_player_name(player_name)
     conn = get_db(path)
     rows = conn.execute(
         """SELECT * FROM wc_historical_form
            WHERE player_name = ?
            ORDER BY competition DESC""",
-        (player_name,),
+        (canonical,),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -396,8 +569,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="StatsBomb historical pull")
     parser.add_argument(
         "command",
-        choices=["pull", "status"],
-        help="pull = download default tournaments (WC 2018, WC 2022, Euro 2020, Euro 2024)",
+        choices=["pull", "status", "dedupe"],
+        help=(
+            "pull = download default tournaments (WC 2018, WC 2022, Euro 2020, Euro 2024) | "
+            "dedupe = collapse multi-variant player rows already in the DB (one-off)"
+        ),
     )
     parser.add_argument("--comp", type=int, help="StatsBomb competition_id (optional override)")
     parser.add_argument("--season", type=int, help="StatsBomb season_id (optional override)")
@@ -409,6 +585,8 @@ if __name__ == "__main__":
             download_competition(args.comp, args.season, args.name or f"{args.comp}/{args.season}")
         else:
             download_default()
+    elif args.command == "dedupe":
+        dedupe_historical_form()
     elif args.command == "status":
         init_historical_tables()
         conn = get_db()

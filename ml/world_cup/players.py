@@ -485,8 +485,8 @@ def sync_intl_tournament_form(path: Path = DB_PATH) -> int:
     if a tournament's season hasn't published or isn't covered by the plan.
     """
     # Defer import so cycles can't happen; the historical module owns the
-    # shared wc_historical_form schema.
-    from .historical import init_historical_tables
+    # shared wc_historical_form schema and the canonical-name alias map.
+    from .historical import init_historical_tables, _normalize_player_name
 
     init_historical_tables(path)
     conn = get_db(path)
@@ -551,7 +551,25 @@ def sync_intl_tournament_form(path: Path = DB_PATH) -> int:
             print(f"  [players] {display_name}: no data available (season {season})")
             continue
 
+        # Collapse name variants before writing — same logic as the
+        # StatsBomb path so the two sources land under one canonical row.
+        merged_agg: Dict[str, Dict[str, Any]] = {}
         for name, d in agg.items():
+            canonical = _normalize_player_name(name)
+            m = merged_agg.setdefault(canonical, {
+                "country": d["country"],
+                "matches": 0, "minutes": 0,
+                "goals": 0, "shots": 0, "sot": 0, "assists": 0,
+            })
+            m["matches"] = max(m["matches"], d["matches"])
+            m["minutes"] = max(m["minutes"], d["minutes"])
+            m["goals"]   = max(m["goals"],   d["goals"])
+            m["shots"]   = max(m["shots"],   d["shots"])
+            m["sot"]     = max(m["sot"],     d["sot"])
+            m["assists"] = max(m["assists"], d["assists"])
+            m["country"] = m["country"] or d["country"]
+
+        for canonical, d in merged_agg.items():
             conn.execute(
                 """INSERT INTO wc_historical_form
                    (player_name, competition, country, matches_played, minutes,
@@ -566,7 +584,7 @@ def sync_intl_tournament_form(path: Path = DB_PATH) -> int:
                      shots_on_target = excluded.shots_on_target,
                      assists         = excluded.assists,
                      updated_at      = excluded.updated_at""",
-                (name, display_name, d["country"],
+                (canonical, display_name, d["country"],
                  d["matches"], d["minutes"], d["goals"],
                  d["shots"], d["sot"], d["assists"], now),
             )
