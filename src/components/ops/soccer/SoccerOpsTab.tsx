@@ -23,6 +23,7 @@ import {
   ActivityStreamPanel,
 } from "@/components/ops/shared/panels";
 import PlayerPriorsPanel from "@/components/ops/soccer/PlayerPriorsPanel";
+import MarketProbePanel from "@/components/ops/soccer/MarketProbePanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -338,6 +339,12 @@ export default function SoccerOpsTab() {
             </div>
           </div>
         )}
+
+        {/* WC market probe — pre-launch tool. Click "Probe" to see which
+            Odds API markets are actually posted right now. Player props
+            typically open 1-2 weeks pre-kickoff so we want to know the
+            day they appear. ~10 credits per probe (manual trigger). */}
+        <MarketProbePanel />
 
         {/* Player intelligence — surfaces the StatsBomb historical layer +
             squad joins + computed priors. The most-data-dense panel on this

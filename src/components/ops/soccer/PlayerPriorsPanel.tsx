@@ -20,8 +20,8 @@
  *   - Priors empty: same, just no anytime_scorer_prob column populated
  */
 import { useEffect, useMemo, useState } from "react";
-import { Trophy, Search } from "lucide-react";
-import { Panel, SectionHead, EmptyState, Tag } from "@/components/ops/shared/primitives";
+import { Trophy, Search, RefreshCw, Database, Calculator } from "lucide-react";
+import { Panel, SectionHead, EmptyState, Tag, ActionButton } from "@/components/ops/shared/primitives";
 
 interface PlayerAggregate {
   player_name: string;
@@ -73,22 +73,45 @@ export default function PlayerPriorsPanel() {
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("goals");
   const [limit, setLimit] = useState(30);
+  // Squad-sync / priors-compute job state — null when idle, otherwise
+  // the most recent {step, ok, duration, output snippet}.
+  const [syncRunning, setSyncRunning] = useState<null | "squads" | "all" | "priors">(null);
+  const [syncResult, setSyncResult] = useState<{ step: string; ok: boolean; at: string; durationSec: number } | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const res = await fetch("/api/ops/wc-players", { cache: "no-store" });
-        const json = await res.json();
-        if (alive) setData(json as Response);
-      } catch {
-        // silent — render an empty state below
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
+  async function load() {
+    try {
+      const res = await fetch("/api/ops/wc-players", { cache: "no-store" });
+      const json = await res.json();
+      setData(json as Response);
+    } catch {
+      // silent
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  // Fires the player-context sync job (squads / sync_all / priors).
+  // Long-running — UI shows a spinner while it works and refreshes
+  // the data when done so the new rows / joined columns appear.
+  async function runSync(step: "squads" | "all" | "priors") {
+    setSyncRunning(step);
+    try {
+      const res = await fetch("/api/ops/wc-squad-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step }),
+      });
+      const json = await res.json() as { ok: boolean; durationSec: number };
+      setSyncResult({ step, ok: !!json.ok, at: new Date().toLocaleTimeString(), durationSec: json.durationSec ?? 0 });
+      await load();
+    } catch {
+      setSyncResult({ step, ok: false, at: new Date().toLocaleTimeString(), durationSec: 0 });
+    } finally {
+      setSyncRunning(null);
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!data?.players) return [];
@@ -152,7 +175,44 @@ export default function PlayerPriorsPanel() {
         icon={Trophy}
         title="WC player intelligence"
         right={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {syncResult && (
+              <span className="text-[9px] uppercase tracking-[0.12em] text-[#9ca39a]">
+                <span style={{ color: syncResult.ok ? "#3ee68a" : "#ef4444" }}>●</span>{" "}
+                {syncResult.step} · {syncResult.ok ? "ok" : "fail"} · {syncResult.durationSec}s · {syncResult.at}
+              </span>
+            )}
+            {/* Squad sync trigger — turns "squads pending" into real data.
+                Costs ~80 API-Football calls (free-tier-friendly). */}
+            {!haveSquads && (
+              <ActionButton
+                icon={Database}
+                label={syncRunning === "squads" ? "Syncing…" : "Sync squads"}
+                variant="primary"
+                busy={syncRunning === "squads"}
+                disabled={syncRunning !== null}
+                onClick={() => void runSync("squads")}
+              />
+            )}
+            {/* Once squads exist, allow computing priors. Free (no API calls). */}
+            {haveSquads && !havePriors && (
+              <ActionButton
+                icon={Calculator}
+                label={syncRunning === "priors" ? "Computing…" : "Compute priors"}
+                variant="primary"
+                busy={syncRunning === "priors"}
+                disabled={syncRunning !== null}
+                onClick={() => void runSync("priors")}
+              />
+            )}
+            {/* Refresh button — re-pulls the panel's data from the DB. */}
+            <ActionButton
+              icon={RefreshCw}
+              label="Refresh"
+              busy={loading}
+              disabled={syncRunning !== null}
+              onClick={() => void load()}
+            />
             <Tag label={`${data.meta.historical_rows.toLocaleString()} player-rows`} color="#3ee68a" />
             <Tag
               label={haveSquads ? `${data.meta.squads_rows} squad players` : "squads pending"}
