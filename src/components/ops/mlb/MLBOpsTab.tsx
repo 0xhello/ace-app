@@ -10,11 +10,17 @@ import {
   ActionButton,
   WorkerStatusStrip,
   OpsPageHeader,
-  StatusPill,
   OpsFooter,
   LoadingState,
-  EmptyState,
 } from "@/components/ops/shared/primitives";
+import {
+  TodaySlatePanel,
+  OpenSignalsPanel,
+  CLVStatsPanel,
+  ByBookPanel,
+  StaleSignalsPanel,
+  ActivityStreamPanel,
+} from "@/components/ops/shared/panels";
 import { Trophy } from "lucide-react";
 
 interface MLBSignal {
@@ -138,7 +144,9 @@ export default function MLBOpsTab() {
   }
 
   const { worker, jobs, signals, stats, schema } = data;
-  const recent = signals.slice(0, 20);
+  // Local ET-date string, used by panels that split by "today vs past".
+  // Matches the convention the API routes use.
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
@@ -212,7 +220,16 @@ export default function MLBOpsTab() {
           />
         </div>
 
-        {/* Per-market breakdown */}
+        {/* Today's slate — distinct games we have open signals on right now */}
+        <TodaySlatePanel signals={signals} today={today} />
+
+        {/* Open signals — split into actionable today/future vs awaiting grade */}
+        <OpenSignalsPanel signals={signals} today={today} />
+
+        {/* Edge validation — CLV / P&L / % positive */}
+        <CLVStatsPanel signals={signals} />
+
+        {/* Per-market breakdown — kept for backward-compat with the older v1 view */}
         <Panel>
           <SectionHead icon={Database} title="By market" />
           <div className="grid grid-cols-3 gap-3 text-[11px]">
@@ -234,77 +251,14 @@ export default function MLBOpsTab() {
           </div>
         </Panel>
 
-        {/* Recent signals */}
-        <Panel>
-          <SectionHead icon={Activity} title={`Recent signals · ${signals.length}`} />
-          {recent.length === 0 ? (
-            <EmptyState>No signals yet. Worker will populate this once MLB games are live.</EmptyState>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-[10px]">
-                <thead className="text-[#6b7068] uppercase tracking-[0.12em] border-b border-[#22251f]">
-                  <tr>
-                    <th className="py-2 px-2 font-semibold">Date</th>
-                    <th className="py-2 px-2 font-semibold">Matchup</th>
-                    <th className="py-2 px-2 font-semibold">Pick</th>
-                    <th className="py-2 px-2 font-semibold text-right">Line</th>
-                    <th className="py-2 px-2 font-semibold text-right">Book / Odds</th>
-                    <th className="py-2 px-2 font-semibold text-right">Edge</th>
-                    <th className="py-2 px-2 font-semibold text-center">Tier</th>
-                    <th className="py-2 px-2 font-semibold text-center">Kelly</th>
-                    <th className="py-2 px-2 font-semibold text-right">CLV</th>
-                    <th className="py-2 px-2 font-semibold text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#181c18] font-mono">
-                  {recent.map((s) => (
-                    <tr key={s.id} className="text-[#c4c7c0]">
-                      <td className="py-2 px-2 text-[#9ca39a]">{s.game_date}</td>
-                      <td className="py-2 px-2 truncate max-w-[180px]">
-                        {s.away_team} @ {s.home_team}
-                      </td>
-                      <td className="py-2 px-2 text-white">
-                        {s.market}/{s.bet_side.toUpperCase()}
-                      </td>
-                      <td className="py-2 px-2 text-right text-[#9ca39a]">
-                        {s.line !== null ? (s.market === "totals" ? s.line.toFixed(1) : (s.line > 0 ? `+${s.line}` : s.line)) : "—"}
-                      </td>
-                      <td className="py-2 px-2 text-right">
-                        <span className="text-[#9ca39a]">{s.book}</span>{" "}
-                        <span className="text-white">{s.book_odds! > 0 ? `+${s.book_odds}` : s.book_odds}</span>
-                      </td>
-                      <td className="py-2 px-2 text-right text-[#3ee68a]">
-                        {s.edge_pp !== null ? `${(s.edge_pp * 100).toFixed(1)}pp` : "—"}
-                      </td>
-                      <td className="py-2 px-2 text-center">
-                        {s.confidence_tier === "A" && <StatusPill label="A" tone="a" />}
-                        {s.confidence_tier === "B" && <StatusPill label="B" tone="b" />}
-                        {s.confidence_tier === "C" && <StatusPill label="C" tone="c" />}
-                        {!s.confidence_tier && <span className="text-[#3a4033]">—</span>}
-                      </td>
-                      <td className="py-2 px-2 text-center text-[#9ca39a]">
-                        {s.kelly_fraction !== null ? `${(s.kelly_fraction * 100).toFixed(1)}%` : "—"}
-                      </td>
-                      <td className={cn(
-                        "py-2 px-2 text-right",
-                        s.clv_pp === null ? "text-[#3a4033]"
-                          : s.clv_pp > 0 ? "text-[#3ee68a]" : "text-[#ef4444]",
-                      )}>
-                        {s.clv_pp !== null ? `${s.clv_pp > 0 ? "+" : ""}${(s.clv_pp * 100).toFixed(1)}pp` : "—"}
-                      </td>
-                      <td className="py-2 px-2 text-center">
-                        {s.status === "graded" && s.correct === 1 && <StatusPill label="WIN"  tone="win"  />}
-                        {s.status === "graded" && s.correct === 0 && <StatusPill label="LOSS" tone="loss" />}
-                        {s.status === "open"  && <StatusPill label="OPEN" tone="open" />}
-                        {s.status === "void"  && <StatusPill label="VOID" tone="void" />}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
+        {/* By book — which soft books are diverging most */}
+        <ByBookPanel signals={signals} />
+
+        {/* Stale signals — open and old, eligible for auto-void */}
+        <StaleSignalsPanel signals={signals} today={today} />
+
+        {/* Activity stream — last 30 signals across all statuses */}
+        <ActivityStreamPanel signals={signals} />
 
         {/* Schema state */}
         <OpsFooter

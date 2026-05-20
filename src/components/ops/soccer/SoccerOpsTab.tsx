@@ -8,17 +8,20 @@ import {
 import {
   KpiCard,
   SectionHead,
-  Panel,
   ActionButton,
   WorkerStatusStrip,
   OpsPageHeader,
-  StatusPill,
-  OpsFooter,
   ErrorBanner,
   LoadingState,
-  EmptyState,
-  Tag,
 } from "@/components/ops/shared/primitives";
+import {
+  TodaySlatePanel,
+  OpenSignalsPanel,
+  CLVStatsPanel,
+  ByBookPanel,
+  StaleSignalsPanel,
+  ActivityStreamPanel,
+} from "@/components/ops/shared/panels";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -113,63 +116,10 @@ function winRateColor(v: number | null): string {
   return "#ef4444";
 }
 
-// ─── Local components ─────────────────────────────────────────────────────────
-// Dot / Tag / KpiCard / SectionHead now come from shared/primitives so every
-// tab uses the same visual vocabulary. SignalRow is soccer-specific and stays.
-
-function SignalRow({ sig }: { sig: SoccerSignal }) {
-  const isOpen    = sig.status === "open";
-  const isGraded  = sig.status === "graded";
-  const won       = sig.correct === 1;
-  const lost      = sig.correct === 0;
-
-  const flags       = sig.notes ? sig.notes.split(";").map((n: string) => n.trim()).filter(Boolean) : [];
-  const isDeadRubber = flags.some((f: string) => f.startsWith("DEAD RUBBER"));
-  const hasCardRisk  = flags.some((f: string) => f.startsWith("CARD RISK"));
-
-  const marketLabel = sig.market === "asian_handicap" ? "AH"
-    : sig.market === "totals" ? "TOT"
-    : "1X2";
-
-  return (
-    <tr className={`border-t border-[#181c18] hover:bg-[#0d0f0d] transition-colors ${isDeadRubber ? "opacity-50" : ""}`}>
-      <td className="px-3 py-2.5 text-[11px] text-[#4a524a] font-mono whitespace-nowrap">{sig.game_date}</td>
-      <td className="px-3 py-2.5 text-[12px] text-[#c4c7c0] whitespace-nowrap">
-        {sig.away_team} <span className="text-[#3a4033]">@</span> {sig.home_team}
-      </td>
-      <td className="px-3 py-2.5">
-        <span className="text-[8px] font-bold uppercase tracking-[0.15em] border rounded px-1.5 py-0.5"
-              style={{ color: "#9ca39a", borderColor: "#1e2220" }}>
-          {marketLabel}
-        </span>
-      </td>
-      <td className="px-3 py-2.5 text-[12px] font-semibold text-[#d4d7d0]">
-        {betLabel(sig.market, sig.bet_side, sig.total_line)}
-      </td>
-      <td className="px-3 py-2.5 text-[11px] text-[#6b7068]">{sig.book}</td>
-      <td className="px-3 py-2.5 text-[11px] font-mono text-[#9ca39a]">{fmtOdds(sig.book_odds)}</td>
-      <td className="px-3 py-2.5 text-[11px] font-mono font-bold" style={{ color: "#3ee68a" }}>{fmtEdge(sig.edge_pp)}</td>
-      <td className="px-3 py-2.5 text-[11px] font-mono text-[#6b7068]">
-        {isGraded && sig.home_score !== null ? `${sig.home_score}–${sig.away_score}` : "—"}
-      </td>
-      <td className="px-3 py-2.5">
-        <div className="flex items-center gap-1.5">
-          {isGraded && won  && <StatusPill label="WIN"  tone="win"  />}
-          {isGraded && lost && <StatusPill label="LOSS" tone="loss" />}
-          {isOpen           && <StatusPill label="OPEN" tone="open" />}
-          {sig.status === "void" && <StatusPill label="VOID" tone="void" />}
-          {isDeadRubber && (
-            <span title="Dead rubber — team may rest starters" className="text-[9px] text-[#4a524a] cursor-help">DR</span>
-          )}
-          {hasCardRisk && (
-            <span title={flags.find((f) => f.startsWith("CARD RISK")) ?? "Card risk"}
-                  className="text-[9px] cursor-help" style={{ color: "#f5c062" }}>YC</span>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-}
+// Local SignalRow removed — ActivityStreamPanel (shared/panels) now handles
+// the recent-signals table on every tab. The dead-rubber / card-risk flags
+// are still in signal.notes; surfacing them in the shared activity stream
+// is a small follow-up.
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
@@ -177,7 +127,6 @@ export default function SoccerOpsTab() {
   const [data,    setData]    = useState<WCPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState<null | "fetch" | "grade">(null);
-  const [tab,     setTab]     = useState<"open" | "graded">("open");
 
   const loadAll = useCallback(async () => {
     try {
@@ -213,8 +162,8 @@ export default function SoccerOpsTab() {
 
   const stats   = data?.stats;
   const signals = data?.signals ?? [];
-  const open    = signals.filter((s) => s.status === "open");
-  const graded  = signals.filter((s) => s.status === "graded");
+  // ET-local "today" — the panels split actionable vs awaiting by this.
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 
   const fetchMeta = data?.jobs.fetch;
   const gradeMeta = data?.jobs.grade;
@@ -389,59 +338,23 @@ export default function SoccerOpsTab() {
           </div>
         )}
 
-        {/* ══ SIGNALS ═════════════════════════════════════════════════════════ */}
-        {signals.length > 0 && (
-          <div className="rounded-xl border border-[#181c18] bg-[#0d0f0d] overflow-hidden">
-            <SectionHead
-              title="Signals"
-              icon={Activity}
-              right={
-                <div className="flex border border-[#1e2220] rounded-lg overflow-hidden">
-                  {(["open", "graded"] as const).map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setTab(t)}
-                      className="px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em] transition-colors"
-                      style={{
-                        background: tab === t ? "#3ee68a15" : "transparent",
-                        color: tab === t ? "#3ee68a" : "#4a524a",
-                      }}
-                    >
-                      {t} <span style={{ color: "#3a4033" }}>
-                        {t === "open" ? open.length : graded.length}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              }
-            />
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-t border-[#181c18]">
-                    {["Date","Matchup","Mkt","Side","Book","Odds","Edge","Score","Result"].map((h) => (
-                      <th key={h} className="px-3 py-2 text-left text-[9px] font-bold uppercase tracking-[0.15em] text-[#3a4033]">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(tab === "open" ? open : graded).map((sig) => (
-                    <SignalRow key={sig.id} sig={sig} />
-                  ))}
-                  {(tab === "open" ? open : graded).length === 0 && (
-                    <tr>
-                      <td colSpan={9} className="px-3 py-8 text-center text-[11px] text-[#3a4033]">
-                        {tab === "open" ? "No open signals." : "No graded signals yet."}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        {/* Today's slate — distinct games we have open signals on now */}
+        <TodaySlatePanel signals={signals} today={today} />
+
+        {/* Open signals — actionable today/future vs awaiting grade */}
+        <OpenSignalsPanel signals={signals} today={today} />
+
+        {/* Edge validation — CLV / P&L / % positive */}
+        <CLVStatsPanel signals={signals} />
+
+        {/* By book — soft books diverging most against Pinnacle */}
+        <ByBookPanel signals={signals} />
+
+        {/* Stale signals — open and old, eligible for void */}
+        <StaleSignalsPanel signals={signals} today={today} />
+
+        {/* Activity stream — last 30 signals across all statuses */}
+        <ActivityStreamPanel signals={signals} />
 
       </div>
     </div>
