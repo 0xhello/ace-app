@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional
 
 from .signal_logger import get_db, init_db, DB_PATH
 from .context import _get, normalize, WC_LEAGUE_ID, WC_SEASON, API_FOOTBALL_KEY
+from .historical import _normalize_player_name
 
 # WC 2026 qualified countries (48-team format). Used for the teams-by-country
 # workaround that lets us pull squads on the API-Football free tier — the
@@ -625,9 +626,14 @@ _RECENCY_WEIGHTS = {
     "old_intl":         0.10,   # 4+ years ago
 }
 
-# Current calendar year of the WC build-up. Update annually so the recency
-# bucketing stays accurate.
-_CURRENT_YEAR = 2026
+def _current_year() -> int:
+    """Derive the current calendar year at call time so the recency
+    bucketing stays accurate without requiring an annual code edit.
+    Was previously a hardcoded constant — that's the kind of value that
+    rots silently past the WC and starts misclassifying tournament data
+    months/years later when nobody notices."""
+    from datetime import datetime
+    return datetime.now().year
 
 
 def _classify_club_season(season_year: int) -> str:
@@ -638,7 +644,7 @@ def _classify_club_season(season_year: int) -> str:
 
 def _classify_intl_year(tournament_year: Optional[int]) -> str:
     """
-    Bucketing:
+    Bucketing (gap = current calendar year minus tournament year):
       gap 0-1 → recent_intl (current cycle: Gold Cup, Nations League finals
                 immediately preceding WC; weight 0.40)
       gap 2-4 → midrange_intl (Euro/Copa/AFCON/Asian Cup of the cycle prior;
@@ -647,7 +653,7 @@ def _classify_intl_year(tournament_year: Optional[int]) -> str:
     """
     if tournament_year is None:
         return "old_intl"
-    gap = _CURRENT_YEAR - tournament_year
+    gap = _current_year() - tournament_year
     if gap <= 1:
         return "recent_intl"
     if gap <= 4:
@@ -788,12 +794,18 @@ def compute_goalscorer_prior(
     ]
     # Pull historical rows by player name (StatsBomb + API-Football tournament
     # data are name-keyed since they don't share API-Football's player IDs).
+    # Normalize the wc_players.player_name through the alias map so the
+    # lookup matches the canonical row written by historical.download_competition
+    # — without this, "Kylian Mbappé" in wc_players misses the canonical
+    # "Kylian Mbappe" row in wc_historical_form and the recency-weighted
+    # base rate silently drops the intl contribution.
+    canonical_name = _normalize_player_name(player["player_name"])
     historical_rows: List[Dict[str, Any]] = []
     try:
         historical_rows = [
             dict(r) for r in conn.execute(
                 "SELECT * FROM wc_historical_form WHERE player_name = ?",
-                (player["player_name"],),
+                (canonical_name,),
             ).fetchall()
         ]
     except Exception:
@@ -816,8 +828,10 @@ def compute_goalscorer_prior(
 
     # Tournament uplift: layer in past WC / Euro performance if we have it.
     # Returns 1.0 when there's no historical data (neutral — won't distort
-    # priors for first-time tournament players).
-    intl_uplift = _tournament_uplift(player["player_name"], goals_per_90, path)
+    # priors for first-time tournament players). Uses the canonical name so
+    # the alias map collapses multi-source variants identically to the
+    # base-rate lookup above.
+    intl_uplift = _tournament_uplift(canonical_name, goals_per_90, path)
 
     lambda_ = goals_per_90 * pos_factor * minute_factor * team_strength * intl_uplift
     anytime = 1.0 - math.exp(-lambda_)
