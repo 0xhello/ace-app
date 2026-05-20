@@ -16,6 +16,7 @@ import {
   LoadingState,
   EmptyState,
 } from "@/components/ops/shared/primitives";
+import PerformanceOverTimePanel from "@/components/ops/shared/PerformanceOverTimePanel";
 
 type SportKey = "nba" | "wc" | "mlb";
 
@@ -319,6 +320,11 @@ export default function OverviewOpsTab() {
         {/* Odds API credit headroom — surfaces /api/ops/odds-quota.
             Color scales: green <60% used, amber 60-85%, red >85%. */}
         <QuotaStrip quota={quota} />
+
+        {/* The lab tool — performance trend across sports + metrics over time.
+            Lives above per-sport cards because "are we getting better?" is
+            the question every operator opens this dashboard to answer. */}
+        <PerformanceOverTimePanel />
 
         {/* Per-sport cards */}
         <div className="grid grid-cols-3 gap-3">
