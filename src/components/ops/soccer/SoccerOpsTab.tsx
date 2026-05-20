@@ -22,6 +22,7 @@ import {
   StaleSignalsPanel,
   ActivityStreamPanel,
 } from "@/components/ops/shared/panels";
+import PlayerPriorsPanel from "@/components/ops/soccer/PlayerPriorsPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -337,6 +338,11 @@ export default function SoccerOpsTab() {
             </div>
           </div>
         )}
+
+        {/* Player intelligence — surfaces the StatsBomb historical layer +
+            squad joins + computed priors. The most-data-dense panel on this
+            tab; lives near the top so it's visible at a glance. */}
+        <PlayerPriorsPanel />
 
         {/* Today's slate — distinct games we have open signals on now */}
         <TodaySlatePanel signals={signals} today={today} />
