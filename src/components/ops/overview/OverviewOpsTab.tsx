@@ -17,6 +17,7 @@ import {
   EmptyState,
 } from "@/components/ops/shared/primitives";
 import PerformanceOverTimePanel from "@/components/ops/shared/PerformanceOverTimePanel";
+import EdgeBucketsPanel from "@/components/ops/shared/EdgeBucketsPanel";
 
 type SportKey = "nba" | "wc" | "mlb";
 
@@ -325,6 +326,11 @@ export default function OverviewOpsTab() {
             Lives above per-sport cards because "are we getting better?" is
             the question every operator opens this dashboard to answer. */}
         <PerformanceOverTimePanel />
+
+        {/* Edge-bucket validator — "is edge magnitude actually predictive?"
+            If high-edge picks don't beat low-edge picks, our tiering is
+            broken and a tier-A label is just decoration. */}
+        <EdgeBucketsPanel />
 
         {/* Per-sport cards */}
         <div className="grid grid-cols-3 gap-3">
