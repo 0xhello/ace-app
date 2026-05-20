@@ -38,6 +38,21 @@ interface OverviewResponse {
   refreshedAt: string;
 }
 
+interface QuotaResponse {
+  ok: boolean;
+  reason?: string;
+  plan_credits?: number;
+  remaining?: number;
+  used?: number;
+  pct_used?: number;
+  pct_remaining?: number;
+  last_cost?: number | null;
+  source?: string;
+  endpoint?: string;
+  seen_at?: string;
+  age_seconds?: number;
+}
+
 const SPORT_EMOJI: Record<SportKey, string> = {
   nba: "🏀",
   wc:  "⚽",
@@ -146,16 +161,90 @@ function SportCard({ sport }: { sport: SportSummary }) {
   );
 }
 
+function QuotaStrip({ quota }: { quota: QuotaResponse | null }) {
+  // No-data state: shipped the route but no paying call has populated it yet.
+  // Common right after a redeploy or if Redis is dropped — say so plainly
+  // rather than rendering a confusing empty card.
+  if (!quota || quota.ok === false) {
+    return (
+      <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3">
+        <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1.5">Odds API quota</p>
+        <p className="text-[12px] text-[#9ca39a]">
+          No quota data yet — will populate after the next paying Odds API call.
+        </p>
+      </div>
+    );
+  }
+
+  const pctUsed = quota.pct_used ?? 0;
+  // Banded color: green / amber / red so you can eyeball headroom without
+  // doing math. 60%/85% thresholds line up with "comfortable / getting tight /
+  // start throttling" for a 100K monthly budget.
+  const usedColor = pctUsed >= 85 ? "#ef4444" : pctUsed >= 60 ? "#f5c062" : "#3ee68a";
+
+  return (
+    <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3">
+      <div className="flex items-baseline justify-between gap-3 mb-2">
+        <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em]">Odds API quota</p>
+        <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.12em]">
+          last seen {quota.age_seconds != null ? `${quota.age_seconds}s ago` : "—"}
+          {quota.source ? ` · ${quota.source}` : ""}
+        </p>
+      </div>
+      <div className="grid grid-cols-4 gap-3">
+        <div>
+          <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1">% used</p>
+          <p className="text-[20px] font-bold font-mono" style={{ color: usedColor }}>
+            {pctUsed.toFixed(1)}%
+          </p>
+        </div>
+        <div>
+          <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1">Used</p>
+          <p className="text-[20px] font-bold text-white font-mono tabular-nums">
+            {(quota.used ?? 0).toLocaleString()}
+          </p>
+        </div>
+        <div>
+          <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1">Remaining</p>
+          <p className="text-[20px] font-bold text-white font-mono tabular-nums">
+            {(quota.remaining ?? 0).toLocaleString()}
+          </p>
+          <p className="text-[9px] text-[#6b7068] mt-0.5">of {(quota.plan_credits ?? 100000).toLocaleString()}</p>
+        </div>
+        <div>
+          <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1">Last call</p>
+          <p className="text-[20px] font-bold text-white font-mono">
+            {quota.last_cost ?? "—"}<span className="text-[10px] text-[#6b7068] ml-1">credits</span>
+          </p>
+        </div>
+      </div>
+      {/* Linear bar — the at-a-glance "are we red?" indicator */}
+      <div className="mt-3 h-1.5 rounded-full bg-[#1a1e1a] overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${Math.min(100, pctUsed)}%`, background: usedColor }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function OverviewOpsTab() {
   const [data, setData] = useState<OverviewResponse | null>(null);
+  const [quota, setQuota] = useState<QuotaResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   async function load(silent = false) {
     if (!silent) setRefreshing(true);
     try {
-      const res = await fetch("/api/ops/overview", { cache: "no-store" });
-      setData((await res.json()) as OverviewResponse);
+      // Overview + quota fetched in parallel — both small JSON, both cheap
+      const [overviewRes, quotaRes] = await Promise.all([
+        fetch("/api/ops/overview", { cache: "no-store" }),
+        fetch("/api/ops/odds-quota", { cache: "no-store" }),
+      ]);
+      setData((await overviewRes.json()) as OverviewResponse);
+      setQuota((await quotaRes.json()) as QuotaResponse);
     } catch {
       // silent
     } finally {
@@ -249,6 +338,10 @@ export default function OverviewOpsTab() {
             </p>
           </div>
         </div>
+
+        {/* Odds API credit headroom — surfaces /api/ops/odds-quota.
+            Color scales: green <60% used, amber 60-85%, red >85%. */}
+        <QuotaStrip quota={quota} />
 
         {/* Per-sport cards */}
         <div className="grid grid-cols-3 gap-3">
