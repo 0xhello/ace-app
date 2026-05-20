@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
+import { auth } from "@/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,14 @@ function teamLabel(code: string): string {
 }
 
 export async function GET() {
+  // Authed users see every field on every pick. Anonymous users see
+  // graded picks fully (proof of edge — useful as marketing) but get
+  // pinnacle_prob / edge_vs_pinnacle stripped on pending picks so the
+  // unauthenticated dashboard isn't a free leak of tonight's edge to
+  // non-subscribers.
+  const session = await auth();
+  const isAuthed = !!session?.user;
+
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
   const csvPath = path.join(appRoot, "ml", "nba_spread", "data", "model_performance.csv");
 
@@ -85,21 +94,27 @@ export async function GET() {
   const recent = [...rows]
     .sort((a, b) => b.logged_at.localeCompare(a.logged_at))
     .slice(0, 10)
-    .map((r) => ({
-      game_id:         r.game_id,
-      commence_time:   r.commence_time,
-      matchup:         `${teamLabel(r.away_team)} @ ${teamLabel(r.home_team)}`,
-      home_line:       parseFloat(r.home_line) || 0,
-      pick_side:       r.pick_side,
-      pick_confidence: parseFloat(r.pick_confidence) || 0,
-      is_bet:          r.is_bet === "1",
-      result_status:   r.result_status,
-      correct:         r.correct === "1" ? true : r.correct === "0" ? false : null,
-      home_injury_impact: parseFloat(r.home_injury_impact ?? "0") || 0,
-      away_injury_impact: parseFloat(r.away_injury_impact ?? "0") || 0,
-      pinnacle_prob:    r.pinnacle_prob    ? parseFloat(r.pinnacle_prob)    : null,
-      edge_vs_pinnacle: r.edge_vs_pinnacle ? parseFloat(r.edge_vs_pinnacle) : null,
-    }));
+    .map((r) => {
+      const isGraded = r.result_status === "graded" || r.result_status === "push";
+      // Edge/probability fields only leak for graded picks when unauthed —
+      // anonymous visitors should never see tonight's actionable edge.
+      const exposeEdge = isAuthed || isGraded;
+      return {
+        game_id:         r.game_id,
+        commence_time:   r.commence_time,
+        matchup:         `${teamLabel(r.away_team)} @ ${teamLabel(r.home_team)}`,
+        home_line:       parseFloat(r.home_line) || 0,
+        pick_side:       r.pick_side,
+        pick_confidence: parseFloat(r.pick_confidence) || 0,
+        is_bet:          r.is_bet === "1",
+        result_status:   r.result_status,
+        correct:         r.correct === "1" ? true : r.correct === "0" ? false : null,
+        home_injury_impact: parseFloat(r.home_injury_impact ?? "0") || 0,
+        away_injury_impact: parseFloat(r.away_injury_impact ?? "0") || 0,
+        pinnacle_prob:    exposeEdge && r.pinnacle_prob    ? parseFloat(r.pinnacle_prob)    : null,
+        edge_vs_pinnacle: exposeEdge && r.edge_vs_pinnacle ? parseFloat(r.edge_vs_pinnacle) : null,
+      };
+    });
 
   return NextResponse.json({
     stats: {
