@@ -55,10 +55,31 @@ EDGE_THRESHOLD = 0.03
 
 # Player-prop markets we scan when they're posted on Odds API. Each market is
 # 1 credit per call, so we don't add them to MARKETS unconditionally — they
-# only get pulled if PLAYER_PROPS_ENABLED is true (controlled by env so we can
-# flip them on when the market probe shows they're live).
+# only get pulled when the daily market probe has detected the markets going
+# live (sets meta key wc:player_props_first_seen_at). Env var still works as
+# an emergency override / kill-switch.
 PLAYER_PROP_MARKETS = "player_goal_scorer_anytime"
-PLAYER_PROPS_ENABLED = os.getenv("WC_PLAYER_PROPS_ENABLED", "").lower() in ("1", "true", "yes")
+
+
+def _player_props_enabled() -> bool:
+    """Auto-flip: True when the daily market probe has seen
+    player_goal_scorer_anytime live on Odds API at least once.
+
+    Falls back to env var WC_PLAYER_PROPS_ENABLED for manual override
+    (force-on for testing, or force-off to kill-switch the scan if it's
+    misbehaving). Env trumps meta-key when explicitly set.
+    """
+    env = os.getenv("WC_PLAYER_PROPS_ENABLED", "").lower()
+    if env in ("1", "true", "yes"):
+        return True
+    if env in ("0", "false", "no"):
+        return False
+    # Default: read the meta key set by market_probe._detect_market_flips
+    try:
+        from .market_probe import is_player_props_live
+        return is_player_props_live()
+    except Exception:
+        return False
 
 _TZ_ET = ZoneInfo("America/New_York")
 _PREFERRED_BOOKS = ("fanduel", "draftkings", "betmgm", "williamhill_us", "betrivers")
@@ -120,8 +141,8 @@ def fetch_wc_player_props() -> List[Dict[str, Any]]:
     Returns the same Odds API event shape, with bookmakers[].markets[] now
     containing player_goal_scorer_anytime outcomes when live.
     """
-    if not PLAYER_PROPS_ENABLED:
-        return []  # feature flag — keep credit spend at zero pre-markets
+    if not _player_props_enabled():
+        return []  # markets not yet detected as live — keep credit spend at zero
     if not ODDS_API_KEY:
         raise EnvironmentError("ODDS_API_KEY not set.")
 
@@ -782,9 +803,9 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
 
     # ── Player-prop divergence (the headline WC feature) ────────────────────
     # Separate Odds API call because player markets are 1 credit each.
-    # Controlled by WC_PLAYER_PROPS_ENABLED env so we only spend when the
-    # markets are actually posted (per the manual market-probe panel).
-    if not snapshot_only and PLAYER_PROPS_ENABLED:
+    # Auto-enables when the daily market probe detects markets going live;
+    # env var override remains for manual force-on / kill-switch.
+    if not snapshot_only and _player_props_enabled():
         try:
             prop_games = fetch_wc_player_props()
         except Exception as e:

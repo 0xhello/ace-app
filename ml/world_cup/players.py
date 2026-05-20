@@ -938,6 +938,10 @@ def sync_all_players(path: Path = DB_PATH) -> Dict[str, int]:
       40 calls (club form: 10 leagues × 2 endpoints × 2 seasons) +
       12 calls (6 intl tournaments × 2 endpoints) = ~84 calls/day
     Within free-tier 100/day; comfortably within paid-tier budgets.
+
+    Auto-chains compute_all_priors() at the end so the freshly-synced
+    squad data immediately has priors ready for the next signal scan
+    tick — no manual CLI step required.
     """
     print("  [players] Syncing WC squads...")
     squads = sync_wc_squads(path)
@@ -945,7 +949,69 @@ def sync_all_players(path: Path = DB_PATH) -> Dict[str, int]:
     form = sync_club_form(path)
     print("  [players] Syncing international tournament top scorers...")
     intl = sync_intl_tournament_form(path)
-    return {"squads": squads, "form": form, "intl_tournaments": intl}
+    print("  [players] Auto-computing goalscorer priors...")
+    priors_count = compute_all_priors(path)
+    return {
+        "squads": squads, "form": form, "intl_tournaments": intl,
+        "priors": priors_count,
+    }
+
+
+def compute_all_priors(path: Optional[Path] = None) -> int:
+    """Compute goalscorer priors for every player currently in wc_players
+    and upsert into wc_player_priors. Returns the number of priors written.
+
+    Used both by the worker (auto-chained after sync_all_players) and the
+    CLI (`python3 -m ml.world_cup.players priors`). Free — no API calls,
+    just iterates the local DB.
+
+    Players without sufficient form data return None from
+    compute_goalscorer_prior and get skipped — that's expected for thin
+    samples and we surface the skip count separately so ops can monitor.
+    """
+    if path is None:
+        path = DB_PATH
+    init_player_tables(path)
+    conn = get_db(path)
+    pids = [r[0] for r in conn.execute("SELECT api_player_id FROM wc_players").fetchall()]
+    conn.close()
+    if not pids:
+        return 0
+
+    written = 0
+    skipped = 0
+    for pid in pids:
+        try:
+            prior = compute_goalscorer_prior(pid, path=path)
+        except Exception as e:
+            print(f"  [priors] {pid} error: {e}", file=sys.stderr)
+            skipped += 1
+            continue
+        if prior is None:
+            skipped += 1
+            continue
+        conn = get_db(path)
+        try:
+            conn.execute(
+                """INSERT INTO wc_player_priors
+                   (api_player_id, expected_goals_in_match, anytime_scorer_prob,
+                    first_scorer_prob, assumed_minutes)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(api_player_id, match_game_id) DO UPDATE SET
+                     expected_goals_in_match = excluded.expected_goals_in_match,
+                     anytime_scorer_prob     = excluded.anytime_scorer_prob,
+                     first_scorer_prob       = excluded.first_scorer_prob,
+                     assumed_minutes         = excluded.assumed_minutes,
+                     computed_at             = datetime('now')""",
+                (pid, prior["expected_goals_lambda"], prior["anytime_scorer_prob"],
+                 prior["first_scorer_prob"], prior["assumed_minutes"]),
+            )
+            conn.commit()
+            written += 1
+        finally:
+            conn.close()
+    print(f"  [priors] {written} written, {skipped} skipped (insufficient sample)")
+    return written
 
 
 # ---------------------------------------------------------------------------

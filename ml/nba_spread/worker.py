@@ -47,6 +47,7 @@ try:
     from ml.world_cup.signal_logger import update_meta as _wc_update_meta
     from ml.world_cup.context import sync_all as _wc_sync_context, sync_lineups as _wc_sync_lineups
     from ml.world_cup.players import sync_all_players as _wc_sync_players
+    from ml.world_cup.market_probe import run_probe as _wc_market_probe
     _WC_AVAILABLE = True
 except Exception:
     _WC_AVAILABLE = False
@@ -176,22 +177,61 @@ def _run_scheduled_tasks() -> None:
     if _WC_AVAILABLE and _WC_START <= datetime.now(_TZ_ET).date() <= _WC_END:
         if _daily_due("wc_grade_results", hour=9):
             _run_task("ml.world_cup.grade_results", "--days", "3")
+
+        # Daily market probe at 6:45am ET — before the rest of the WC sync
+        # so the run loop knows whether player-prop scanning is live for
+        # the day. ~10 credits per probe. Auto-flips meta keys when new
+        # markets are detected (e.g. wc:player_props_first_seen_at).
+        if _daily_due("wc_market_probe", hour=6, minute=45):
+            started_at = datetime.now(timezone.utc).isoformat()
+            error: Optional[str] = None
+            try:
+                result = _wc_market_probe()
+                live = [m["market"] for m in result.get("markets", []) if m.get("games_with_market", 0) > 0]
+                print(f"  [worker] WC market probe: {result.get('total_games', 0)} games, "
+                      f"live markets: {', '.join(live) if live else 'none'}", flush=True)
+            except Exception as e:
+                error = str(e)
+                print(f"  [worker] WC market probe error: {e}", file=sys.stderr, flush=True)
+            try:
+                _wc_update_meta("job:market_probe:last_run_at", started_at)
+                _wc_update_meta("job:market_probe:last_error",  error or "")
+            except Exception:
+                pass
+
         # Refresh fixtures + standings + card counts once per day at 7am ET
         if _daily_due("wc_context_sync", hour=7):
             try:
                 _wc_sync_context()
+                _wc_update_meta("job:context_sync:last_error", "")
             except Exception as e:
                 print(f"  [worker] WC context sync error: {e}", file=sys.stderr, flush=True)
+                try:
+                    _wc_update_meta("job:context_sync:last_error", str(e)[:200])
+                except Exception:
+                    pass
 
-        # Refresh WC squads + club form (~52 API-Football calls). Runs at
-        # 7:30am ET so it doesn't collide with sync_context. This is the
-        # player-context layer the goalscorer-prop pipeline will need
-        # once Odds API surfaces player markets for WC.
+        # Refresh WC squads + club form + intl tournaments (~84 calls).
+        # Auto-chains compute_all_priors at the end so the freshly-synced
+        # squad data immediately has priors ready for the next fetch tick.
+        # Runs at 7:30am ET so it doesn't collide with sync_context.
         if _daily_due("wc_players_sync", hour=7, minute=30):
+            started_at = datetime.now(timezone.utc).isoformat()
+            error = None
             try:
-                _wc_sync_players()
+                result = _wc_sync_players()
+                print(f"  [worker] WC players sync: "
+                      f"{result.get('squads', 0)} squads, "
+                      f"{result.get('form', 0)} form rows, "
+                      f"{result.get('priors', 0)} priors", flush=True)
             except Exception as e:
+                error = str(e)
                 print(f"  [worker] WC players sync error: {e}", file=sys.stderr, flush=True)
+            try:
+                _wc_update_meta("job:players_sync:last_run_at", started_at)
+                _wc_update_meta("job:players_sync:last_error",  error or "")
+            except Exception:
+                pass
 
     # ── MLB tasks (active during season) ──────────────────────────────────────
     if _MLB_AVAILABLE and _MLB_START <= datetime.now(_TZ_ET).date() <= _MLB_END:
