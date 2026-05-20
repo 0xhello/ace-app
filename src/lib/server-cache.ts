@@ -142,3 +142,35 @@ export async function setPrevOddsSnapshot(snap: OddsSnapshot): Promise<void> {
   }
   memOddsSnapshot = snap;
 }
+
+// ── Odds API quota tracking ────────────────────────────────────────────────────
+// Every paying Odds API call (TS + Python) writes the latest x-requests-remaining
+// here so /api/ops/odds-quota can surface live credit headroom without paying
+// for an extra call. 1-hour TTL — the next paying call refreshes it.
+
+const ODDS_QUOTA_KEY = "__odds_quota__";
+
+export interface OddsQuotaEntry {
+  remaining: number;
+  used: number;
+  last_cost: number | null;
+  source: "nextjs" | "python-nba" | "python-wc" | "python-mlb";
+  endpoint: string;
+  seen_at: number;  // ms epoch
+}
+
+let memOddsQuota: OddsQuotaEntry | null = null;
+
+export async function writeOddsQuota(entry: OddsQuotaEntry): Promise<void> {
+  if (redis) {
+    try { await redis.set(ODDS_QUOTA_KEY, entry, { ex: 3600 }); return; } catch {}
+  }
+  memOddsQuota = entry;
+}
+
+export async function readOddsQuota(): Promise<OddsQuotaEntry | null> {
+  if (redis) {
+    try { return (await redis.get<OddsQuotaEntry>(ODDS_QUOTA_KEY)) ?? null; } catch { return null; }
+  }
+  return memOddsQuota;
+}

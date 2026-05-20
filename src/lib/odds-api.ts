@@ -1,5 +1,5 @@
 import { Game, BookOdds, MarketOutcome } from "@/types/game";
-import { getActiveSports, setActiveSports, set as cacheSet } from "@/lib/server-cache";
+import { getActiveSports, setActiveSports, set as cacheSet, writeOddsQuota } from "@/lib/server-cache";
 
 const BASE = "https://api.the-odds-api.com/v4";
 
@@ -48,7 +48,21 @@ async function apiFetch(path: string, extra?: Record<string, string>): Promise<a
   // Log remaining quota from headers
   const remaining = res.headers.get("x-requests-remaining");
   const used = res.headers.get("x-requests-used");
+  const last = res.headers.get("x-requests-last");
   if (remaining) console.log(`[odds-api] quota: ${used} used, ${remaining} remaining`);
+
+  // Persist latest quota to Redis so /api/ops/odds-quota can surface it
+  // without an extra paid call. Best-effort — never block the caller.
+  if (remaining && used) {
+    writeOddsQuota({
+      remaining: parseInt(remaining, 10),
+      used:      parseInt(used, 10),
+      last_cost: last ? parseInt(last, 10) : null,
+      source:    "nextjs",
+      endpoint:  path,
+      seen_at:   Date.now(),
+    }).catch(() => {});
+  }
 
   return res.json();
 }

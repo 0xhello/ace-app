@@ -155,6 +155,81 @@ def test_mlb_fetcher_skips_api_on_cache_hit(monkeypatch: pytest.MonkeyPatch) -> 
     assert mlb.fetch_mlb_odds() == games
 
 
+# ---------------------------------------------------------------------------
+# Quota writer — best-effort writes to __odds_quota__
+# ---------------------------------------------------------------------------
+
+class _Captured:
+    def __init__(self) -> None:
+        self.url: Optional[str] = None
+        self.params: Optional[Dict[str, str]] = None
+        self.content: Optional[bytes] = None
+        self.headers: Optional[Dict[str, str]] = None
+
+
+def _capture_post(captured: _Captured):
+    def _post(url, *, headers=None, params=None, content=None, timeout=None, **kw):
+        captured.url = url
+        captured.params = params or {}
+        captured.content = content
+        captured.headers = headers or {}
+        # Return a stub response with no body — caller doesn't inspect it
+        return _StubResp(200, {})
+    return _post
+
+
+def test_write_quota_posts_to_upstash_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_env(monkeypatch)
+    cap = _Captured()
+    monkeypatch.setattr(oc.httpx, "post", _capture_post(cap))
+
+    oc.write_quota("98727", "1273", "3",
+                   source="python-wc",
+                   endpoint="/sports/soccer_fifa_world_cup/odds")
+
+    assert cap.url is not None
+    assert cap.url.endswith("/set/__odds_quota__"), f"unexpected url: {cap.url}"
+    assert (cap.params or {}).get("PX") == str(60 * 60 * 1000), "1h TTL expected"
+    body = json.loads(cap.content)  # JSON-encoded payload
+    assert body["remaining"] == 98727
+    assert body["used"]      == 1273
+    assert body["last_cost"] == 3
+    assert body["source"]    == "python-wc"
+    assert body["endpoint"]  == "/sports/soccer_fifa_world_cup/odds"
+    assert isinstance(body["seen_at"], int) and body["seen_at"] > 0
+
+
+def test_write_quota_no_op_when_headers_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An off-season 422 response has no quota headers — must not write
+    bogus zero/None values to Redis."""
+    _set_env(monkeypatch)
+    posted: List[Any] = []
+    monkeypatch.setattr(oc.httpx, "post", lambda *a, **kw: posted.append(a) or _StubResp(200, {}))
+    oc.write_quota(None, None, None, source="python-mlb", endpoint="/x")
+    oc.write_quota("",   "",   None, source="python-mlb", endpoint="/x")
+    oc.write_quota("123", None, None, source="python-mlb", endpoint="/x")
+    assert posted == [], "should not POST when headers are missing"
+
+
+def test_write_quota_no_op_without_redis_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
+    monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN", raising=False)
+    posted: List[Any] = []
+    monkeypatch.setattr(oc.httpx, "post", lambda *a, **kw: posted.append(a) or _StubResp(200, {}))
+    oc.write_quota("100", "0", "1", source="python-nba", endpoint="/x")
+    assert posted == []
+
+
+def test_write_quota_swallows_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Quota writes are best-effort — a Redis outage must not break the caller."""
+    _set_env(monkeypatch)
+    def boom(*a, **kw):
+        raise RuntimeError("redis down")
+    monkeypatch.setattr(oc.httpx, "post", boom)
+    # No exception should escape
+    oc.write_quota("100", "0", "1", source="python-nba", endpoint="/x")
+
+
 def test_wc_fetcher_falls_through_to_api_on_cache_miss(monkeypatch: pytest.MonkeyPatch) -> None:
     """When the cache is empty, the fetcher must hit the API. We stub the
     HTTP response so no real network call happens."""

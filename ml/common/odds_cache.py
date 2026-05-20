@@ -67,3 +67,64 @@ def try_get_odds(cache_key: str) -> Optional[List[Dict[str, Any]]]:
     except Exception as e:
         print(f"  [cache] Redis miss ({e})", file=sys.stderr)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Quota tracking — writes the latest x-requests-remaining/used to Redis so
+# the /api/ops/odds-quota route can surface live credit headroom without
+# paying for an extra API call. Every paying fetcher (NBA/WC/MLB workers,
+# Next.js board endpoint) calls write_quota() after parsing response headers.
+# ---------------------------------------------------------------------------
+
+_QUOTA_KEY = "__odds_quota__"
+# 1h TTL — the next paying call will refresh this. Long enough that the
+# value is always available during normal operation, short enough that a
+# stale "98K remaining" doesn't linger if we go silent for a day.
+_QUOTA_TTL_MS = 60 * 60 * 1000
+
+
+def write_quota(
+    remaining: Optional[str],
+    used: Optional[str],
+    last_cost: Optional[str],
+    source: str,
+    endpoint: str,
+) -> None:
+    """Persist the latest Odds API quota headers to Redis.
+
+    Silently no-ops when:
+      - any of remaining/used is missing (header absent — e.g. on 422 responses)
+      - Redis credentials aren't configured
+      - Redis itself is unreachable
+
+    `source` should be one of 'python-nba', 'python-wc', 'python-mlb', 'nextjs'
+    so the UI can show which caller saw the value most recently.
+    """
+    if not remaining or not used:
+        return
+    rest_url = os.getenv("UPSTASH_REDIS_REST_URL", "").rstrip("/")
+    token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
+    if not rest_url or not token:
+        return
+    try:
+        payload: Dict[str, Any] = {
+            "remaining": int(remaining),
+            "used":      int(used),
+            "last_cost": int(last_cost) if last_cost else None,
+            "source":    source,
+            "endpoint":  endpoint,
+            "seen_at":   int(datetime.now(timezone.utc).timestamp() * 1000),
+        }
+        # Upstash REST: POST /set/{key}?PX={ms} with the value as raw body.
+        # The Next.js side reads via @upstash/redis SDK which auto-decodes JSON;
+        # writing the value as a JSON-encoded string keeps both sides consistent.
+        httpx.post(
+            f"{rest_url}/set/{_QUOTA_KEY}",
+            headers={"Authorization": f"Bearer {token}"},
+            params={"PX": str(_QUOTA_TTL_MS)},
+            content=json.dumps(payload),
+            timeout=3,
+        )
+    except Exception:
+        # Quota tracking is best-effort — never let it break the caller
+        pass

@@ -82,6 +82,12 @@ def fetch_mlb_odds() -> List[Dict[str, Any]]:
     used      = resp.headers.get("x-requests-used")
     if remaining:
         print(f"  [quota] {used} used / {remaining} remaining")
+    try:
+        from ml.common.odds_cache import write_quota
+        write_quota(remaining, used, resp.headers.get("x-requests-last"),
+                    source="python-mlb", endpoint=f"/sports/{SPORT}/odds")
+    except Exception:
+        pass
     if resp.status_code == 401:
         raise EnvironmentError("ODDS_API_KEY invalid or expired.")
     if resp.status_code == 422:
