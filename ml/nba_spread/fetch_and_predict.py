@@ -429,41 +429,10 @@ def _load_best_threshold() -> float:
         return _DEFAULT_THRESHOLD
 
 
-def _try_redis_odds_cache() -> Optional[List[Dict[str, Any]]]:
-    """Read raw NBA odds from Upstash Redis (written by the Next.js web frontend).
-    Returns the odds list when the cache is fresh, None otherwise."""
-    rest_url = os.getenv("UPSTASH_REDIS_REST_URL", "").rstrip("/")
-    token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
-    if not rest_url or not token:
-        return None
-    try:
-        resp = httpx.get(
-            f"{rest_url}/get/__raw_odds_nba__",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=4,
-        )
-        if resp.status_code != 200:
-            return None
-        result = resp.json().get("result")
-        if result is None:
-            return None
-        entry = json.loads(result) if isinstance(result, str) else result
-        age_ms = datetime.now(timezone.utc).timestamp() * 1000 - (entry.get("fetchedAt") or 0)
-        if age_ms > 25 * 60 * 1000:  # stale — fall through to direct API call
-            return None
-        data: List[Dict[str, Any]] = entry.get("data") or []
-        if not data:
-            return None
-        print(f"  [cache] Redis hit: {len(data)} games, age {age_ms/1000:.0f}s — skipping API call")
-        return data
-    except Exception as e:
-        print(f"  [cache] Redis miss ({e})", file=sys.stderr)
-        return None
-
-
 def fetch_nba_odds() -> List[Dict[str, Any]]:
     # Use web-frontend Redis cache when available — zero API credits consumed
-    cached = _try_redis_odds_cache()
+    from ml.common.odds_cache import try_get_odds
+    cached = try_get_odds("__raw_odds_nba__")
     if cached is not None:
         return cached
 

@@ -61,6 +61,14 @@ _PREFERRED_BOOKS = ("fanduel", "draftkings", "betmgm", "williamhill_us", "betriv
 # ---------------------------------------------------------------------------
 
 def fetch_wc_odds() -> List[Dict[str, Any]]:
+    # Read-through Upstash Redis cache populated by the Next.js dashboard.
+    # When a user just viewed the board within the last ~25 min, the same
+    # response is already cached and we pay zero credits.
+    from ml.common.odds_cache import try_get_odds
+    cached = try_get_odds("__raw_odds_wc__")
+    if cached is not None:
+        return cached
+
     if not ODDS_API_KEY:
         raise EnvironmentError("ODDS_API_KEY not set.")
 

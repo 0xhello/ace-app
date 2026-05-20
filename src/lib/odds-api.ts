@@ -211,14 +211,29 @@ export async function fetchAllGames(): Promise<{
     sports.map((s) => sportsNeedingScores.has(s) ? fetchScoresForSport(s) : Promise.resolve([]))
   );
 
-  // Write raw NBA odds + scores to Redis so the Python worker can read them
-  // without making its own API calls (fire-and-forget — worker falls back if stale)
-  const nbaIdx = sports.indexOf("basketball_nba");
-  if (nbaIdx >= 0) {
-    if (oddsResults[nbaIdx].data.length > 0)
-      cacheSet("__raw_odds_nba__", oddsResults[nbaIdx].data).catch(() => {});
-    if (scoreResults[nbaIdx]?.length > 0)
-      cacheSet("__raw_scores_nba__", scoreResults[nbaIdx]).catch(() => {});
+  // Write raw odds + scores to Redis so the Python workers can read them
+  // without making their own API calls. Fire-and-forget — workers fall back
+  // to a direct fetch if Redis is missing or stale (>25 min). Extending this
+  // to WC + MLB mirrors the existing NBA optimization and is the lower half
+  // of the credit-share fix (the workers also have read-through helpers).
+  const shareSports: Record<string, string> = {
+    basketball_nba:         "__raw_odds_nba__",
+    soccer_fifa_world_cup:  "__raw_odds_wc__",
+    baseball_mlb:           "__raw_odds_mlb__",
+  };
+  const shareScores: Record<string, string> = {
+    basketball_nba:         "__raw_scores_nba__",
+    soccer_fifa_world_cup:  "__raw_scores_wc__",
+    baseball_mlb:           "__raw_scores_mlb__",
+  };
+  for (const [sportKey, oddsCacheKey] of Object.entries(shareSports)) {
+    const idx = sports.indexOf(sportKey);
+    if (idx < 0) continue;
+    if (oddsResults[idx]?.data.length > 0)
+      cacheSet(oddsCacheKey, oddsResults[idx].data).catch(() => {});
+    const scoresCacheKey = shareScores[sportKey];
+    if (scoresCacheKey && scoreResults[idx]?.length > 0)
+      cacheSet(scoresCacheKey, scoreResults[idx]).catch(() => {});
   }
 
   // Build score lookup
