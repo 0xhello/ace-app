@@ -1,8 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, CheckCircle2, Database, Play, RefreshCw, Zap } from "lucide-react";
+import { Activity, CheckCircle2, Database, Play, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  KpiCard,
+  SectionHead,
+  Panel,
+  ActionButton,
+  JobHealthStrip,
+  OpsPageHeader,
+  StatusPill,
+  OpsFooter,
+} from "@/components/ops/shared/primitives";
 
 interface MLBSignal {
   id: number;
@@ -62,15 +72,8 @@ function fmtRoi(v: number | null): string {
   return `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
 }
 
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3">
-      <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1.5">{label}</p>
-      <p className="text-[18px] font-bold text-white font-mono tabular-nums">{value}</p>
-      {sub && <p className="text-[10px] text-[#6b7068] mt-0.5">{sub}</p>}
-    </div>
-  );
-}
+// StatCard removed — now uses shared KpiCard from ops/shared/primitives so
+// MLB / Soccer / Overview all render KPI cards identically.
 
 export default function MLBOpsTab() {
   const [data, setData] = useState<MLBResponse | null>(null);
@@ -145,96 +148,57 @@ export default function MLBOpsTab() {
       <div className="mx-auto max-w-[1200px] space-y-5">
 
         {/* Header */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <p className="text-[10px] font-bold text-[#3ee68a] uppercase tracking-[0.18em] mb-1">
-              ⚾ MLB
-            </p>
-            <h1 className="text-[20px] font-bold text-white">Signal Pipeline</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            {lastJobResult && (
-              <span className="flex items-center gap-1 text-[10px] text-[#9ca39a]">
-                <CheckCircle2 className={cn("h-3 w-3", lastJobResult.ok ? "text-[#3ee68a]" : "text-[#ef4444]")} />
-                {lastJobResult.job} · {lastJobResult.ok ? "ok" : "failed"} · {lastJobResult.at}
-              </span>
-            )}
-            <button
-              onClick={() => void runJob("fetch")}
-              disabled={running !== null}
-              className={cn(
-                "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] font-bold",
-                "px-3 py-2 rounded-lg border border-[#3ee68a]/20 bg-[#3ee68a]/[0.05]",
-                "text-[#3ee68a] hover:bg-[#3ee68a]/10 hover:border-[#3ee68a]/40",
-                "transition-colors disabled:opacity-50",
+        <OpsPageHeader
+          badge="⚾ MLB"
+          title="Signal Pipeline"
+          actions={
+            <>
+              {lastJobResult && (
+                <span className="flex items-center gap-1 text-[10px] text-[#9ca39a]">
+                  <CheckCircle2 className={cn("h-3 w-3", lastJobResult.ok ? "text-[#3ee68a]" : "text-[#ef4444]")} />
+                  {lastJobResult.job} · {lastJobResult.ok ? "ok" : "failed"} · {lastJobResult.at}
+                </span>
               )}
-            >
-              <Play className={cn("h-3 w-3", running === "fetch" && "animate-pulse")} />
-              {running === "fetch" ? "Scanning..." : "Scan now"}
-            </button>
-            <button
-              onClick={() => void runJob("grade")}
-              disabled={running !== null}
-              className={cn(
-                "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] font-bold",
-                "px-3 py-2 rounded-lg border border-[#22251f] bg-[#0d0f0d]",
-                "text-[#9ca39a] hover:text-white hover:border-[#3ee68a]/30",
-                "transition-colors disabled:opacity-50",
-              )}
-            >
-              <CheckCircle2 className={cn("h-3 w-3", running === "grade" && "animate-pulse")} />
-              {running === "grade" ? "Grading..." : "Grade now"}
-            </button>
-            <button
-              onClick={() => void load(false)}
-              disabled={refreshing || running !== null}
-              className={cn(
-                "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] font-bold",
-                "px-3 py-2 rounded-lg border border-[#22251f] bg-[#0d0f0d]",
-                "text-[#9ca39a] hover:text-white hover:border-[#3ee68a]/30",
-                "transition-colors",
-                refreshing && "opacity-50",
-              )}
-            >
-              <RefreshCw className={cn("h-3 w-3", refreshing && "animate-spin")} />
-              Refresh
-            </button>
-          </div>
-        </div>
+              <ActionButton
+                icon={Play}
+                label={running === "fetch" ? "Scanning..." : "Scan now"}
+                variant="primary"
+                busy={running === "fetch"}
+                disabled={running !== null}
+                onClick={() => void runJob("fetch")}
+              />
+              <ActionButton
+                icon={CheckCircle2}
+                label={running === "grade" ? "Grading..." : "Grade now"}
+                busy={running === "grade"}
+                disabled={running !== null}
+                onClick={() => void runJob("grade")}
+              />
+              <ActionButton
+                icon={RefreshCw}
+                label="Refresh"
+                busy={refreshing}
+                disabled={refreshing || running !== null}
+                onClick={() => void load(false)}
+              />
+            </>
+          }
+        />
 
         {/* Worker & Job health */}
-        <div className="grid grid-cols-3 gap-3">
-          <StatCard
-            label="Worker"
-            value={worker.lastPollOk === null ? "—" : worker.lastPollOk ? "OK" : "Error"}
-            sub={worker.lastPollAt ?? "no polls yet"}
-          />
-          <StatCard
-            label="Fetch job"
-            value={jobs.fetch.lastRunAt ? "ran" : "—"}
-            sub={jobs.fetch.lastError || jobs.fetch.lastRunAt || "no runs yet"}
-          />
-          <StatCard
-            label="Grade job"
-            value={jobs.grade.lastRunAt ? "ran" : "—"}
-            sub={jobs.grade.lastError || jobs.grade.lastRunAt || "no runs yet"}
-          />
-        </div>
+        <JobHealthStrip worker={worker} fetch={jobs.fetch} grade={jobs.grade} />
 
         {/* Performance summary */}
         <div className="grid grid-cols-4 gap-3">
-          <StatCard label="Total" value={String(stats.total)} sub="signals fired" />
-          <StatCard label="Open"  value={String(stats.open)}  sub="awaiting grade" />
-          <StatCard label="Win rate" value={fmtPct(stats.winRate)} sub={`${stats.wins}W / ${stats.losses}L`} />
-          <StatCard label="ROI" value={fmtRoi(stats.roi)} sub={`${stats.graded} graded`} />
+          <KpiCard label="Total" value={String(stats.total)} sub="signals fired" />
+          <KpiCard label="Open"  value={String(stats.open)}  sub="awaiting grade" />
+          <KpiCard label="Win rate" value={fmtPct(stats.winRate)} sub={`${stats.wins}W / ${stats.losses}L`} />
+          <KpiCard label="ROI" value={fmtRoi(stats.roi)} sub={`${stats.graded} graded`} />
         </div>
 
         {/* Per-market breakdown */}
-        <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] p-5">
-          <p className="text-[10px] font-bold text-[#3ee68a] uppercase tracking-[0.15em] mb-3 flex items-center gap-1.5">
-            <Database className="h-3 w-3" />
-            By market
-          </p>
+        <Panel>
+          <SectionHead icon={Database} title="By market" />
           <div className="grid grid-cols-3 gap-3 text-[11px]">
             {(["h2h", "run_line", "totals"] as const).map((m) => {
               const row = stats[m];
@@ -252,14 +216,11 @@ export default function MLBOpsTab() {
               );
             })}
           </div>
-        </div>
+        </Panel>
 
         {/* Recent signals */}
-        <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] p-5">
-          <p className="text-[10px] font-bold text-[#3ee68a] uppercase tracking-[0.15em] mb-3 flex items-center gap-1.5">
-            <Activity className="h-3 w-3" />
-            Recent signals · {signals.length}
-          </p>
+        <Panel>
+          <SectionHead icon={Activity} title={`Recent signals · ${signals.length}`} />
           {recent.length === 0 ? (
             <p className="text-[11px] text-[#6b7068] text-center py-6">
               No signals yet. Worker will populate this once MLB games are live.
@@ -302,12 +263,10 @@ export default function MLBOpsTab() {
                         {s.edge_pp !== null ? `${(s.edge_pp * 100).toFixed(1)}pp` : "—"}
                       </td>
                       <td className="py-2 px-2 text-center">
-                        <span className={cn(
-                          "inline-block px-1.5 py-[1px] rounded text-[8px] font-bold",
-                          s.confidence_tier === "A" && "bg-[#3ee68a]/20 text-[#3ee68a]",
-                          s.confidence_tier === "B" && "bg-[#f5c062]/15 text-[#f5c062]",
-                          s.confidence_tier === "C" && "bg-[#6b7068]/15 text-[#6b7068]",
-                        )}>{s.confidence_tier ?? "—"}</span>
+                        {s.confidence_tier === "A" && <StatusPill label="A" tone="a" />}
+                        {s.confidence_tier === "B" && <StatusPill label="B" tone="b" />}
+                        {s.confidence_tier === "C" && <StatusPill label="C" tone="c" />}
+                        {!s.confidence_tier && <span className="text-[#3a4033]">—</span>}
                       </td>
                       <td className="py-2 px-2 text-center text-[#9ca39a]">
                         {s.kelly_fraction !== null ? `${(s.kelly_fraction * 100).toFixed(1)}%` : "—"}
@@ -320,14 +279,10 @@ export default function MLBOpsTab() {
                         {s.clv_pp !== null ? `${s.clv_pp > 0 ? "+" : ""}${(s.clv_pp * 100).toFixed(1)}pp` : "—"}
                       </td>
                       <td className="py-2 px-2 text-center">
-                        {s.status === "graded" && s.correct === 1 && (
-                          <span className="text-[#3ee68a]">WIN</span>
-                        )}
-                        {s.status === "graded" && s.correct === 0 && (
-                          <span className="text-[#ef4444]">LOSS</span>
-                        )}
-                        {s.status === "open" && <span className="text-[#9ca39a]">open</span>}
-                        {s.status === "void" && <span className="text-[#6b7068]">void</span>}
+                        {s.status === "graded" && s.correct === 1 && <StatusPill label="WIN"  tone="win"  />}
+                        {s.status === "graded" && s.correct === 0 && <StatusPill label="LOSS" tone="loss" />}
+                        {s.status === "open"  && <StatusPill label="OPEN" tone="open" />}
+                        {s.status === "void"  && <StatusPill label="VOID" tone="void" />}
                       </td>
                     </tr>
                   ))}
@@ -335,16 +290,13 @@ export default function MLBOpsTab() {
               </table>
             </div>
           )}
-        </div>
+        </Panel>
 
         {/* Schema state */}
-        <div className="flex items-center justify-between text-[9px] text-[#6b7068] uppercase tracking-[0.15em]">
-          <span className="flex items-center gap-1.5">
-            <Zap className="h-3 w-3 text-[#3ee68a]/60" />
-            Schema migrated · {schema.migrationRunAt ?? "not yet"}
-          </span>
-          <span>refreshed · {new Date(data.refreshedAt).toLocaleTimeString()}</span>
-        </div>
+        <OpsFooter
+          refreshedAt={data.refreshedAt}
+          schemaText={`Schema migrated · ${schema.migrationRunAt ?? "not yet"}`}
+        />
       </div>
     </div>
   );
