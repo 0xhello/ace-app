@@ -18,6 +18,7 @@ import {
 } from "@/components/ops/shared/primitives";
 import PerformanceOverTimePanel from "@/components/ops/shared/PerformanceOverTimePanel";
 import EdgeBucketsPanel from "@/components/ops/shared/EdgeBucketsPanel";
+import ComparisonPanel from "@/components/ops/shared/ComparisonPanel";
 
 type SportKey = "nba" | "wc" | "mlb";
 
@@ -331,6 +332,12 @@ export default function OverviewOpsTab() {
             If high-edge picks don't beat low-edge picks, our tiering is
             broken and a tier-A label is just decoration. */}
         <EdgeBucketsPanel />
+
+        {/* Comparison — hypothesis tester for any two slices of the data.
+            Pick Tier A vs B, FanDuel vs DraftKings, last-30d vs prior-30d,
+            etc. — answers questions that the other panels surface but
+            don't isolate. The lab's free-form workbench. */}
+        <ComparisonPanel />
 
         {/* Per-sport cards */}
         <div className="grid grid-cols-3 gap-3">
