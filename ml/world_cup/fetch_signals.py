@@ -26,7 +26,7 @@ import httpx
 from dotenv import load_dotenv
 
 from .signal_logger import (
-    devig, init_db, log_signal, update_closing_lines,
+    devig, init_db, log_signal, log_player_prop_signal, update_closing_lines,
 )
 from .context import get_game_context
 
@@ -49,8 +49,16 @@ SPORT   = "soccer_fifa_world_cup"
 MARKETS = "h2h,spreads,totals"
 BOOKS   = "pinnacle,fanduel,draftkings,betmgm,williamhill_us,betrivers"
 
-# Minimum probability edge over Pinnacle to fire a signal (decimal, e.g. 0.03 = 3pp).
+# Minimum probability edge over Pinnacle (game-level) or over our prior (player
+# props) to fire a signal — decimal, e.g. 0.03 = 3pp.
 EDGE_THRESHOLD = 0.03
+
+# Player-prop markets we scan when they're posted on Odds API. Each market is
+# 1 credit per call, so we don't add them to MARKETS unconditionally — they
+# only get pulled if PLAYER_PROPS_ENABLED is true (controlled by env so we can
+# flip them on when the market probe shows they're live).
+PLAYER_PROP_MARKETS = "player_goal_scorer_anytime"
+PLAYER_PROPS_ENABLED = os.getenv("WC_PLAYER_PROPS_ENABLED", "").lower() in ("1", "true", "yes")
 
 _TZ_ET = ZoneInfo("America/New_York")
 _PREFERRED_BOOKS = ("fanduel", "draftkings", "betmgm", "williamhill_us", "betrivers")
@@ -103,6 +111,49 @@ def fetch_wc_odds() -> List[Dict[str, Any]]:
     return resp.json()
 
 
+def fetch_wc_player_props() -> List[Dict[str, Any]]:
+    """Pull player-prop markets for WC. Separate call from fetch_wc_odds()
+    because player markets are 1 credit per market specified — keeping them
+    out of the main fetch lets us flip them on (via WC_PLAYER_PROPS_ENABLED)
+    only when they're actually posted.
+
+    Returns the same Odds API event shape, with bookmakers[].markets[] now
+    containing player_goal_scorer_anytime outcomes when live.
+    """
+    if not PLAYER_PROPS_ENABLED:
+        return []  # feature flag — keep credit spend at zero pre-markets
+    if not ODDS_API_KEY:
+        raise EnvironmentError("ODDS_API_KEY not set.")
+
+    url = f"{ODDS_BASE}/sports/{SPORT}/odds"
+    params = {
+        "apiKey":      ODDS_API_KEY,
+        "regions":     "us",
+        "markets":     PLAYER_PROP_MARKETS,
+        "bookmakers":  BOOKS,
+        "oddsFormat":  "american",
+    }
+    resp = httpx.get(url, params=params, timeout=15)
+
+    remaining = resp.headers.get("x-requests-remaining")
+    used      = resp.headers.get("x-requests-used")
+    if remaining:
+        print(f"  [quota] {used} used / {remaining} remaining (player props)")
+    try:
+        from ml.common.odds_cache import write_quota
+        write_quota(remaining, used, resp.headers.get("x-requests-last"),
+                    source="python-wc", endpoint=f"/sports/{SPORT}/odds [player_props]")
+    except Exception:
+        pass
+
+    if resp.status_code in (401, 422):
+        return []  # off-season / not posted yet
+    if resp.status_code == 429:
+        raise RuntimeError("Odds API quota exceeded.")
+    resp.raise_for_status()
+    return resp.json()
+
+
 def fetch_wc_scores(days_back: int = 3) -> List[Dict[str, Any]]:
     if not ODDS_API_KEY:
         raise EnvironmentError("ODDS_API_KEY not set.")
@@ -122,6 +173,101 @@ def fetch_wc_scores(days_back: int = 3) -> List[Dict[str, Any]]:
         raise RuntimeError("Odds API quota exceeded.")
     resp.raise_for_status()
     return resp.json()
+
+
+def _american_to_implied_prob(american: float) -> float:
+    """Convert American odds to raw implied probability (with vig)."""
+    if american > 0:
+        return 100.0 / (american + 100.0)
+    return -american / (-american + 100.0)
+
+
+def _detect_player_prop_signals(
+    game: Dict[str, Any],
+    expected_team_goals: float = 1.40,
+) -> List[Dict[str, Any]]:
+    """For each player_goal_scorer_anytime outcome in this game's
+    bookmaker data, compute our prior P(scores) and compare to the
+    soft-book implied probability. Fire a signal when our prior exceeds
+    the book by >= EDGE_THRESHOLD.
+
+    Returns a list of signal dicts ready to feed to log_player_prop_signal.
+    Empty list if no player markets are present or no edges exceed threshold.
+    """
+    # Import inside function to avoid a hard dep on players.py when only
+    # game-level scans are running (e.g. in tests that don't touch priors).
+    from .players import find_wc_player, compute_goalscorer_prior
+
+    signals: List[Dict[str, Any]] = []
+
+    for bm in game.get("bookmakers") or []:
+        book = bm.get("key") or ""
+        if book == "pinnacle":
+            continue  # Pinnacle is our future sharp anchor; not a soft book to bet at
+        if book not in _PREFERRED_BOOKS:
+            continue
+
+        for mkt in bm.get("markets") or []:
+            if mkt.get("key") != "player_goal_scorer_anytime":
+                continue
+
+            # The "Yes" outcomes carry one row per player. "No" rows tell
+            # us the de-vig pair but we focus on Yes for v1 (signal == we
+            # think the player scores more often than the book implies).
+            for outcome in mkt.get("outcomes") or []:
+                # Odds API encodes anytime markets as outcome.name == "Yes"
+                # with the player in outcome.description. Some books flip
+                # this; defend against both.
+                player_name_raw = (
+                    outcome.get("description")
+                    or (outcome.get("name") if outcome.get("name") not in ("Yes", "No") else None)
+                )
+                if not player_name_raw or outcome.get("name") == "No":
+                    continue
+                price = outcome.get("price")
+                if price is None:
+                    continue
+
+                # Resolve to our wc_players row (with canonical-name handling)
+                wc_player = find_wc_player(player_name_raw)
+                if not wc_player:
+                    continue  # we don't know this player → can't form a prior
+                pid = wc_player.get("api_player_id")
+                if pid is None:
+                    continue
+
+                # Compute the prior for this matchup. expected_team_goals
+                # could be derived from the totals line; for v1 we use the
+                # baseline 1.40 (international tournament average).
+                prior = compute_goalscorer_prior(
+                    api_player_id                   = pid,
+                    expected_match_goals_for_team   = expected_team_goals,
+                    assumed_minutes                 = 70,
+                )
+                if prior is None:
+                    continue  # insufficient sample for this player
+                prior_prob = prior.get("anytime_scorer_prob")
+                if prior_prob is None:
+                    continue
+
+                book_prob = _american_to_implied_prob(float(price))
+                edge_pp = prior_prob - book_prob
+                if edge_pp < EDGE_THRESHOLD:
+                    continue  # not enough edge to act on
+
+                signals.append({
+                    "market":         "player_goal_scorer_anytime",
+                    "bet_side":       "yes",
+                    "player_name":    prior.get("player_name") or player_name_raw,
+                    "api_player_id":  pid,
+                    "prior_prob":     prior_prob,
+                    "book":           book,
+                    "book_prob":      book_prob,
+                    "book_odds":      float(price),
+                    "edge_pp":        edge_pp,
+                })
+
+    return signals
 
 
 def filter_upcoming(games: List[Dict[str, Any]], horizon_hours: int = 48) -> List[Dict[str, Any]]:
@@ -630,6 +776,59 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
                         f"pin={sig['pinnacle_prob']:.1%}  "
                         f"{sig['book']}={sig['book_prob']:.1%}  "
                         f"edge={pct:.1f}pp{flag}"
+                    )
+                else:
+                    signals_skipped += 1
+
+    # ── Player-prop divergence (the headline WC feature) ────────────────────
+    # Separate Odds API call because player markets are 1 credit each.
+    # Controlled by WC_PLAYER_PROPS_ENABLED env so we only spend when the
+    # markets are actually posted (per the manual market-probe panel).
+    if not snapshot_only and PLAYER_PROPS_ENABLED:
+        try:
+            prop_games = fetch_wc_player_props()
+        except Exception as e:
+            print(f"  [player-props] fetch error: {e}", file=sys.stderr)
+            prop_games = []
+
+        # Build a {game_id → game} map from the prop response, then iterate
+        # the upcoming games we already loaded to apply player-prop scanning.
+        by_id = {g.get("id"): g for g in prop_games}
+        for game in upcoming:
+            propgame = by_id.get(game["id"])
+            if not propgame:
+                continue
+            home_name = game["home_team"]
+            away_name = game["away_team"]
+            game_date = _et_game_date(game["commence_time"])
+
+            # Heuristic: use the totals line / 2 as the team's expected goals
+            # when Pinnacle has a totals line. Falls back to 1.40 otherwise.
+            pin_tot = _extract_totals_probs(game["bookmakers"], "pinnacle")
+            expected_team_goals = 1.40
+            if pin_tot and pin_tot.get("line"):
+                expected_team_goals = (pin_tot["line"] or 2.8) / 2.0
+
+            prop_sigs = _detect_player_prop_signals(propgame, expected_team_goals)
+            for sig in prop_sigs:
+                row_id = log_player_prop_signal(
+                    game_id        = game["id"],
+                    game_date      = game_date,
+                    home_team      = home_name,
+                    away_team      = away_name,
+                    commence_time  = game["commence_time"],
+                    notes          = "",
+                    reasoning_json = None,
+                    **sig,
+                )
+                if row_id:
+                    signals_fired += 1
+                    print(
+                        f"  [SIGNAL] {away_name} @ {home_name}  "
+                        f"anytime/{sig['player_name']}  "
+                        f"prior={sig['prior_prob']:.1%}  "
+                        f"{sig['book']}={sig['book_prob']:.1%}  "
+                        f"edge={sig['edge_pp']*100:.1f}pp"
                     )
                 else:
                     signals_skipped += 1

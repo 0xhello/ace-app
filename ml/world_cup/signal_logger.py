@@ -49,6 +49,11 @@ _PICK_COLUMNS: List[tuple] = [
     ("closing_pinnacle_prob", "REAL"),    # Pinnacle de-vigged prob captured at/near kickoff
     ("closing_book_odds",     "REAL"),    # soft-book closing odds for CLV comparison
     ("clv_pp",                "REAL"),    # book_prob_at_signal - closing_pinnacle_prob (>0 = beat the close)
+    # Player-prop dimension — NULL for game-level signals, set for player markets
+    # (anytime goalscorer, first goalscorer, shots on target, to be carded).
+    ("player_name",           "TEXT"),    # canonical player name (matches wc_historical_form / wc_players)
+    ("api_player_id",         "INTEGER"), # API-Football player ID when we resolved the name to a squad row
+    ("prior_prob",            "REAL"),    # OUR computed prior — the reference point for player-prop signals
 ]
 
 
@@ -58,6 +63,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     Stamps `schema:last_migration_at` in the meta table when a column is
     actually added so we can see in /api/ops/soccer when the production DB
     received the new shape.
+
+    Also upgrades the unique index from (game_id, market, bet_side) to include
+    player_name so multiple player-prop signals on the same game (e.g. an
+    Mbappé anytime-scorer signal AND a Bellingham anytime-scorer signal)
+    don't collide. The migration is a one-time rebuild — see _rebuild_index().
     """
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(soccer_signals)").fetchall()}
     added = False
@@ -70,7 +80,33 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
             ("schema:last_migration_at", datetime.now(timezone.utc).isoformat()),
         )
+    # Rebuild the unique index to include player_name. Old index name was
+    # `uidx_soccer_signal`; new one is `uidx_soccer_signal_v2`. Safe to call
+    # repeatedly — only fires when the v2 index is missing.
+    _rebuild_index_for_player_props(conn)
     conn.commit()
+
+
+def _rebuild_index_for_player_props(conn: sqlite3.Connection) -> None:
+    """Drop the old (game_id, market, bet_side) unique index and create one
+    that includes player_name. Without this, two anytime-scorer signals on
+    the same game would collide on the UNIQUE constraint.
+
+    Idempotent: checks for the v2 index before doing anything.
+    """
+    have_v2 = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='uidx_soccer_signal_v2'"
+    ).fetchone() is not None
+    if have_v2:
+        return
+    # Drop the old index if it exists, then create the v2 that includes
+    # player_name (COALESCE so NULL player_name still uniquely keys the
+    # game-level row — the empty-string sentinel keeps SQLite happy).
+    conn.execute("DROP INDEX IF EXISTS uidx_soccer_signal")
+    conn.execute(
+        "CREATE UNIQUE INDEX uidx_soccer_signal_v2 "
+        "ON soccer_signals(game_id, market, bet_side, COALESCE(player_name, ''))"
+    )
 
 
 def init_db(path: Path = DB_PATH) -> None:
@@ -113,8 +149,10 @@ def init_db(path: Path = DB_PATH) -> None:
             created_at      TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        CREATE UNIQUE INDEX IF NOT EXISTS uidx_soccer_signal
-            ON soccer_signals(game_id, market, bet_side);
+        -- Unique index intentionally NOT created here. _migrate() owns it
+        -- (uidx_soccer_signal_v2) so we can change the key without fighting
+        -- a CREATE IF NOT EXISTS clause that would resurrect the old shape
+        -- on every init_db call.
 
         CREATE INDEX IF NOT EXISTS idx_soccer_game_id ON soccer_signals(game_id);
         CREATE INDEX IF NOT EXISTS idx_soccer_status  ON soccer_signals(status);
@@ -276,6 +314,74 @@ def log_signal(
             _null_float(pinnacle_prob), book, _null_float(book_prob),
             _null_float(book_odds), _null_float(edge_pp),
             tier, kelly, reasoning_json,
+            notes, detected_at,
+        ),
+    )
+    row_id = cursor.lastrowid or 0
+    conn.commit()
+    conn.close()
+    return row_id
+
+
+def log_player_prop_signal(
+    game_id: str,
+    game_date: str,
+    home_team: str,
+    away_team: str,
+    commence_time: str,
+    market: str,              # e.g. 'player_goal_scorer_anytime'
+    bet_side: str,            # 'yes' for anytime, etc.
+    player_name: str,         # canonical
+    api_player_id: Optional[int],
+    prior_prob: float,        # OUR computed prior (the "sharp" reference)
+    book: str,
+    book_prob: float,
+    book_odds: float,
+    edge_pp: float,
+    notes: str = "",
+    reasoning_json: Optional[str] = None,
+    path: Path = DB_PATH,
+) -> int:
+    """
+    Log a player-prop divergence signal. Unlike game-level signals where
+    Pinnacle is the sharp reference, player props compare the soft-book
+    price to OUR computed prior (compute_goalscorer_prior). When Pinnacle
+    eventually posts WC player props, we'll also anchor against it — but
+    that's a v2 layer; v1 uses our prior.
+
+    Stores both prior_prob (our number) and pinnacle_prob (left NULL until
+    we have a real Pinnacle player-prop comparison). The book_prob and
+    edge_pp are the same shape as game-level signals so the ops UI can
+    render them with no changes.
+
+    Idempotent on (game_id, market, bet_side, player_name) via the v2
+    unique index.
+    """
+    init_db(path)
+    conn = get_db(path)
+    detected_at = datetime.now(timezone.utc).isoformat()
+
+    tier  = confidence_tier(edge_pp)
+    kelly = kelly_fraction(_null_float(prior_prob) or 0.0, _null_float(book_odds) or 0.0)
+
+    cursor = conn.execute(
+        """
+        INSERT OR IGNORE INTO soccer_signals
+            (game_id, game_date, home_team, away_team, commence_time,
+             market, bet_side, total_line,
+             pinnacle_prob, book, book_prob, book_odds, edge_pp,
+             confidence_tier, kelly_fraction, reasoning_json,
+             player_name, api_player_id, prior_prob,
+             notes, detected_at)
+        VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?,?, ?,?)
+        """,
+        (
+            game_id, game_date, home_team, away_team, commence_time,
+            market, bet_side, None,                              # no total_line for player props
+            None, book, _null_float(book_prob),                  # pinnacle_prob NULL until v2
+            _null_float(book_odds), _null_float(edge_pp),
+            tier, kelly, reasoning_json,
+            player_name, api_player_id, _null_float(prior_prob),
             notes, detected_at,
         ),
     )

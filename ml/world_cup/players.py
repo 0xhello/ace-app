@@ -754,7 +754,7 @@ def compute_goalscorer_prior(
     api_player_id: int,
     expected_match_goals_for_team: float = 1.40,
     assumed_minutes: int = 70,
-    path: Path = DB_PATH,
+    path: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Estimate P(player scores at least once) for an upcoming match.
@@ -778,6 +778,9 @@ def compute_goalscorer_prior(
 
     Returns None if the player is unknown or has no form data.
     """
+    # Resolve DB_PATH at call time (not definition) so tests can monkeypatch.
+    if path is None:
+        path = DB_PATH
     init_player_tables(path)
     conn = get_db(path)
     player = conn.execute(
@@ -849,6 +852,50 @@ def compute_goalscorer_prior(
         "assumed_minutes":       assumed_minutes,
         "intl_uplift":           round(intl_uplift, 3),
     }
+
+
+def find_wc_player(name: str, path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    """Resolve a player name (from Odds API or anywhere) to a wc_players row.
+
+    Odds API names vary by market — sometimes "Kylian Mbappe", sometimes
+    "K. Mbappe", sometimes a different transliteration. We canonicalize
+    both sides via the alias map and try exact match first, then a case-
+    insensitive surname-tail fallback for the abbreviated-first-name case.
+
+    Returns the wc_players row dict or None.
+
+    `path` defaults to None so tests can monkeypatch DB_PATH at module level
+    and have it resolved at call time (default args bind at definition).
+    """
+    if not name:
+        return None
+    if path is None:
+        path = DB_PATH
+    init_player_tables(path)
+    canonical = _normalize_player_name(name)
+    conn = get_db(path)
+    try:
+        # 1) Exact canonical match
+        row = conn.execute(
+            "SELECT * FROM wc_players WHERE player_name = ?", (canonical,),
+        ).fetchone()
+        if row:
+            return dict(row)
+        # 2) "K. Mbappe" → match by surname when there's only one candidate
+        # for that surname. Picks the most likely full-name row for the
+        # abbreviated form.
+        tokens = canonical.split()
+        if len(tokens) >= 2 and tokens[0].endswith("."):
+            surname = tokens[-1]
+            candidates = conn.execute(
+                "SELECT * FROM wc_players WHERE player_name LIKE ?",
+                (f"%{surname}",),
+            ).fetchall()
+            if len(candidates) == 1:
+                return dict(candidates[0])
+        return None
+    finally:
+        conn.close()
 
 
 def get_team_top_scorers(team_name: str, n: int = 5, path: Path = DB_PATH) -> List[Dict[str, Any]]:
