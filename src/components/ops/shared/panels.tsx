@@ -472,23 +472,211 @@ export function StaleSignalsPanel({
   );
 }
 
-// ─── Activity stream — last N signals across all statuses (compact) ──────────
-// Surfaces 'is the worker actually firing?' at a glance.
+// ─── Activity stream — filterable last-N signals view ────────────────────────
+// The daily working tool. Toggle slices to ask "show me only Tier A picks
+// on totals at FanDuel last week" without writing SQL. Filtering is all
+// client-side so toggles feel instant.
+
+import * as React from "react";
+
+interface ActivityFilters {
+  status: "all" | "open" | "graded" | "win" | "loss" | "void";
+  market: string;       // 'all' | actual market key
+  book: string;         // 'all' | book name
+  tier:   "all" | "A" | "B" | "C" | "none";
+  range:  "all" | "7d"  | "30d";
+  search: string;
+  minEdgePp: number;    // decimal — slider 0 to 0.10 (10pp)
+}
+
+const DEFAULT_FILTERS: ActivityFilters = {
+  status: "all", market: "all", book: "all", tier: "all",
+  range: "30d", search: "", minEdgePp: 0,
+};
 
 export function ActivityStreamPanel({ signals }: { signals: OpsSignal[] }) {
-  const recent = [...signals]
-    .sort((a, b) => (b.detected_at || "").localeCompare(a.detected_at || ""))
-    .slice(0, 30);
+  const [f, setF] = React.useState<ActivityFilters>(DEFAULT_FILTERS);
+
+  // Derive option lists from the actual data so the dropdowns reflect
+  // what's present (rather than a hard-coded set that might drift).
+  const { markets, books } = React.useMemo(() => {
+    const m = new Set<string>(), b = new Set<string>();
+    for (const s of signals) {
+      if (s.market) m.add(s.market);
+      if (s.book)   b.add(s.book);
+    }
+    return {
+      markets: ["all", ...Array.from(m).sort()],
+      books:   ["all", ...Array.from(b).sort()],
+    };
+  }, [signals]);
+
+  const filtered = React.useMemo(() => {
+    const rangeMs =
+      f.range === "7d"  ? 7  * 86400000 :
+      f.range === "30d" ? 30 * 86400000 : null;
+    const cutoff = rangeMs ? Date.now() - rangeMs : null;
+    const term = f.search.trim().toLowerCase();
+    return signals.filter((s) => {
+      if (cutoff !== null && s.detected_at) {
+        const ts = new Date(s.detected_at).getTime();
+        if (Number.isFinite(ts) && ts < cutoff) return false;
+      }
+      if (f.market !== "all" && s.market !== f.market) return false;
+      if (f.book   !== "all" && s.book   !== f.book)   return false;
+      if (f.tier === "none" && s.confidence_tier) return false;
+      if (f.tier !== "all" && f.tier !== "none" && s.confidence_tier !== f.tier) return false;
+      if (f.status !== "all") {
+        if (f.status === "win"  && !(s.status === "graded" && s.correct === 1)) return false;
+        if (f.status === "loss" && !(s.status === "graded" && s.correct === 0)) return false;
+        if (f.status === "open"   && s.status !== "open")   return false;
+        if (f.status === "graded" && s.status !== "graded") return false;
+        if (f.status === "void"   && s.status !== "void")   return false;
+      }
+      if (f.minEdgePp > 0 && (s.edge_pp ?? 0) < f.minEdgePp) return false;
+      if (term) {
+        const blob = `${s.home_team} ${s.away_team} ${s.book} ${s.market}`.toLowerCase();
+        if (!blob.includes(term)) return false;
+      }
+      return true;
+    }).sort((a, b) => (b.detected_at || "").localeCompare(a.detected_at || ""));
+  }, [signals, f]);
+
+  const visible = filtered.slice(0, 60);
+
+  // Quick aggregate stats on the filtered subset — answers "what's the
+  // win rate on THIS slice?" without leaving the panel.
+  const stats = React.useMemo(() => {
+    const graded = filtered.filter((s) => s.status === "graded");
+    const wins   = graded.filter((s) => s.correct === 1).length;
+    const losses = graded.length - wins;
+    const wr     = graded.length > 0 ? wins / graded.length : null;
+    const clvs   = filtered.filter((s) => s.clv_pp != null).map((s) => s.clv_pp as number);
+    const avgClv = clvs.length > 0 ? clvs.reduce((a, b) => a + b, 0) / clvs.length : null;
+    return { signals: filtered.length, graded: graded.length, wins, losses, wr, avgClv };
+  }, [filtered]);
+
+  const activeCount =
+    (f.status !== "all" ? 1 : 0) + (f.market !== "all" ? 1 : 0) +
+    (f.book   !== "all" ? 1 : 0) + (f.tier   !== "all" ? 1 : 0) +
+    (f.range  !== "all" ? 1 : 0) + (f.search ? 1 : 0) + (f.minEdgePp > 0 ? 1 : 0);
 
   return (
     <Panel>
       <SectionHead
         icon={Activity}
-        title={`Activity stream · last ${recent.length}`}
-        right={<span className="text-[10px] text-[#6b7068]">most recent first</span>}
+        title="Activity stream"
+        right={
+          <div className="flex items-center gap-2">
+            {activeCount > 0 && (
+              <button
+                onClick={() => setF(DEFAULT_FILTERS)}
+                className="text-[9px] uppercase tracking-[0.12em] text-[#9ca39a] hover:text-white border border-[#1e2220] hover:border-[#2e332a] rounded px-2 py-0.5 transition-colors"
+              >
+                Clear {activeCount}
+              </button>
+            )}
+            <span className="text-[10px] text-[#6b7068]">
+              {filtered.length} of {signals.length}
+            </span>
+          </div>
+        }
       />
-      {recent.length === 0 ? (
-        <EmptyState>No signal activity yet.</EmptyState>
+
+      {/* Filter row */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap text-[10px]">
+        <FilterPill label="Status" value={f.status}
+          options={[
+            { key: "all",    label: "All" },
+            { key: "open",   label: "Open" },
+            { key: "graded", label: "Graded" },
+            { key: "win",    label: "Wins" },
+            { key: "loss",   label: "Losses" },
+            { key: "void",   label: "Void" },
+          ]}
+          onChange={(v) => setF((p) => ({ ...p, status: v as ActivityFilters["status"] }))}
+        />
+        <FilterPill label="Tier" value={f.tier}
+          options={[
+            { key: "all",  label: "All"  },
+            { key: "A",    label: "A"    },
+            { key: "B",    label: "B"    },
+            { key: "C",    label: "C"    },
+            { key: "none", label: "None" },
+          ]}
+          onChange={(v) => setF((p) => ({ ...p, tier: v as ActivityFilters["tier"] }))}
+        />
+        <FilterPill label="Range" value={f.range}
+          options={[
+            { key: "7d",  label: "7d"  },
+            { key: "30d", label: "30d" },
+            { key: "all", label: "All" },
+          ]}
+          onChange={(v) => setF((p) => ({ ...p, range: v as ActivityFilters["range"] }))}
+        />
+        <FilterDropdown label="Market" value={f.market}
+          options={markets}
+          format={(m) => m === "all" ? "All" : marketLabel(m)}
+          onChange={(v) => setF((p) => ({ ...p, market: v }))}
+        />
+        <FilterDropdown label="Book" value={f.book}
+          options={books}
+          format={(b) => b === "all" ? "All" : b}
+          onChange={(v) => setF((p) => ({ ...p, book: v }))}
+        />
+        <div className="flex items-center gap-1.5">
+          <span className="text-[#6b7068] uppercase tracking-[0.12em]">Min edge</span>
+          <input
+            type="range" min={0} max={0.10} step={0.005}
+            value={f.minEdgePp}
+            onChange={(e) => setF((p) => ({ ...p, minEdgePp: parseFloat(e.target.value) }))}
+            className="w-20 accent-[#3ee68a]"
+          />
+          <span className="text-[#9ca39a] font-mono w-12 text-right">
+            {f.minEdgePp === 0 ? "any" : `≥${(f.minEdgePp * 100).toFixed(1)}pp`}
+          </span>
+        </div>
+        <input
+          type="text"
+          value={f.search}
+          onChange={(e) => setF((p) => ({ ...p, search: e.target.value }))}
+          placeholder="Search team / book / market…"
+          className="ml-auto rounded border border-[#1e2220] bg-[#0a0b0a] text-[10px] text-white placeholder:text-[#4a524a] outline-none px-2 py-1 w-44"
+        />
+      </div>
+
+      {/* Stats strip — aggregates over the FILTERED subset */}
+      {filtered.length > 0 && (
+        <div className="flex items-center gap-4 text-[10px] text-[#9ca39a] mb-3 px-2 py-1.5 rounded bg-[#0a0b0a] border border-[#1a1e1a]">
+          <span><span className="text-[#6b7068]">In slice:</span> <span className="text-white font-mono font-bold">{stats.signals}</span></span>
+          <span><span className="text-[#6b7068]">Graded:</span> <span className="text-white font-mono font-bold">{stats.graded}</span></span>
+          {stats.wr !== null && (
+            <span>
+              <span className="text-[#6b7068]">Win rate:</span>{" "}
+              <span className="font-mono font-bold" style={{
+                color: stats.wr >= 0.524 ? "#3ee68a" : stats.wr >= 0.48 ? "#f5c062" : "#ef4444",
+              }}>
+                {(stats.wr * 100).toFixed(1)}%
+              </span>{" "}
+              <span className="text-[#4a524a]">({stats.wins}W/{stats.losses}L)</span>
+            </span>
+          )}
+          {stats.avgClv !== null && (
+            <span>
+              <span className="text-[#6b7068]">Avg CLV:</span>{" "}
+              <span className="font-mono font-bold" style={{
+                color: stats.avgClv >= 0 ? "#3ee68a" : "#ef4444",
+              }}>
+                {fmtPp(stats.avgClv)}
+              </span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Table */}
+      {filtered.length === 0 ? (
+        <EmptyState>No signals match this filter.</EmptyState>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[10px] font-mono">
@@ -506,7 +694,7 @@ export function ActivityStreamPanel({ signals }: { signals: OpsSignal[] }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#141714]">
-              {recent.map((s) => (
+              {visible.map((s) => (
                 <tr key={s.id} className="text-[#c4c7c0]">
                   <td className="py-1.5 px-1 text-[#4a524a]">
                     {s.detected_at ? new Date(s.detected_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—"}
@@ -529,8 +717,7 @@ export function ActivityStreamPanel({ signals }: { signals: OpsSignal[] }) {
                     {!s.confidence_tier && <span className="text-[#3a4033]">—</span>}
                   </td>
                   <td className="py-1.5 px-1 text-right" style={{
-                    color: s.clv_pp == null ? "#3a4033"
-                      : s.clv_pp > 0 ? "#3ee68a" : "#ef4444",
+                    color: s.clv_pp == null ? "#3a4033" : s.clv_pp > 0 ? "#3ee68a" : "#ef4444",
                   }}>
                     {s.clv_pp != null ? fmtPp(s.clv_pp) : "—"}
                   </td>
@@ -544,8 +731,68 @@ export function ActivityStreamPanel({ signals }: { signals: OpsSignal[] }) {
               ))}
             </tbody>
           </table>
+          {filtered.length > visible.length && (
+            <p className="text-[9px] text-[#4a524a] text-center mt-2">
+              Showing {visible.length} of {filtered.length} — refine filter to narrow further
+            </p>
+          )}
         </div>
       )}
     </Panel>
+  );
+}
+
+// ─── Filter controls ─────────────────────────────────────────────────────────
+
+function FilterPill<T extends string>({
+  label, value, options, onChange,
+}: {
+  label: string;
+  value: T;
+  options: { key: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-[#6b7068] uppercase tracking-[0.12em] mr-0.5">{label}</span>
+      <div className="flex border border-[#1e2220] rounded overflow-hidden">
+        {options.map((o) => (
+          <button
+            key={o.key}
+            onClick={() => onChange(o.key)}
+            className={`px-2 py-1 uppercase tracking-[0.12em] transition-colors ${
+              value === o.key ? "bg-[#3ee68a]/15 text-[#3ee68a]" : "text-[#6b7068] hover:text-white"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FilterDropdown({
+  label, value, options, format, onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  format: (v: string) => string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[#6b7068] uppercase tracking-[0.12em]">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded border border-[#1e2220] bg-[#0a0b0a] text-[10px] text-white outline-none px-1.5 py-1 uppercase tracking-[0.12em]"
+      >
+        {options.map((o) => (
+          <option key={o} value={o}>{format(o)}</option>
+        ))}
+      </select>
+    </div>
   );
 }
