@@ -8,11 +8,14 @@ import {
   SectionHead,
   Panel,
   ActionButton,
-  JobHealthStrip,
+  WorkerStatusStrip,
   OpsPageHeader,
   StatusPill,
   OpsFooter,
+  LoadingState,
+  EmptyState,
 } from "@/components/ops/shared/primitives";
+import { Trophy } from "lucide-react";
 
 interface MLBSignal {
   id: number;
@@ -124,13 +127,7 @@ export default function MLBOpsTab() {
     return () => clearInterval(id);
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center text-[12px] text-[#6b7068]">
-        Loading MLB ops…
-      </div>
-    );
-  }
+  if (loading) return <LoadingState label="Loading MLB ops…" />;
 
   if (!data) {
     return (
@@ -144,13 +141,15 @@ export default function MLBOpsTab() {
   const recent = signals.slice(0, 20);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#0a0b0a] px-6 py-5">
-      <div className="mx-auto max-w-[1200px] space-y-5">
+    <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
+      <div className="max-w-[1200px] mx-auto px-6 py-7 space-y-5">
 
-        {/* Header */}
+        {/* Header — same shape as Soccer/NBA/Overview */}
         <OpsPageHeader
-          badge="⚾ MLB"
-          title="Signal Pipeline"
+          icon={Trophy}
+          title="MLB · Signal Pipeline"
+          tag="live"
+          tagColor="#3ee68a"
           actions={
             <>
               {lastJobResult && (
@@ -160,23 +159,23 @@ export default function MLBOpsTab() {
                 </span>
               )}
               <ActionButton
+                icon={CheckCircle2}
+                label={running === "grade" ? "Grading…" : "Grade"}
+                busy={running === "grade"}
+                disabled={running !== null}
+                onClick={() => void runJob("grade")}
+              />
+              <ActionButton
                 icon={Play}
-                label={running === "fetch" ? "Scanning..." : "Scan now"}
+                label={running === "fetch" ? "Scanning…" : "Scan"}
                 variant="primary"
                 busy={running === "fetch"}
                 disabled={running !== null}
                 onClick={() => void runJob("fetch")}
               />
               <ActionButton
-                icon={CheckCircle2}
-                label={running === "grade" ? "Grading..." : "Grade now"}
-                busy={running === "grade"}
-                disabled={running !== null}
-                onClick={() => void runJob("grade")}
-              />
-              <ActionButton
                 icon={RefreshCw}
-                label="Refresh"
+                variant="subtle"
                 busy={refreshing}
                 disabled={refreshing || running !== null}
                 onClick={() => void load(false)}
@@ -185,15 +184,32 @@ export default function MLBOpsTab() {
           }
         />
 
-        {/* Worker & Job health */}
-        <JobHealthStrip worker={worker} fetch={jobs.fetch} grade={jobs.grade} />
+        {/* Horizontal worker/scan/grade status strip */}
+        <WorkerStatusStrip worker={worker} fetch={jobs.fetch} grade={jobs.grade} />
 
-        {/* Performance summary */}
-        <div className="grid grid-cols-4 gap-3">
-          <KpiCard label="Total" value={String(stats.total)} sub="signals fired" />
-          <KpiCard label="Open"  value={String(stats.open)}  sub="awaiting grade" />
-          <KpiCard label="Win rate" value={fmtPct(stats.winRate)} sub={`${stats.wins}W / ${stats.losses}L`} />
-          <KpiCard label="ROI" value={fmtRoi(stats.roi)} sub={`${stats.graded} graded`} />
+        {/* Performance KPIs — same row pattern as Soccer */}
+        <div className="flex gap-3 flex-wrap">
+          <KpiCard label="Signals" value={String(stats.total)} />
+          <KpiCard label="Open"    value={String(stats.open)}  color="#f5c062" />
+          <KpiCard label="Graded"  value={String(stats.graded)} />
+          <KpiCard
+            label="Record"
+            value={stats.graded > 0 ? `${stats.wins}–${stats.losses}` : "—"}
+            color={stats.winRate !== null && stats.winRate >= 0.524 ? "#3ee68a" : "#d4d7d0"}
+          />
+          <KpiCard
+            label="Win Rate"
+            value={fmtPct(stats.winRate)}
+            sub="52.4% break-even"
+            color={stats.winRate !== null && stats.winRate >= 0.524 ? "#3ee68a"
+                : stats.winRate !== null && stats.winRate >= 0.48 ? "#f5c062"
+                : stats.winRate !== null ? "#ef4444" : "#6b7068"}
+          />
+          <KpiCard
+            label="ROI"
+            value={fmtRoi(stats.roi)}
+            color={stats.roi !== null ? (stats.roi >= 0 ? "#3ee68a" : "#ef4444") : "#6b7068"}
+          />
         </div>
 
         {/* Per-market breakdown */}
@@ -222,9 +238,7 @@ export default function MLBOpsTab() {
         <Panel>
           <SectionHead icon={Activity} title={`Recent signals · ${signals.length}`} />
           {recent.length === 0 ? (
-            <p className="text-[11px] text-[#6b7068] text-center py-6">
-              No signals yet. Worker will populate this once MLB games are live.
-            </p>
+            <EmptyState>No signals yet. Worker will populate this once MLB games are live.</EmptyState>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[10px]">

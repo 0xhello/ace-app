@@ -1,30 +1,74 @@
 "use client";
 
 /**
- * Shared ops UI primitives.
+ * Shared ops UI primitives — the visual vocabulary every tab uses.
  *
- * Every per-sport tab was built at a different point in this project's
- * lifecycle and ended up with slightly different visual language (card
- * styles, colors, button shapes, section header patterns). That made the
- * dashboard hard to scan side-to-side as an operator — your eyes had to
- * recalibrate per tab. These primitives are the shared visual vocabulary
- * so a worker-status block looks the same whether you're on MLB or Soccer.
+ * The dashboard's tabs (Overview / NBA / MLB / Soccer / NFL / Users) were
+ * each built at different points and ended up with subtly different card
+ * styles, status patterns, button shapes, and color tokens. Operators had
+ * to recalibrate their eyes per tab — that's exactly the friction this
+ * module is here to remove.
+ *
+ * The visual language was picked from the Soccer tab (the most polished),
+ * generalized, and reused everywhere. After this lands, every tab should
+ * look like the same product.
  *
  * Conventions:
- *   - Background: bg-[#0d0f0d] on top of #0a0b0a page
- *   - Borders: border-[#22251f] for cards, border-[#1a1e1a] for nested
- *   - Accent green: #3ee68a (section heads, healthy worker, win, edge)
- *   - Amber: #f5c062 (warn, tier B, NBA accent)
- *   - Red: #ef4444 (errors, lost picks)
- *   - Muted text: #6b7068 (labels) / #9ca39a (secondary value) / #c4c7c0 (body)
- *
- * Sport accents (kept in OverviewOpsTab.SPORT_ACCENT for now; can move here
- * if/when we need them in more than one place).
+ *   Backgrounds  bg-[#0a0b0a] (page)   bg-[#0d0f0d] (card)   bg-[#101310] (nested)
+ *   Borders      border-[#181c18] / border-[#1e2220] (card)   border-[#1a1e1a] (inner)
+ *   Accent green #3ee68a   amber #f5c062   red #ef4444
+ *   Text         #ffffff (heading/value)   #c4c7c0 (body)   #9ca39a (secondary)
+ *                #6b7068 (muted label)   #4a524a (faint)   #3a4033 (placeholder)
  */
 import type { LucideIcon } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ── KPI card — single number with label and optional subtitle ────────────────
+// ── Sport accents (centralized so every tab agrees) ──────────────────────────
+
+export const SPORT_ACCENT: Record<string, string> = {
+  overview: "#3ee68a",  // green
+  nba:      "#f5c062",  // amber
+  wc:       "#3ee68a",  // green
+  soccer:   "#3ee68a",
+  mlb:      "#7ab8ff",  // soft blue
+  nfl:      "#c084fc",  // soft violet (planned)
+  users:    "#9ca39a",  // neutral
+};
+
+// ── Tag — small pill for status/category labels ──────────────────────────────
+
+export function Tag({ label, color = "#6b7068" }: { label: string; color?: string }) {
+  return (
+    <span
+      className="text-[8px] font-bold uppercase tracking-widest border rounded px-1.5 py-0.5"
+      style={{ color, borderColor: `${color}35` }}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ── Dot — animated colored circle for status strips ──────────────────────────
+
+export function Dot({ color, pulse = false }: { color: string; pulse?: boolean }) {
+  return (
+    <span className="relative flex h-2.5 w-2.5 shrink-0">
+      {pulse && (
+        <span
+          className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-40"
+          style={{ background: color }}
+        />
+      )}
+      <span
+        className="relative inline-flex rounded-full h-2.5 w-2.5"
+        style={{ background: color }}
+      />
+    </span>
+  );
+}
+
+// ── KpiCard — big-number card, the dominant info primitive ───────────────────
 
 export function KpiCard({
   label,
@@ -40,23 +84,29 @@ export function KpiCard({
   className?: string;
 }) {
   return (
-    <div className={cn(
-      "rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3",
-      className,
-    )}>
-      <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1.5">{label}</p>
+    <div
+      className={cn(
+        "flex-1 min-w-0 rounded-xl border border-[#1e2220] bg-[#0f110f] px-4 py-4",
+        className,
+      )}
+    >
+      <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-[#3a4033] mb-2.5">
+        {label}
+      </p>
       <p
-        className="text-[20px] font-bold font-mono tabular-nums leading-none"
-        style={{ color: color ?? "#ffffff" }}
+        className="text-[26px] font-black font-mono leading-none tabular-nums"
+        style={{ color: color ?? "#d4d7d0" }}
       >
         {value}
       </p>
-      {sub && <p className="text-[10px] text-[#6b7068] mt-1.5 leading-tight">{sub}</p>}
+      {sub && (
+        <p className="text-[10px] text-[#4a524a] mt-1.5 leading-tight">{sub}</p>
+      )}
     </div>
   );
 }
 
-// ── Section header — icon + accent-green title, optional right-aligned slot ──
+// ── SectionHead — icon + accent-green title, optional right-aligned slot ─────
 
 export function SectionHead({
   icon: Icon,
@@ -70,17 +120,19 @@ export function SectionHead({
   className?: string;
 }) {
   return (
-    <div className={cn("flex items-center justify-between mb-3", className)}>
-      <p className="text-[10px] font-bold text-[#3ee68a] uppercase tracking-[0.15em] flex items-center gap-1.5">
-        <Icon className="h-3 w-3" />
-        {title}
-      </p>
+    <div className={cn("flex items-center justify-between mb-4", className)}>
+      <div className="flex items-center gap-2">
+        <Icon className="h-3.5 w-3.5 text-[#3ee68a]" />
+        <p className="text-[11px] font-bold text-[#3ee68a] uppercase tracking-[0.2em]">
+          {title}
+        </p>
+      </div>
       {right}
     </div>
   );
 }
 
-// ── Section panel — wraps SectionHead + children with consistent borders ─────
+// ── Panel — bordered card wrapper, the section container ─────────────────────
 
 export function Panel({
   children,
@@ -90,18 +142,20 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <div className={cn(
-      "rounded-lg border border-[#22251f] bg-[#0d0f0d] p-5",
-      className,
-    )}>
+    <div
+      className={cn(
+        "rounded-xl border border-[#181c18] bg-[#0d0f0d] p-5",
+        className,
+      )}
+    >
       {children}
     </div>
   );
 }
 
-// ── Action button — Scan/Grade/Refresh share one consistent style ────────────
+// ── ActionButton — Scan / Grade / Refresh in two consistent variants ─────────
 
-type ActionButtonVariant = "primary" | "ghost";
+type ActionButtonVariant = "primary" | "ghost" | "subtle";
 
 export function ActionButton({
   icon: Icon,
@@ -112,126 +166,203 @@ export function ActionButton({
   onClick,
 }: {
   icon: LucideIcon;
-  label: string;
+  label?: string;
   busy?: boolean;
   disabled?: boolean;
   variant?: ActionButtonVariant;
   onClick: () => void;
 }) {
-  const isPrimary = variant === "primary";
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] font-bold",
-        "px-3 py-2 rounded-lg transition-colors",
-        isPrimary && "border border-[#3ee68a]/20 bg-[#3ee68a]/[0.05] text-[#3ee68a] hover:bg-[#3ee68a]/10 hover:border-[#3ee68a]/40",
-        !isPrimary && "border border-[#22251f] bg-[#0d0f0d] text-[#9ca39a] hover:text-white hover:border-[#3ee68a]/30",
-        disabled && "opacity-50 cursor-not-allowed",
+        "flex items-center gap-1.5 rounded-lg transition-colors disabled:opacity-40",
+        "text-[10px] uppercase tracking-[0.15em] font-bold px-2.5 py-1.5",
+        variant === "primary" &&
+          "border border-[#3ee68a]/20 bg-[#3ee68a]/5 text-[#3ee68a] hover:bg-[#3ee68a]/10",
+        variant === "ghost" &&
+          "border border-[#1e2220] text-[#6b7068] hover:text-[#9ca39a] hover:border-[#2e332a]",
+        variant === "subtle" &&
+          "text-[#4a524a] hover:text-[#9ca39a]",
       )}
     >
-      <Icon className={cn("h-3 w-3", busy && (label.toLowerCase().includes("refresh") ? "animate-spin" : "animate-pulse"))} />
+      <Icon
+        className={cn(
+          "h-3 w-3",
+          busy &&
+            (Icon === RefreshCw ? "animate-spin" : "animate-pulse"),
+        )}
+      />
       {label}
     </button>
   );
 }
 
-// ── Worker / job health strip — three cards: worker, fetch job, grade job ────
+// ── WorkerStatusStrip — horizontal dot+label+timeago row ─────────────────────
+// The compact, glance-able health indicator (Soccer pattern). Replaces the
+// 3-stacked-card JobHealthStrip we previously had on MLB/Overview.
 
-export interface JobHealth {
+export interface JobMeta {
   lastRunAt: string | null;
   lastError: string | null;
 }
 
-export function JobHealthStrip({
+export interface WorkerMeta {
+  lastPollAt: string | null;
+  lastPollOk: boolean | null;
+}
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return "never";
+  const ms = Date.now() - new Date(iso.replace(" ", "T")).getTime();
+  if (Number.isNaN(ms)) return "—";
+  const s = Math.floor(ms / 1000);
+  if (s < 60)    return `${s}s ago`;
+  if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+export function WorkerStatusStrip({
   worker,
   fetch,
   grade,
+  extra,
 }: {
-  worker: { lastPollAt: string | null; lastPollOk: boolean | null };
-  fetch: JobHealth;
-  grade: JobHealth;
+  worker?: WorkerMeta;
+  fetch?: JobMeta;
+  grade?: JobMeta;
+  extra?: React.ReactNode;
 }) {
-  const workerLabel =
-    worker.lastPollOk === null ? "—" : worker.lastPollOk ? "OK" : "Error";
   const workerColor =
-    worker.lastPollOk === false ? "#ef4444" : worker.lastPollOk ? "#3ee68a" : "#9ca39a";
+    !worker || worker.lastPollOk === false
+      ? "#ef4444"
+      : worker.lastPollAt
+      ? "#3ee68a"
+      : "#3a4033";
+
+  const jobColor = (m?: JobMeta): string => {
+    if (!m) return "#3a4033";
+    if (m.lastError) return "#ef4444";
+    if (!m.lastRunAt) return "#3a4033";
+    return "#3ee68a";
+  };
+
+  const errors: string[] = [];
+  if (fetch?.lastError) errors.push("scan");
+  if (grade?.lastError) errors.push("grade");
 
   return (
-    <div className="grid grid-cols-3 gap-3">
-      <KpiCard
-        label="Worker"
-        value={workerLabel}
-        sub={worker.lastPollAt ?? "no polls yet"}
-        color={workerColor}
-      />
-      <KpiCard
-        label="Fetch job"
-        value={fetch.lastRunAt ? "ran" : "—"}
-        sub={fetch.lastError || fetch.lastRunAt || "no runs yet"}
-        color={fetch.lastError ? "#ef4444" : "#ffffff"}
-      />
-      <KpiCard
-        label="Grade job"
-        value={grade.lastRunAt ? "ran" : "—"}
-        sub={grade.lastError || grade.lastRunAt || "no runs yet"}
-        color={grade.lastError ? "#ef4444" : "#ffffff"}
-      />
+    <div className="flex items-center gap-4 rounded-xl border border-[#181c18] bg-[#0d0f0d] px-4 py-3 flex-wrap gap-y-2">
+      {worker && (
+        <div className="flex items-center gap-1.5">
+          <Dot color={workerColor} pulse={workerColor === "#3ee68a"} />
+          <span className="text-[10px] text-[#6b7068]">Worker</span>
+          <span className="text-[10px] font-mono text-[#4a524a]">
+            {timeAgo(worker.lastPollAt)}
+          </span>
+        </div>
+      )}
+      {fetch && (
+        <>
+          <div className="h-3 w-px bg-[#1e2220]" />
+          <div className="flex items-center gap-1.5">
+            <Dot color={jobColor(fetch)} />
+            <span className="text-[10px] text-[#6b7068]">Scan</span>
+            <span className="text-[10px] font-mono text-[#4a524a]">
+              {timeAgo(fetch.lastRunAt)}
+            </span>
+          </div>
+        </>
+      )}
+      {grade && (
+        <>
+          <div className="h-3 w-px bg-[#1e2220]" />
+          <div className="flex items-center gap-1.5">
+            <Dot color={jobColor(grade)} />
+            <span className="text-[10px] text-[#6b7068]">Grade</span>
+            <span className="text-[10px] font-mono text-[#4a524a]">
+              {timeAgo(grade.lastRunAt)}
+            </span>
+          </div>
+        </>
+      )}
+      {extra && (
+        <>
+          <div className="h-3 w-px bg-[#1e2220]" />
+          {extra}
+        </>
+      )}
+      {errors.length > 0 && (
+        <>
+          <div className="h-3 w-px bg-[#1e2220]" />
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />
+            <span className="text-[9px] font-bold text-[#ef4444]">
+              {errors.length} error{errors.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-// ── Page header — sport badge + title + actions slot ─────────────────────────
+// ── OpsPageHeader — sport icon + title + optional tag + actions slot ─────────
 
 export function OpsPageHeader({
-  badge,
-  badgeColor = "#3ee68a",
+  icon: Icon,
   title,
+  tag,
+  tagColor,
   actions,
 }: {
-  badge: string;
-  badgeColor?: string;
+  icon: LucideIcon;
   title: string;
+  tag?: string;
+  tagColor?: string;
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 flex-wrap">
-      <div>
-        <p
-          className="text-[10px] font-bold uppercase tracking-[0.18em] mb-1"
-          style={{ color: badgeColor }}
-        >
-          {badge}
-        </p>
-        <h1 className="text-[20px] font-bold text-white">{title}</h1>
+    <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center gap-3">
+        <Icon className="h-4 w-4 text-[#3ee68a]" />
+        <h1 className="text-[18px] font-bold text-white tracking-tight">{title}</h1>
+        {tag && <Tag label={tag} color={tagColor ?? "#6b7068"} />}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex items-center gap-3">{actions}</div>}
     </div>
   );
 }
 
-// ── Status pill for tier / state badges ──────────────────────────────────────
+// ── StatusPill — small win/loss/open/tier badge ──────────────────────────────
 
-export function StatusPill({ label, tone }: { label: string; tone: "win" | "loss" | "open" | "void" | "a" | "b" | "c" }) {
-  const toneClasses: Record<typeof tone, string> = {
+type PillTone = "win" | "loss" | "open" | "void" | "a" | "b" | "c";
+
+export function StatusPill({ label, tone }: { label: string; tone: PillTone }) {
+  const cls: Record<PillTone, string> = {
     win:  "bg-[#3ee68a]/20 text-[#3ee68a]",
     loss: "bg-[#ef4444]/20 text-[#ef4444]",
-    open: "bg-[#6b7068]/15 text-[#9ca39a]",
+    open: "bg-[#f5c062]/15 text-[#f5c062]",
     void: "bg-[#6b7068]/15 text-[#6b7068]",
     a:    "bg-[#3ee68a]/20 text-[#3ee68a]",
     b:    "bg-[#f5c062]/15 text-[#f5c062]",
     c:    "bg-[#6b7068]/15 text-[#6b7068]",
   };
   return (
-    <span className={cn(
-      "inline-block px-1.5 py-[1px] rounded text-[8px] font-bold uppercase tracking-[0.1em]",
-      toneClasses[tone],
-    )}>{label}</span>
+    <span
+      className={cn(
+        "inline-block px-1.5 py-[1px] rounded text-[8px] font-bold uppercase tracking-[0.12em]",
+        cls[tone],
+      )}
+    >
+      {label}
+    </span>
   );
 }
 
-// ── Footer strip — refreshed timestamp + optional schema state ───────────────
+// ── OpsFooter — refreshed timestamp + optional schema/state string ───────────
 
 export function OpsFooter({
   refreshedAt,
@@ -242,10 +373,43 @@ export function OpsFooter({
 }) {
   return (
     <div className="flex items-center justify-between text-[9px] text-[#6b7068] uppercase tracking-[0.12em]">
-      {schemaText
-        ? <span>{schemaText}</span>
-        : <span />}
+      {schemaText ? <span>{schemaText}</span> : <span />}
       <span>refreshed · {new Date(refreshedAt).toLocaleTimeString()}</span>
     </div>
+  );
+}
+
+// ── ErrorBanner — red-tinted alert panel for surfaced job errors ─────────────
+
+export function ErrorBanner({ messages }: { messages: string[] }) {
+  if (!messages.length) return null;
+  return (
+    <div className="rounded-xl border border-[#ef4444]/20 bg-[#ef4444]/[0.03] px-4 py-3.5 space-y-2">
+      {messages.map((m, i) => (
+        <div key={i} className="flex items-start gap-2.5">
+          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ef4444]" />
+          <p className="text-[11px] text-[#c4c7c0]">{m}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── LoadingState / EmptyState — consistent placeholders ──────────────────────
+
+export function LoadingState({ label = "Loading…" }: { label?: string }) {
+  return (
+    <div className="flex-1 overflow-y-auto bg-[#0a0b0a] flex items-center justify-center">
+      <div className="flex items-center gap-2 text-[#4a524a]">
+        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+        <span className="text-[12px]">{label}</span>
+      </div>
+    </div>
+  );
+}
+
+export function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] text-[#6b7068] text-center py-6">{children}</p>
   );
 }

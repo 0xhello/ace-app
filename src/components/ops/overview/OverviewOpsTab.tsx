@@ -1,8 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, RefreshCw, Zap } from "lucide-react";
+import { Activity, LayoutGrid, RefreshCw, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  KpiCard,
+  Panel,
+  SectionHead,
+  ActionButton,
+  OpsPageHeader,
+  OpsFooter,
+  StatusPill,
+  Tag,
+  Dot,
+  LoadingState,
+  EmptyState,
+} from "@/components/ops/shared/primitives";
 
 type SportKey = "nba" | "wc" | "mlb";
 
@@ -162,17 +175,14 @@ function SportCard({ sport }: { sport: SportSummary }) {
 }
 
 function QuotaStrip({ quota }: { quota: QuotaResponse | null }) {
-  // No-data state: shipped the route but no paying call has populated it yet.
-  // Common right after a redeploy or if Redis is dropped — say so plainly
-  // rather than rendering a confusing empty card.
   if (!quota || quota.ok === false) {
     return (
-      <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3">
-        <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1.5">Odds API quota</p>
+      <Panel>
+        <SectionHead icon={Zap} title="Odds API quota" />
         <p className="text-[12px] text-[#9ca39a]">
           No quota data yet — will populate after the next paying Odds API call.
         </p>
-      </div>
+      </Panel>
     );
   }
 
@@ -183,40 +193,30 @@ function QuotaStrip({ quota }: { quota: QuotaResponse | null }) {
   const usedColor = pctUsed >= 85 ? "#ef4444" : pctUsed >= 60 ? "#f5c062" : "#3ee68a";
 
   return (
-    <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3">
-      <div className="flex items-baseline justify-between gap-3 mb-2">
-        <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em]">Odds API quota</p>
-        <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.12em]">
-          last seen {quota.age_seconds != null ? `${quota.age_seconds}s ago` : "—"}
-          {quota.source ? ` · ${quota.source}` : ""}
-        </p>
-      </div>
-      <div className="grid grid-cols-4 gap-3">
-        <div>
-          <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1">% used</p>
-          <p className="text-[20px] font-bold font-mono" style={{ color: usedColor }}>
-            {pctUsed.toFixed(1)}%
+    <Panel>
+      <SectionHead
+        icon={Zap}
+        title="Odds API quota"
+        right={
+          <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.12em]">
+            last seen {quota.age_seconds != null ? `${quota.age_seconds}s ago` : "—"}
+            {quota.source ? ` · ${quota.source}` : ""}
           </p>
-        </div>
-        <div>
-          <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1">Used</p>
-          <p className="text-[20px] font-bold text-white font-mono tabular-nums">
-            {(quota.used ?? 0).toLocaleString()}
-          </p>
-        </div>
-        <div>
-          <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1">Remaining</p>
-          <p className="text-[20px] font-bold text-white font-mono tabular-nums">
-            {(quota.remaining ?? 0).toLocaleString()}
-          </p>
-          <p className="text-[9px] text-[#6b7068] mt-0.5">of {(quota.plan_credits ?? 100000).toLocaleString()}</p>
-        </div>
-        <div>
-          <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1">Last call</p>
-          <p className="text-[20px] font-bold text-white font-mono">
-            {quota.last_cost ?? "—"}<span className="text-[10px] text-[#6b7068] ml-1">credits</span>
-          </p>
-        </div>
+        }
+      />
+      <div className="flex gap-3 flex-wrap">
+        <KpiCard label="% Used"     value={`${pctUsed.toFixed(1)}%`} color={usedColor} />
+        <KpiCard label="Used"       value={(quota.used ?? 0).toLocaleString()} />
+        <KpiCard
+          label="Remaining"
+          value={(quota.remaining ?? 0).toLocaleString()}
+          sub={`of ${(quota.plan_credits ?? 100000).toLocaleString()}`}
+        />
+        <KpiCard
+          label="Last call"
+          value={`${quota.last_cost ?? "—"}`}
+          sub="credits"
+        />
       </div>
       {/* Linear bar — the at-a-glance "are we red?" indicator */}
       <div className="mt-3 h-1.5 rounded-full bg-[#1a1e1a] overflow-hidden">
@@ -225,7 +225,7 @@ function QuotaStrip({ quota }: { quota: QuotaResponse | null }) {
           style={{ width: `${Math.min(100, pctUsed)}%`, background: usedColor }}
         />
       </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -259,13 +259,7 @@ export default function OverviewOpsTab() {
     return () => clearInterval(id);
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center text-[12px] text-[#6b7068]">
-        Loading overview…
-      </div>
-    );
-  }
+  if (loading) return <LoadingState label="Loading overview…" />;
   if (!data) {
     return (
       <div className="flex flex-1 items-center justify-center text-[12px] text-[#ef4444]">
@@ -286,57 +280,40 @@ export default function OverviewOpsTab() {
     : null;
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#0a0b0a] px-6 py-5">
-      <div className="mx-auto max-w-[1200px] space-y-5">
+    <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
+      <div className="max-w-[1200px] mx-auto px-6 py-7 space-y-5">
 
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-[#3ee68a] uppercase tracking-[0.18em] mb-1">
-              ACE · cross-sport
-            </p>
-            <h1 className="text-[20px] font-bold text-white">All sports overview</h1>
-          </div>
-          <button
-            onClick={() => void load(false)}
-            disabled={refreshing}
-            className={cn(
-              "flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] font-bold",
-              "px-3 py-2 rounded-lg border border-[#22251f] bg-[#0d0f0d]",
-              "text-[#9ca39a] hover:text-white hover:border-[#3ee68a]/30",
-              "transition-colors",
-              refreshing && "opacity-50",
-            )}
-          >
-            <RefreshCw className={cn("h-3 w-3", refreshing && "animate-spin")} />
-            Refresh
-          </button>
-        </div>
+        {/* Header — same shape as the per-sport tabs */}
+        <OpsPageHeader
+          icon={LayoutGrid}
+          title="All sports overview"
+          tag="cross-sport"
+          tagColor="#3ee68a"
+          actions={
+            <ActionButton
+              icon={RefreshCw}
+              variant="subtle"
+              busy={refreshing}
+              disabled={refreshing}
+              onClick={() => void load(false)}
+            />
+          }
+        />
 
-        {/* Cross-sport aggregate row */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3">
-            <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1.5">Signals (all-time)</p>
-            <p className="text-[20px] font-bold text-white font-mono">{totalAcross}</p>
-          </div>
-          <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3">
-            <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1.5">Today</p>
-            <p className="text-[20px] font-bold text-[#3ee68a] font-mono">{todayAcross}</p>
-          </div>
-          <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3">
-            <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1.5">Win rate</p>
-            <p className="text-[20px] font-bold text-white font-mono">{fmtPct(aggWinRate)}</p>
-            <p className="text-[9px] text-[#6b7068] mt-0.5">{winsAcross}W / {lossesAcross}L</p>
-          </div>
-          <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] px-4 py-3">
-            <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em] mb-1.5">ROI</p>
-            <p
-              className="text-[20px] font-bold font-mono"
-              style={{ color: (aggRoi ?? 0) > 0 ? "#3ee68a" : (aggRoi !== null && aggRoi < 0 ? "#ef4444" : "#9ca39a") }}
-            >
-              {fmtRoi(aggRoi)}
-            </p>
-          </div>
+        {/* Cross-sport aggregate KPI row */}
+        <div className="flex gap-3 flex-wrap">
+          <KpiCard label="Signals (all-time)" value={String(totalAcross)} />
+          <KpiCard label="Today" value={String(todayAcross)} color="#3ee68a" />
+          <KpiCard
+            label="Win rate"
+            value={fmtPct(aggWinRate)}
+            sub={`${winsAcross}W / ${lossesAcross}L`}
+          />
+          <KpiCard
+            label="ROI"
+            value={fmtRoi(aggRoi)}
+            color={(aggRoi ?? 0) > 0 ? "#3ee68a" : (aggRoi !== null && aggRoi < 0 ? "#ef4444" : "#9ca39a")}
+          />
         </div>
 
         {/* Odds API credit headroom — surfaces /api/ops/odds-quota.
@@ -351,15 +328,10 @@ export default function OverviewOpsTab() {
         </div>
 
         {/* Recent cross-sport signal stream */}
-        <div className="rounded-lg border border-[#22251f] bg-[#0d0f0d] p-5">
-          <p className="text-[10px] font-bold text-[#3ee68a] uppercase tracking-[0.15em] mb-3 flex items-center gap-1.5">
-            <Activity className="h-3 w-3" />
-            Recent signals · all sports
-          </p>
+        <Panel>
+          <SectionHead icon={Activity} title="Recent signals · all sports" />
           {data.recent.length === 0 ? (
-            <p className="text-[11px] text-[#6b7068] text-center py-6">
-              No signals across any sport yet. Workers populate this as games come in.
-            </p>
+            <EmptyState>No signals across any sport yet. Workers populate this as games come in.</EmptyState>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-[10px]">
@@ -412,16 +384,13 @@ export default function OverviewOpsTab() {
               </table>
             </div>
           )}
-        </div>
+        </Panel>
 
         {/* Footer */}
-        <div className="flex items-center justify-between text-[9px] text-[#6b7068] uppercase tracking-[0.12em]">
-          <span className="flex items-center gap-1.5">
-            <Zap className="h-3 w-3 text-[#3ee68a]/60" />
-            ACE multi-sport · live signal layer
-          </span>
-          <span>refreshed · {new Date(data.refreshedAt).toLocaleTimeString()}</span>
-        </div>
+        <OpsFooter
+          refreshedAt={data.refreshedAt}
+          schemaText="ACE multi-sport · live signal layer"
+        />
       </div>
     </div>
   );

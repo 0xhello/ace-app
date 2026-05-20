@@ -8,6 +8,21 @@ import {
   BookMarked, PlusCircle, Target, BarChart2, Info,
   Radio, Eye,
 } from "lucide-react";
+import {
+  KpiCard as SharedKpiCard,
+  SectionHead as SharedSectionHead,
+  Panel,
+  ActionButton,
+  WorkerStatusStrip,
+  OpsPageHeader,
+  StatusPill,
+  OpsFooter,
+  ErrorBanner,
+  LoadingState,
+  EmptyState,
+  Tag as SharedTag,
+  Dot as SharedDot,
+} from "@/components/ops/shared/primitives";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -440,36 +455,38 @@ export default function NBAOpsTab() {
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
       <div className="max-w-[1200px] mx-auto px-6 py-7 space-y-5">
 
-        {/* ══ HEADER ══════════════════════════════════════════════════════════ */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Terminal className="h-4 w-4 text-[#3ee68a]" />
-            <h1 className="text-[18px] font-bold text-white tracking-tight">NBA</h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] text-[#3a4033] font-mono">{today}</span>
-            <button
-              onClick={() => runPipeline("grade")}
-              disabled={running !== null}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#1e2220] text-[10px] font-semibold text-[#6b7068] hover:text-[#9ca39a] hover:border-[#2e332a] transition-colors disabled:opacity-40"
-            >
-              {running === "grade" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-              {running === "grade" ? "Grading…" : "Grade"}
-            </button>
-            <button
-              onClick={() => runPipeline("fetch")}
-              disabled={running !== null}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[#3ee68a]/20 bg-[#3ee68a]/5 text-[10px] font-bold text-[#3ee68a] hover:bg-[#3ee68a]/10 transition-colors disabled:opacity-40"
-            >
-              {running === "fetch" ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-              {running === "fetch" ? "Running…" : "Run Picks"}
-            </button>
-            <button onClick={loadAll} className="flex items-center gap-1.5 text-[10px] text-[#4a524a] hover:text-[#9ca39a] transition-colors">
-              <RefreshCw className="h-3 w-3" />
-              {lastRefresh ? `${Math.round((Date.now() - lastRefresh.getTime()) / 1000)}s` : "—"}
-            </button>
-          </div>
-        </div>
+        {/* Header — shared shape with Soccer / MLB / Overview */}
+        <OpsPageHeader
+          icon={Terminal}
+          title="NBA"
+          tag={today}
+          tagColor="#6b7068"
+          actions={
+            <>
+              <ActionButton
+                icon={CheckCircle2}
+                label={running === "grade" ? "Grading…" : "Grade"}
+                busy={running === "grade"}
+                disabled={running !== null}
+                onClick={() => runPipeline("grade")}
+              />
+              <ActionButton
+                icon={Zap}
+                label={running === "fetch" ? "Running…" : "Run Picks"}
+                variant="primary"
+                busy={running === "fetch"}
+                disabled={running !== null}
+                onClick={() => runPipeline("fetch")}
+              />
+              <ActionButton
+                icon={RefreshCw}
+                variant="subtle"
+                label={lastRefresh ? `${Math.round((Date.now() - lastRefresh.getTime()) / 1000)}s` : "—"}
+                onClick={loadAll}
+              />
+            </>
+          }
+        />
 
         {/* ══ STATUS STRIP ════════════════════════════════════════════════════ */}
         <div className="flex items-center gap-4 rounded-xl border border-[#181c18] bg-[#0d0f0d] px-4 py-3 flex-wrap gap-y-2">
