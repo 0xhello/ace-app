@@ -152,7 +152,30 @@ def run(days_back: int = 3) -> None:
                 not_found += 1
                 continue
 
-            results = grade_signal(game_id, home_score, away_score)
+            # Only pay the API-Football fixture-events call when at least
+            # one open signal on this game is a player-prop market that
+            # needs scorers. Saves quota when grading is game-level only.
+            scorers: Optional[set] = None
+            has_prop = any(
+                s.get("market") == "player_goal_scorer_anytime"
+                for s in sigs
+                if s.get("game_id") == game_id
+            )
+            if has_prop:
+                from .fixture_events import get_scorers_for_match
+                game_date = sig.get("game_date") or ""
+                try:
+                    scorers = get_scorers_for_match(home_team, away_team, game_date)
+                except Exception as e:
+                    print(f"  [scorers] {away_team} @ {home_team}: {e}", file=sys.stderr)
+                    scorers = None
+                if scorers is None:
+                    # Fixture/events not resolved — player-prop rows stay
+                    # open, game-level rows still grade against home/away.
+                    print(f"  [scorers] {away_team} @ {home_team}: not yet resolved, "
+                          f"player-prop rows left open")
+
+            results = grade_signal(game_id, home_score, away_score, scorers=scorers)
             for r in results:
                 graded_count += 1
                 result_str = {1: "WIN ", 0: "LOSS", None: "VOID"}.get(r["correct"], "?   ")

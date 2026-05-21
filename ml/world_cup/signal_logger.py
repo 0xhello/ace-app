@@ -514,11 +514,18 @@ def grade_signal(
     game_id: str,
     home_score: int,
     away_score: int,
+    scorers: Optional[set] = None,
     path: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     """
     Grade all open signals for game_id based on final scores.
     Returns list of graded signal dicts with 'correct' field set.
+
+    `scorers`: optional set of canonical player names who scored in
+    regulation+ET (no shootouts, no own goals). Required to grade
+    `player_goal_scorer_anytime` market rows. When None, player-prop
+    rows are left open (caller didn't fetch fixture events for this
+    game). Game-level rows (h2h/totals/AH) grade regardless.
 
     `path` resolves at call time so tests can monkeypatch.
     """
@@ -576,6 +583,32 @@ def grade_signal(
             else:
                 result = "void"   # exact push on total
                 correct = None
+
+        elif market == "player_goal_scorer_anytime":
+            # Anytime-scorer settlement: regulation + ET goals only, no
+            # shootouts, no own goals. `scorers` is the set of canonical
+            # names from fixture_events.extract_goalscorers; the caller
+            # passes None when they haven't fetched events for this game
+            # (signal stays open, retries next run).
+            if scorers is None:
+                # Leave open — caller will retry next run when fixture
+                # events are available. NOT a void; we just don't know yet.
+                continue
+            player_name = sig["player_name"] if "player_name" in sig.keys() else None
+            if not player_name:
+                result = None
+                correct = None
+            else:
+                # Lazy-import to avoid pulling historical's deps when
+                # they're not needed (keeps the signal_logger test surface clean).
+                from .historical import _normalize_player_name
+                canonical = _normalize_player_name(player_name)
+                if canonical in scorers:
+                    result  = "scored"
+                    correct = 1 if bet_side == "yes" else 0
+                else:
+                    result  = "no_score"
+                    correct = 0 if bet_side == "yes" else 1
         else:
             result = None
             correct = None
