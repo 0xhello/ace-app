@@ -21,6 +21,14 @@ export const SPORT_KEYS = [
   "soccer_fifa_world_cup",
   "soccer_uefa_champs_league",
   "soccer_usa_mls",
+  // European Big 5 — added for the pre-WC pipeline. Active-sports cache
+  // (60-min refresh) will silently drop those that are off-season; off-season
+  // sport keys return 422 from Odds API at zero credit cost.
+  "soccer_epl",
+  "soccer_spain_la_liga",
+  "soccer_germany_bundesliga",
+  "soccer_italy_serie_a",
+  "soccer_france_ligue_one",
 ] as const;
 
 export type SportKey = (typeof SPORT_KEYS)[number];
@@ -227,27 +235,38 @@ export async function fetchAllGames(): Promise<{
 
   // Write raw odds + scores to Redis so the Python workers can read them
   // without making their own API calls. Fire-and-forget — workers fall back
-  // to a direct fetch if Redis is missing or stale (>25 min). Extending this
-  // to WC + MLB mirrors the existing NBA optimization and is the lower half
-  // of the credit-share fix (the workers also have read-through helpers).
-  const shareSports: Record<string, string> = {
+  // to a direct fetch if Redis is missing or stale (>25 min).
+  //
+  // Generic pattern: every sport key gets a `__raw_odds_<sport_key>__` entry.
+  // The legacy short aliases (nba / wc / mlb) are kept so the existing Python
+  // readers continue working without code changes. The Python soccer-leagues
+  // module reads the long form directly (e.g. __raw_odds_soccer_epl__).
+  const legacyAliases: Record<string, string> = {
     basketball_nba:         "__raw_odds_nba__",
     soccer_fifa_world_cup:  "__raw_odds_wc__",
     baseball_mlb:           "__raw_odds_mlb__",
   };
-  const shareScores: Record<string, string> = {
+  const legacyScores: Record<string, string> = {
     basketball_nba:         "__raw_scores_nba__",
     soccer_fifa_world_cup:  "__raw_scores_wc__",
     baseball_mlb:           "__raw_scores_mlb__",
   };
-  for (const [sportKey, oddsCacheKey] of Object.entries(shareSports)) {
-    const idx = sports.indexOf(sportKey);
-    if (idx < 0) continue;
-    if (oddsResults[idx]?.data.length > 0)
-      cacheSet(oddsCacheKey, oddsResults[idx].data).catch(() => {});
-    const scoresCacheKey = shareScores[sportKey];
-    if (scoresCacheKey && scoreResults[idx]?.length > 0)
-      cacheSet(scoresCacheKey, scoreResults[idx]).catch(() => {});
+  for (let i = 0; i < sports.length; i++) {
+    const sportKey = sports[i];
+    const data = oddsResults[i]?.data;
+    if (data && data.length > 0) {
+      // Generic key (the new pattern)
+      cacheSet(`__raw_odds_${sportKey}__`, data).catch(() => {});
+      // Legacy alias for backward compat with existing Python readers
+      const alias = legacyAliases[sportKey];
+      if (alias) cacheSet(alias, data).catch(() => {});
+    }
+    const scores = scoreResults[i];
+    if (scores && scores.length > 0) {
+      cacheSet(`__raw_scores_${sportKey}__`, scores).catch(() => {});
+      const aliasS = legacyScores[sportKey];
+      if (aliasS) cacheSet(aliasS, scores).catch(() => {});
+    }
   }
 
   // Build score lookup

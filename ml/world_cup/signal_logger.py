@@ -282,15 +282,25 @@ def log_signal(
     total_line: Optional[float] = None,
     notes: str = "",
     reasoning_json: Optional[str] = None,
-    path: Path = DB_PATH,
+    tournament: str = "FIFA World Cup",
+    path: Optional[Path] = None,
 ) -> int:
     """
     Insert a new signal-as-pick. Silently ignores duplicates (same game_id +
-    market + bet_side). Returns the new row id, or 0 if duplicate.
+    market + bet_side + player_name). Returns the new row id, or 0 if duplicate.
+
+    `tournament` distinguishes which competition this signal belongs to —
+    'FIFA World Cup' (default for backward compat), 'Premier League',
+    'La Liga', etc. Ops dashboard groups by this column.
 
     confidence_tier and kelly_fraction are derived from edge_pp / pinnacle_prob /
     book_odds — no caller computation required.
+
+    `path` defaults to None so DB_PATH is resolved at call time (respects
+    monkeypatch in tests; default args would otherwise bind at definition).
     """
+    if path is None:
+        path = DB_PATH
     init_db(path)
     conn = get_db(path)
     detected_at = datetime.now(timezone.utc).isoformat()
@@ -301,15 +311,15 @@ def log_signal(
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO soccer_signals
-            (game_id, game_date, home_team, away_team, commence_time,
+            (game_id, game_date, home_team, away_team, commence_time, tournament,
              market, bet_side, total_line,
              pinnacle_prob, book, book_prob, book_odds, edge_pp,
              confidence_tier, kelly_fraction, reasoning_json,
              notes, detected_at)
-        VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?)
+        VALUES (?,?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?)
         """,
         (
-            game_id, game_date, home_team, away_team, commence_time,
+            game_id, game_date, home_team, away_team, commence_time, tournament,
             market, bet_side, _null_float(total_line),
             _null_float(pinnacle_prob), book, _null_float(book_prob),
             _null_float(book_odds), _null_float(edge_pp),
@@ -340,7 +350,7 @@ def log_player_prop_signal(
     edge_pp: float,
     notes: str = "",
     reasoning_json: Optional[str] = None,
-    path: Path = DB_PATH,
+    path: Optional[Path] = None,
 ) -> int:
     """
     Log a player-prop divergence signal. Unlike game-level signals where
@@ -355,8 +365,10 @@ def log_player_prop_signal(
     render them with no changes.
 
     Idempotent on (game_id, market, bet_side, player_name) via the v2
-    unique index.
+    unique index. `path` resolves at call time so tests can monkeypatch.
     """
+    if path is None:
+        path = DB_PATH
     init_db(path)
     conn = get_db(path)
     detected_at = datetime.now(timezone.utc).isoformat()
@@ -421,7 +433,7 @@ def update_closing_lines(
     game_id: str,
     pinnacle_probs_by_side: Dict[str, float],
     book_odds_by_side_book: Dict[tuple, float],
-    path: Path = DB_PATH,
+    path: Optional[Path] = None,
 ) -> int:
     """
     Stamp closing-line snapshots onto every still-open signal for a game.
@@ -447,6 +459,8 @@ def update_closing_lines(
       book_odds_by_side_book: {('fanduel', 'draw'): +240, ...} — current
                               American odds per (book, bet_side) pair
     """
+    if path is None:
+        path = DB_PATH
     init_db(path)
     conn = get_db(path)
     open_rows = conn.execute(

@@ -52,6 +52,14 @@ try:
 except Exception:
     _WC_AVAILABLE = False
 
+# European club leagues + UCL — same divergence engine as WC, different sport
+# keys. Loaded lazily so a missing dep doesn't kill the rest of the worker.
+try:
+    from ml.soccer.leagues import run_active_leagues as _soccer_leagues_run
+    _SOCCER_LEAGUES_AVAILABLE = True
+except Exception:
+    _SOCCER_LEAGUES_AVAILABLE = False
+
 # MLB module — same lazy-load pattern. Divergence-only pipeline (no model yet).
 try:
     from ml.mlb.fetch_signals import run as _mlb_fetch_run
@@ -364,6 +372,30 @@ def run_loop(once: bool = False) -> None:
                 try:
                     _wc_update_meta("last_poll_at", datetime.now(timezone.utc).isoformat())
                     _wc_update_meta("last_poll_ok", "0")
+                except Exception:
+                    pass
+
+        # European club leagues + UCL — same divergence engine as WC, just
+        # different sport keys. Each league's active_until date gates whether
+        # it runs (we skip Bundesliga after May 17, EPL after May 25, etc.).
+        # Signals land in soccer_signals tagged with `tournament` so the ops
+        # dashboard can slice or aggregate per league.
+        if _SOCCER_LEAGUES_AVAILABLE:
+            try:
+                summary = _soccer_leagues_run(snapshot_only=False)
+                fired = sum(s.get("signals_fired", 0) for s in summary.values())
+                if fired > 0:
+                    print(f"  [worker] soccer leagues: {fired} signals across {len(summary)} active", flush=True)
+                # Re-use the WC meta keys so the ops dashboard treats all
+                # soccer scans uniformly. (Could split per-league later if
+                # we want separate freshness signals per competition.)
+                _wc_update_meta("job:soccer_leagues:last_run_at",
+                                datetime.now(timezone.utc).isoformat())
+                _wc_update_meta("job:soccer_leagues:last_error", "")
+            except Exception as e:
+                print(f"  [worker] soccer leagues scan error: {e}", file=sys.stderr, flush=True)
+                try:
+                    _wc_update_meta("job:soccer_leagues:last_error", str(e)[:200])
                 except Exception:
                     pass
 
