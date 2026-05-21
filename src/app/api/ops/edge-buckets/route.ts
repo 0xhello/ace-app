@@ -103,12 +103,14 @@ def load_sport_uniform(db_name, table_name):
     return rows
 
 def load_nba():
-    """NBA uses different column names; 'covered' is the win column."""
+    """NBA uses different column names; older DBs may not have edge."""
     conn = open_conn("signal_log.db")
     if not conn or not table_exists(conn, "signal_log"):
         return []
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(signal_log)").fetchall()}
+    edge_expr = "edge" if "edge" in cols else "NULL"
     rows = [dict(r) for r in conn.execute(
-        "SELECT edge AS edge_pp, covered AS correct, status, NULL AS clv_pp "
+        "SELECT " + edge_expr + " AS edge_pp, covered AS correct, status, NULL AS clv_pp "
         "FROM signal_log WHERE game_date >= ?",
         (window_start,),
     ).fetchall()]

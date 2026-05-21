@@ -118,9 +118,11 @@ def load_nba():
     conn = open_conn("signal_log.db")
     if not conn or not table_exists(conn, "signal_log"):
         return []
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(signal_log)").fetchall()}
+    detected_expr = "logged_at" if "logged_at" in cols else ("detected_at" if "detected_at" in cols else "created_at")
     rows = [dict(r) for r in conn.execute(
         "SELECT game_date, signal_type AS market, status, covered AS correct, "
-        "       logged_at AS detected_at "
+        "       " + detected_expr + " AS detected_at, NULL AS clv_pp "
         "FROM signal_log "
         "WHERE game_date >= ? "
         "ORDER BY game_date ASC",
