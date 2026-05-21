@@ -256,7 +256,15 @@ print(json.dumps({
     "pending_count": len(pending),
 }))
 `;
-  const r = spawnSync("python3", ["-c", script], { encoding: "utf-8", timeout: 10_000 });
+  // cwd MUST be the app root so the subprocess can import ml.world_cup.
+  // Without this, the explainer-import path inside the script silently
+  // catches an ImportError and the response misses the `explanation` field.
+  const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
+  const r = spawnSync("python3", ["-c", script], {
+    encoding: "utf-8",
+    timeout: 10_000,
+    cwd: appRoot,
+  });
   try {
     const parsed = JSON.parse(r.stdout) as Omit<PublicPerformanceResponse, "refreshed_at">;
     return { ...parsed, refreshed_at: new Date().toISOString() };

@@ -24,7 +24,7 @@ interface ExplainResponse {
   error?: string;
 }
 
-function explainSignal(dbPath: string, signalId: number): ExplainResponse {
+function explainSignal(appRoot: string, dbPath: string, signalId: number): ExplainResponse {
   const script = `
 import json, sys
 from pathlib import Path
@@ -38,7 +38,14 @@ try:
 except Exception as e:
     print(json.dumps({"headline": "Error", "why": "", "caveat": "", "error": str(e)}))
 `;
-  const r = spawnSync("python3", ["-c", script], { encoding: "utf-8", timeout: 8_000 });
+  // cwd MUST be set to appRoot so the subprocess can import ml.world_cup —
+  // other routes (historical-pull etc.) do this; we missed it on the first
+  // pass and got "No module named 'ml.world_cup'" on prod.
+  const r = spawnSync("python3", ["-c", script], {
+    encoding: "utf-8",
+    timeout: 8_000,
+    cwd: appRoot,
+  });
   try {
     return JSON.parse(r.stdout) as ExplainResponse;
   } catch {
@@ -62,5 +69,5 @@ export async function GET(req: NextRequest) {
   }
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
   const dbPath = path.join(appRoot, "ml", "nba_spread", "data", "wc_signal_log.db");
-  return NextResponse.json(explainSignal(dbPath, id));
+  return NextResponse.json(explainSignal(appRoot, dbPath, id));
 }
