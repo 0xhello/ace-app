@@ -350,6 +350,7 @@ def log_player_prop_signal(
     edge_pp: float,
     notes: str = "",
     reasoning_json: Optional[str] = None,
+    tournament: str = "FIFA World Cup",
     path: Optional[Path] = None,
 ) -> int:
     """
@@ -363,6 +364,10 @@ def log_player_prop_signal(
     we have a real Pinnacle player-prop comparison). The book_prob and
     edge_pp are the same shape as game-level signals so the ops UI can
     render them with no changes.
+
+    `tournament` defaults to 'FIFA World Cup' (so existing callers keep
+    tagging correctly) but club-league callers pass their league label
+    so the ops dashboard can split by competition.
 
     Idempotent on (game_id, market, bet_side, player_name) via the v2
     unique index. `path` resolves at call time so tests can monkeypatch.
@@ -379,16 +384,16 @@ def log_player_prop_signal(
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO soccer_signals
-            (game_id, game_date, home_team, away_team, commence_time,
+            (game_id, game_date, home_team, away_team, commence_time, tournament,
              market, bet_side, total_line,
              pinnacle_prob, book, book_prob, book_odds, edge_pp,
              confidence_tier, kelly_fraction, reasoning_json,
              player_name, api_player_id, prior_prob,
              notes, detected_at)
-        VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?,?, ?,?)
+        VALUES (?,?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?,?, ?,?)
         """,
         (
-            game_id, game_date, home_team, away_team, commence_time,
+            game_id, game_date, home_team, away_team, commence_time, tournament,
             market, bet_side, None,                              # no total_line for player props
             None, book, _null_float(book_prob),                  # pinnacle_prob NULL until v2
             _null_float(book_odds), _null_float(edge_pp),

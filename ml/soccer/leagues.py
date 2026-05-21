@@ -48,7 +48,8 @@ from ml.world_cup.fetch_signals import (
     _is_in_closing_window,
     _build_closing_snapshot,
 )
-from ml.world_cup.signal_logger import log_signal, update_closing_lines
+from ml.world_cup.signal_logger import log_signal, log_player_prop_signal, update_closing_lines
+from ml.world_cup.fetch_signals import _detect_player_prop_signals
 
 _ENV_PATH = Path(__file__).resolve().parents[2] / ".env.local"
 load_dotenv(_ENV_PATH)
@@ -57,7 +58,14 @@ ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
 ODDS_BASE    = "https://api.the-odds-api.com/v4"
 
 MARKETS = "h2h,spreads,totals"
+PLAYER_PROP_MARKETS = "player_goal_scorer_anytime"
 BOOKS   = "pinnacle,fanduel,draftkings,betmgm,williamhill_us,betrivers"
+
+# Player-prop scanning is opt-in per call. Costs 1 extra credit per league
+# per tick, so the worker calls it on a slower cadence than game-level
+# (handled via the SCAN_PROPS env flag — default off until we're confident
+# the priors layer is populated enough to fire signals).
+SCAN_PLAYER_PROPS_DEFAULT = os.getenv("WC_PLAYER_PROPS_CLUB_LEAGUES", "").lower() in ("1", "true", "yes")
 
 
 # ── League catalog ───────────────────────────────────────────────────────────
@@ -135,20 +143,52 @@ def fetch_league_odds(sport_key: str) -> List[Dict[str, Any]]:
     return resp.json()
 
 
+def fetch_league_player_props(sport_key: str) -> List[Dict[str, Any]]:
+    """Separate Odds API call for player_goal_scorer_anytime markets per
+    league. Costs 1 credit per call (one market). Returns [] when the
+    market isn't posted yet (422 from Odds API).
+    """
+    if not ODDS_API_KEY:
+        return []
+    url = f"{ODDS_BASE}/sports/{sport_key}/odds"
+    params = {
+        "apiKey":     ODDS_API_KEY,
+        "regions":    "us",
+        "markets":    PLAYER_PROP_MARKETS,
+        "bookmakers": BOOKS,
+        "oddsFormat": "american",
+    }
+    resp = httpx.get(url, params=params, timeout=15)
+    if resp.status_code in (401, 422):
+        return []  # not posted yet for this league / sport
+    if resp.status_code == 429:
+        raise RuntimeError("Odds API quota exceeded.")
+    resp.raise_for_status()
+    return resp.json()
+
+
 # ── Per-league signal scan ───────────────────────────────────────────────────
 
 def run_league(
     sport_key: str,
     tournament: str,
     snapshot_only: bool = False,
+    scan_player_props: Optional[bool] = None,
 ) -> Dict[str, int]:
     """Scan one league's odds, fire divergence signals into soccer_signals
-    tagged with `tournament`. Returns {signals_fired, signals_skipped, games}.
+    tagged with `tournament`. Returns {signals_fired, signals_skipped, games,
+    prop_signals}.
 
     snapshot_only=True (worker tip-time path) skips signal logging but still
     refreshes the closing-line snapshot for any open signals on imminent
     kickoffs.
+
+    scan_player_props controls whether we ALSO scan player_goal_scorer_anytime
+    markets (costs 1 extra credit per call). Defaults to the env-driven
+    SCAN_PLAYER_PROPS_DEFAULT — start with off, flip on when priors are populated.
     """
+    if scan_player_props is None:
+        scan_player_props = SCAN_PLAYER_PROPS_DEFAULT
     print("=" * 55)
     print(f"  ACE — {tournament} ({sport_key}) Signal Scan")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -289,8 +329,65 @@ def run_league(
                 else:
                     signals_skipped += 1
 
-    print(f"  Signals fired: {signals_fired}  Skipped (dup): {signals_skipped}")
-    return {"signals_fired": signals_fired, "signals_skipped": signals_skipped, "games": len(raw_games)}
+    # ── Player-prop divergence (opt-in via scan_player_props) ────────────────
+    # 1 extra credit per league per call. Reads from club_players via the
+    # existing _detect_player_prop_signals → find_wc_player → club_players
+    # fallback chain. Compares each player's anytime-scorer market against
+    # our prior; logs +EV divergences tagged with `tournament`.
+    prop_signals = 0
+    if not snapshot_only and scan_player_props:
+        try:
+            prop_games = fetch_league_player_props(sport_key)
+        except Exception as e:
+            print(f"  [{tournament}] player-prop fetch error: {e}", file=sys.stderr)
+            prop_games = []
+
+        by_id = {g.get("id"): g for g in prop_games}
+        for game in upcoming:
+            pg = by_id.get(game["id"])
+            if not pg:
+                continue
+            home_name = game["home_team"]
+            away_name = game["away_team"]
+            game_date = _et_game_date(game["commence_time"])
+
+            # Use Pinnacle's totals line / 2 as expected team goals when
+            # available, otherwise the 1.40 international-tournament default
+            # (a reasonable club-league baseline too).
+            pin_tot = _extract_totals_probs(game["bookmakers"], "pinnacle")
+            expected_team_goals = 1.40
+            if pin_tot and pin_tot.get("line"):
+                expected_team_goals = (pin_tot["line"] or 2.8) / 2.0
+
+            for sig in _detect_player_prop_signals(pg, expected_team_goals):
+                row_id = log_player_prop_signal(
+                    game_id        = game["id"],
+                    game_date      = game_date,
+                    home_team      = home_name,
+                    away_team      = away_name,
+                    commence_time  = game["commence_time"],
+                    notes          = "",
+                    reasoning_json = None,
+                    tournament     = tournament,
+                    **sig,
+                )
+                if row_id:
+                    prop_signals += 1
+                    print(
+                        f"  [SIGNAL] {away_name} @ {home_name}  "
+                        f"anytime/{sig['player_name']}  "
+                        f"prior={sig['prior_prob']:.1%}  "
+                        f"{sig['book']}={sig['book_prob']:.1%}  "
+                        f"edge={sig['edge_pp']*100:.1f}pp"
+                    )
+
+    print(f"  Signals fired: {signals_fired}  Skipped (dup): {signals_skipped}  Prop signals: {prop_signals}")
+    return {
+        "signals_fired":   signals_fired,
+        "signals_skipped": signals_skipped,
+        "prop_signals":    prop_signals,
+        "games":           len(raw_games),
+    }
 
 
 # ── Orchestrator — called from the worker tick ───────────────────────────────

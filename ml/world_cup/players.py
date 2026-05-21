@@ -175,6 +175,27 @@ def init_player_tables(path: Path = DB_PATH) -> None:
             ON wc_player_form(api_player_id);
         CREATE INDEX IF NOT EXISTS idx_wc_priors_player
             ON wc_player_priors(api_player_id);
+
+        -- Club-league player rosters (Premier League, La Liga, etc.) —
+        -- parallel to wc_players but keyed by club instead of national team.
+        -- The same api_player_id appears in BOTH tables when a player is in
+        -- a club AND a WC squad (most starters), so compute_goalscorer_prior
+        -- can resolve a player from either table interchangeably.
+        CREATE TABLE IF NOT EXISTS club_players (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            api_player_id   INTEGER UNIQUE NOT NULL,
+            player_name     TEXT NOT NULL,
+            club_name       TEXT NOT NULL,
+            league_id       INTEGER NOT NULL,    -- API-Football league id (39=EPL, 140=La Liga, etc.)
+            position        TEXT,
+            age             INTEGER,
+            shirt_number    INTEGER,
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_club_players_club
+            ON club_players(club_name);
+        CREATE INDEX IF NOT EXISTS idx_club_players_league
+            ON club_players(league_id);
     """)
     conn.commit()
     conn.close()
@@ -335,32 +356,32 @@ def sync_wc_squads(path: Path = DB_PATH) -> int:
 def sync_club_form(path: Path = DB_PATH) -> int:
     """Pull top-scorer + top-assist data from major club leagues for every
     season in CLUB_SEASONS (current + previous). ~10 calls × 2 stat types ×
-    2 seasons = 40 calls. Combined with squad sync = ~72 calls/day.
+    2 seasons = 40 calls.
 
     Returns the number of (player, season, league) form rows upserted.
+
+    Two side effects beyond filling wc_player_form:
+      1. Every top-scorer / top-assist player encountered gets a row in
+         club_players (the generic club-roster table). This means the
+         player-prop pipeline can resolve goalscorer-prop markets for
+         non-WC-squad players in EPL/La Liga/etc. — exactly the wedge
+         we need pre-WC to validate the prior layer on real games.
+      2. wc_player_form receives a form row for EVERY top scorer we see,
+         not just WC squad members. The prior compute walks form rows by
+         api_player_id; this expansion costs nothing extra (same API
+         calls) and unlocks the club-league prop scan.
     """
     init_player_tables(path)
     conn = get_db(path)
-
-    # Build a set of all WC squad player IDs so we only store form for
-    # players we actually care about — keeps the form table small.
-    wc_player_ids: set = {
-        row["api_player_id"]
-        for row in conn.execute("SELECT api_player_id FROM wc_players").fetchall()
-    }
-    if not wc_player_ids:
-        print("  [players] No WC players cached — run sync_wc_squads first")
-        conn.close()
-        return 0
-
     now = datetime.now(timezone.utc).isoformat()
     upserted = 0
 
     for season in CLUB_SEASONS:
         for league_id in MAJOR_CLUB_LEAGUES:
             # Top scorers gives goals + appearances + minutes for the league's
-            # top 20-30 scorers, which captures most of the prop-relevant
-            # players (forwards, attacking midfielders) on WC squads.
+            # top 20-30 scorers — the prop-relevant players (forwards,
+            # attacking midfielders). We store ALL of them, not just WC
+            # squad members, so the club-league prop scanner can use them.
             data = _get("players/topscorers", {"league": league_id, "season": season})
             if not data:
                 continue
@@ -368,8 +389,8 @@ def sync_club_form(path: Path = DB_PATH) -> int:
             for entry in data.get("response", []):
                 player = entry.get("player", {}) or {}
                 pid = player.get("id")
-                if not pid or pid not in wc_player_ids:
-                    continue  # ignore non-WC players
+                if not pid:
+                    continue
 
                 stats_list = entry.get("statistics", []) or []
                 if not stats_list:
@@ -380,6 +401,33 @@ def sync_club_form(path: Path = DB_PATH) -> int:
                 goals = s.get("goals", {}) or {}
                 shots = s.get("shots", {}) or {}
                 cards = s.get("cards", {}) or {}
+
+                club_name = (s.get("team") or {}).get("name") or ""
+
+                # Upsert into the GENERIC club_players table (parallel to
+                # wc_players). The prior compute looks up players from
+                # either table — so club-league props work for the same
+                # player even if they're not in a WC squad yet.
+                conn.execute(
+                    """
+                    INSERT INTO club_players
+                        (api_player_id, player_name, club_name, league_id, position, age, shirt_number, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(api_player_id) DO UPDATE SET
+                        player_name  = excluded.player_name,
+                        club_name    = excluded.club_name,
+                        league_id    = excluded.league_id,
+                        position     = excluded.position,
+                        age          = excluded.age,
+                        shirt_number = excluded.shirt_number,
+                        updated_at   = excluded.updated_at
+                    """,
+                    (
+                        pid, player.get("name", ""), club_name, league_id,
+                        games.get("position"), player.get("age"), games.get("number"),
+                        now,
+                    ),
+                )
 
                 conn.execute(
                     """
@@ -403,7 +451,7 @@ def sync_club_form(path: Path = DB_PATH) -> int:
                     """,
                     (
                         pid, season, league_id,
-                        (s.get("team") or {}).get("name"),
+                        club_name,
                         games.get("appearences", 0) or 0,   # API-Football typo: "appearences"
                         games.get("minutes", 0) or 0,
                         goals.get("total", 0) or 0,
@@ -419,7 +467,8 @@ def sync_club_form(path: Path = DB_PATH) -> int:
                 upserted += 1
 
         # Same pass for top assists — different endpoint, captures playmakers
-        # who don't always crack the top-scorer list.
+        # who don't always crack the top-scorer list. Same expansion: stores
+        # all of them, not just WC squad members.
         for league_id in MAJOR_CLUB_LEAGUES:
             data = _get("players/topassists", {"league": league_id, "season": season})
             if not data:
@@ -428,7 +477,7 @@ def sync_club_form(path: Path = DB_PATH) -> int:
             for entry in data.get("response", []):
                 player = entry.get("player", {}) or {}
                 pid = player.get("id")
-                if not pid or pid not in wc_player_ids:
+                if not pid:
                     continue
 
                 stats_list = entry.get("statistics", []) or []
@@ -437,8 +486,34 @@ def sync_club_form(path: Path = DB_PATH) -> int:
                 s = stats_list[0]
                 games = s.get("games", {}) or {}
                 goals = s.get("goals", {}) or {}
+                club_name = (s.get("team") or {}).get("name") or ""
 
-                # Only upsert if we don't already have this player from topscorers
+                # Mirror the top-scorers pass: upsert into club_players so
+                # the player is resolvable from prop markets.
+                conn.execute(
+                    """
+                    INSERT INTO club_players
+                        (api_player_id, player_name, club_name, league_id, position, age, shirt_number, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(api_player_id) DO UPDATE SET
+                        player_name  = excluded.player_name,
+                        club_name    = excluded.club_name,
+                        league_id    = excluded.league_id,
+                        position     = excluded.position,
+                        age          = excluded.age,
+                        shirt_number = excluded.shirt_number,
+                        updated_at   = excluded.updated_at
+                    """,
+                    (
+                        pid, player.get("name", ""), club_name, league_id,
+                        games.get("position"), player.get("age"), games.get("number"),
+                        now,
+                    ),
+                )
+
+                # Only upsert form if we don't already have this (player,
+                # season, league) from topscorers — topscorers has the
+                # richer shot/card data so it wins the tie.
                 existing = conn.execute(
                     "SELECT id FROM wc_player_form WHERE api_player_id = ? AND season = ? AND club_league_id = ?",
                     (pid, season, league_id),
@@ -454,8 +529,7 @@ def sync_club_form(path: Path = DB_PATH) -> int:
                     VALUES (?,?,?,?, ?,?,?,?, ?,?)
                     """,
                     (
-                        pid, season, league_id,
-                        (s.get("team") or {}).get("name"),
+                        pid, season, league_id, club_name,
                         games.get("appearences", 0) or 0,
                         games.get("minutes", 0) or 0,
                         goals.get("total", 0) or 0,
@@ -463,8 +537,8 @@ def sync_club_form(path: Path = DB_PATH) -> int:
                         games.get("position"),
                         now,
                     ),
-            )
-            upserted += 1
+                )
+                upserted += 1
 
     conn.commit()
     conn.close()
@@ -777,6 +851,11 @@ def compute_goalscorer_prior(
       P(scores >=1)   = 1 - exp(-lambda)   (Poisson approximation)
 
     Returns None if the player is unknown or has no form data.
+
+    Player resolution: tries wc_players first (WC squad), falls back to
+    club_players (EPL/La Liga/etc. rosters). Same prior math either way —
+    we just need a player_name + position to drive position_factor and
+    the historical-form lookup.
     """
     # Resolve DB_PATH at call time (not definition) so tests can monkeypatch.
     if path is None:
@@ -784,8 +863,16 @@ def compute_goalscorer_prior(
     init_player_tables(path)
     conn = get_db(path)
     player = conn.execute(
-        "SELECT * FROM wc_players WHERE api_player_id = ?", (api_player_id,)
+        "SELECT api_player_id, player_name, team_name, position FROM wc_players WHERE api_player_id = ?",
+        (api_player_id,),
     ).fetchone()
+    if player is None:
+        # Fall back to the club roster — same row shape, team_name is the
+        # club name instead of national team. The prior math doesn't care.
+        player = conn.execute(
+            "SELECT api_player_id, player_name, club_name AS team_name, position FROM club_players WHERE api_player_id = ?",
+            (api_player_id,),
+        ).fetchone()
     if not player:
         conn.close()
         return None
@@ -855,14 +942,19 @@ def compute_goalscorer_prior(
 
 
 def find_wc_player(name: str, path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
-    """Resolve a player name (from Odds API or anywhere) to a wc_players row.
+    """Resolve a player name (from Odds API or anywhere) to a player row.
+
+    Searches wc_players FIRST (WC squad — most prop-relevant during the
+    tournament), then falls back to club_players (EPL/La Liga/etc.) so
+    the same resolver works for club-league prop markets.
 
     Odds API names vary by market — sometimes "Kylian Mbappe", sometimes
     "K. Mbappe", sometimes a different transliteration. We canonicalize
     both sides via the alias map and try exact match first, then a case-
     insensitive surname-tail fallback for the abbreviated-first-name case.
 
-    Returns the wc_players row dict or None.
+    Returns a row dict (with normalized field names — player_name,
+    api_player_id, position, team_name) or None.
 
     `path` defaults to None so tests can monkeypatch DB_PATH at module level
     and have it resolved at call time (default args bind at definition).
@@ -875,24 +967,34 @@ def find_wc_player(name: str, path: Optional[Path] = None) -> Optional[Dict[str,
     canonical = _normalize_player_name(name)
     conn = get_db(path)
     try:
-        # 1) Exact canonical match
+        # 1) Exact canonical match in wc_players (WC squad)
         row = conn.execute(
-            "SELECT * FROM wc_players WHERE player_name = ?", (canonical,),
+            "SELECT api_player_id, player_name, team_name, position "
+            "FROM wc_players WHERE player_name = ?", (canonical,),
         ).fetchone()
         if row:
             return dict(row)
-        # 2) "K. Mbappe" → match by surname when there's only one candidate
-        # for that surname. Picks the most likely full-name row for the
-        # abbreviated form.
+        # 2) Exact canonical match in club_players (EPL/La Liga/etc.)
+        row = conn.execute(
+            "SELECT api_player_id, player_name, club_name AS team_name, position "
+            "FROM club_players WHERE player_name = ?", (canonical,),
+        ).fetchone()
+        if row:
+            return dict(row)
+        # 3) "K. Mbappe" → surname-only match. Tries wc_players first, then
+        # club_players. Only succeeds when exactly one candidate exists for
+        # that surname in the tried table (avoids false-positives when
+        # multiple players share a surname).
         tokens = canonical.split()
         if len(tokens) >= 2 and tokens[0].endswith("."):
             surname = tokens[-1]
-            candidates = conn.execute(
-                "SELECT * FROM wc_players WHERE player_name LIKE ?",
-                (f"%{surname}",),
-            ).fetchall()
-            if len(candidates) == 1:
-                return dict(candidates[0])
+            for sql in (
+                "SELECT api_player_id, player_name, team_name, position FROM wc_players WHERE player_name LIKE ?",
+                "SELECT api_player_id, player_name, club_name AS team_name, position FROM club_players WHERE player_name LIKE ?",
+            ):
+                candidates = conn.execute(sql, (f"%{surname}",)).fetchall()
+                if len(candidates) == 1:
+                    return dict(candidates[0])
         return None
     finally:
         conn.close()
@@ -973,7 +1075,12 @@ def compute_all_priors(path: Optional[Path] = None) -> int:
         path = DB_PATH
     init_player_tables(path)
     conn = get_db(path)
-    pids = [r[0] for r in conn.execute("SELECT api_player_id FROM wc_players").fetchall()]
+    # Walk every player ID across BOTH tables — wc_players (national-team
+    # squads) and club_players (EPL/La Liga/etc.). Dedupe via set since
+    # most starters appear in both.
+    wc_ids   = [r[0] for r in conn.execute("SELECT api_player_id FROM wc_players").fetchall()]
+    club_ids = [r[0] for r in conn.execute("SELECT api_player_id FROM club_players").fetchall()]
+    pids = sorted(set(wc_ids) | set(club_ids))
     conn.close()
     if not pids:
         return 0
