@@ -9,8 +9,8 @@ import {
   Radio, Eye,
 } from "lucide-react";
 import {
-  KpiCard as SharedKpiCard,
-  SectionHead as SharedSectionHead,
+  KpiCard,
+  SectionHead,
   Panel,
   ActionButton,
   WorkerStatusStrip,
@@ -20,8 +20,8 @@ import {
   ErrorBanner,
   LoadingState,
   EmptyState,
-  Tag as SharedTag,
-  Dot as SharedDot,
+  Tag,
+  Dot,
 } from "@/components/ops/shared/primitives";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -250,53 +250,16 @@ function sigColor(t: string) {
   return "#9ca39a";
 }
 
-// ─── Primitive components ─────────────────────────────────────────────────────
-
-function Dot({ color, pulse = false }: { color: string; pulse?: boolean }) {
-  return (
-    <span className="relative flex h-2.5 w-2.5 shrink-0">
-      {pulse && <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-40" style={{ background: color }} />}
-      <span className="relative inline-flex rounded-full h-2.5 w-2.5" style={{ background: color }} />
-    </span>
-  );
-}
-
-function Tag({ label, color = "#6b7068" }: { label: string; color?: string }) {
-  return (
-    <span className="text-[8px] font-bold uppercase tracking-widest border rounded px-1.5 py-0.5"
-          style={{ color, borderColor: `${color}35` }}>
-      {label}
-    </span>
-  );
-}
+// ─── NBA-only primitives ─────────────────────────────────────────────────────
+// Dot, Tag, KpiCard, SectionHead come from shared/primitives. The two helpers
+// below (Num, Bar) are NBA-specific micro-helpers used inside the model
+// performance and calibration panels.
 
 function Num({ value, color, size = 28, sub }: { value: string; color?: string; size?: number; sub?: string }) {
   return (
     <div>
       <p className="font-black font-mono leading-none" style={{ fontSize: size, color: color ?? "#e4e4e7" }}>{value}</p>
       {sub && <p className="text-[9px] text-[#4a524a] mt-1.5">{sub}</p>}
-    </div>
-  );
-}
-
-function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
-  return (
-    <div className="flex-1 min-w-0 rounded-xl border border-[#1e2220] bg-[#0f110f] px-4 py-4">
-      <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-[#3a4033] mb-2.5">{label}</p>
-      <p className="text-[26px] font-black font-mono leading-none" style={{ color: color ?? "#d4d7d0" }}>{value}</p>
-      {sub && <p className="text-[10px] text-[#4a524a] mt-1.5 leading-tight">{sub}</p>}
-    </div>
-  );
-}
-
-function SectionHead({ title, icon: Icon, right }: { title: string; icon: React.ElementType; right?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between mb-5">
-      <div className="flex items-center gap-2">
-        <Icon className="h-3.5 w-3.5 text-[#3ee68a]" />
-        <p className="text-[11px] font-bold text-[#3ee68a] uppercase tracking-[0.2em]">{title}</p>
-      </div>
-      {right}
     </div>
   );
 }
