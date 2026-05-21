@@ -153,7 +153,7 @@ def build_buckets(rows):
             if e < lo: continue
             if hi is not None and e >= hi: continue
             in_bucket.append(r)
-        graded = [r for r in in_bucket if r.get("status") in ("graded", "proxy_captured")]
+        graded = [r for r in in_bucket if r.get("status") in ("graded", "proxy_captured") and r.get("correct") in (0, 1)]
         wins   = sum(1 for r in graded if r.get("correct") == 1)
         losses = sum(1 for r in graded if r.get("correct") == 0)
         clv_xs = [r["clv_pp"] for r in graded if r.get("clv_pp") is not None]
@@ -185,7 +185,7 @@ if SPORT_FILTER in ("all", "soccer"): sport_rows["soccer"] = load_sport_uniform(
 
 reports = []
 for sport, rows in sport_rows.items():
-    graded_total = sum(1 for r in rows if r.get("status") in ("graded", "proxy_captured"))
+    graded_total = sum(1 for r in rows if r.get("status") in ("graded", "proxy_captured") and r.get("correct") in (0, 1))
     reports.append({
         "sport":         sport,
         "total_graded":  graded_total,
@@ -197,7 +197,7 @@ all_rows = []
 for rs in sport_rows.values(): all_rows.extend(rs)
 combined = {
     "sport":         "combined",
-    "total_graded":  sum(1 for r in all_rows if r.get("status") in ("graded", "proxy_captured")),
+    "total_graded":  sum(1 for r in all_rows if r.get("status") in ("graded", "proxy_captured") and r.get("correct") in (0, 1)),
     "buckets":       build_buckets(all_rows),
 }
 

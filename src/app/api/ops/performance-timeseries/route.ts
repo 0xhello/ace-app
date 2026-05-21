@@ -182,10 +182,11 @@ for sport, rows in sports:
         b = by_day[day]
         b["signals"] += 1
         st = r.get("status")
-        if st == "graded" or st == "proxy_captured":
+        correct = r.get("correct")
+        if st in ("graded", "proxy_captured") and correct in (0, 1):
             b["graded"] += 1
-            if r.get("correct") == 1: b["wins"] += 1
-            elif r.get("correct") == 0: b["losses"] += 1
+            if correct == 1: b["wins"] += 1
+            elif correct == 0: b["losses"] += 1
         clv = r.get("clv_pp")
         if clv is not None:
             b["clv_sum"] += clv
