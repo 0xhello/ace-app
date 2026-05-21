@@ -40,7 +40,7 @@ interface MLBData {
   error?: string;
 }
 
-function readMLBData(dbPath: string): MLBData {
+function readMLBData(dbPath: string, appRoot: string): MLBData {
   // init_db here triggers _migrate() so the schema is current on every ops hit.
   const script = `
 import json, sys
@@ -63,6 +63,7 @@ except Exception as e:
   const result = spawnSync("python3", ["-c", script], {
     encoding: "utf-8",
     timeout: 5_000,
+    cwd: appRoot,
   });
   try {
     return JSON.parse(result.stdout) as MLBData;
@@ -94,7 +95,7 @@ export async function GET() {
     "ml", "nba_spread", "data", "mlb_signal_log.db",
   );
 
-  const { signals, meta, error } = readMLBData(dbPath);
+  const { signals, meta, error } = readMLBData(dbPath, appRoot);
 
   const toTs = (raw: string | null) =>
     raw ? new Date(raw).toISOString().replace("T", " ").slice(0, 19) : null;

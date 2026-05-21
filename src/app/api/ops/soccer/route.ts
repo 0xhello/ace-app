@@ -50,7 +50,7 @@ interface WCData {
   error?: string;
 }
 
-function readWCData(dbPath: string): WCData {
+function readWCData(dbPath: string, appRoot: string): WCData {
   // Calling init_db() here triggers _migrate() — keeps the prod schema
   // current any time the ops dashboard is loaded. Idempotent and cheap.
   // Injuries are pulled from wc_injuries (populated by context.sync_injuries
@@ -88,6 +88,7 @@ except Exception as e:
   const result = spawnSync("python3", ["-c", script], {
     encoding: "utf-8",
     timeout: 5_000,
+    cwd: appRoot,
   });
   try {
     return JSON.parse(result.stdout) as WCData;
@@ -122,7 +123,7 @@ export async function GET() {
     "wc_signal_log.db",
   );
 
-  const { signals, meta, injuries, error } = readWCData(dbPath);
+  const { signals, meta, injuries, error } = readWCData(dbPath, appRoot);
 
   const toTs = (raw: string | null) =>
     raw ? new Date(raw).toISOString().replace("T", " ").slice(0, 19) : null;
