@@ -209,6 +209,46 @@ total = {
     "avg_clv":  round(sum(all_clvs) / len(all_clvs), 4) if all_clvs else None,
 }
 
+# Attach pick explanations for soccer-table picks. The "why this pick"
+# reasoning that uses our actual data (historical g/90, club form, intl
+# uplift) — the differentiator that no other betting analytics tool has.
+# Only soccer/WC explanations are wired right now; NBA + MLB can join later.
+try:
+    from ml.world_cup.pick_explainer import explain_signal
+    soccer_picks = [p for p in picks if p["sport"] == "soccer"]
+    if soccer_picks:
+        # Build joinable historical/club data once per player_id we need
+        from collections import defaultdict
+        # We only join historical_form for player props (saves a DB roundtrip
+        # per pick when explanations are mostly game-level)
+        conn = open_conn("wc_signal_log.db")
+        if conn:
+            hist_by_player = defaultdict(list)
+            try:
+                player_names = {p.get("player_name") for p in soccer_picks if p.get("player_name")}
+                if player_names:
+                    placeholders = ",".join(["?"] * len(player_names))
+                    for r in conn.execute(
+                        f"SELECT * FROM wc_historical_form WHERE player_name IN ({placeholders})",
+                        tuple(player_names),
+                    ).fetchall():
+                        hist_by_player[r["player_name"]].append(dict(r))
+            except Exception:
+                pass
+            conn.close()
+            for p in soccer_picks:
+                try:
+                    pname = p.get("player_name") or ""
+                    explanation = explain_signal(
+                        p,
+                        historical_form=hist_by_player.get(pname) or None,
+                    )
+                    p["explanation"] = explanation
+                except Exception:
+                    p["explanation"] = None
+except Exception:
+    pass
+
 print(json.dumps({
     "total":         total,
     "by_sport":      by_sport,

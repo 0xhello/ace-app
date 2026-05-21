@@ -126,7 +126,7 @@ if wc_conn:
     payout = 100 / 110
     sports.append({
         "key": "wc",
-        "label": "World Cup",
+        "label": "Soccer",
         "worker": {
             "lastPollAt": meta.get("last_poll_at"),
             "lastPollOk": (meta.get("last_poll_ok") == "1") if meta.get("last_poll_ok") is not None else None,
@@ -162,7 +162,7 @@ if wc_conn:
         })
 else:
     sports.append({
-        "key": "wc", "label": "World Cup",
+        "key": "wc", "label": "Soccer",
         "worker": {"lastPollAt": None, "lastPollOk": None},
         "jobs": {"fetchLastRunAt": None, "gradeLastRunAt": None},
         "totals": {"total": 0, "open": 0, "graded": 0, "today": 0},

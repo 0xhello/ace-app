@@ -20,6 +20,12 @@
 
 import { useEffect, useState } from "react";
 
+interface Explanation {
+  headline: string;
+  why: string;
+  caveat: string;
+}
+
 interface Pick {
   sport: "nba" | "mlb" | "soccer";
   tournament: string | null;
@@ -38,6 +44,10 @@ interface Pick {
   prior_prob: number | null;
   clv_pp: number | null;
   confidence_tier: "A" | "B" | "C" | null;
+  // AI Pick Explainer — only populated for soccer right now. Uses our
+  // StatsBomb historical g/90, club form, and intl uplift to generate
+  // a 3-part rationale per signal. This is the differentiator.
+  explanation?: Explanation | null;
 }
 
 interface SportStat {
@@ -346,14 +356,27 @@ function MiniStat({
 }
 
 function PickRow({ pick }: { pick: Pick }) {
+  const [open, setOpen] = useState(false);
   const isGraded = pick.status === "graded" || pick.status === "proxy_captured";
   const won = pick.correct === 1;
   const lost = pick.correct === 0;
   const accent = SPORT_ACCENT[pick.sport] || "#9ca39a";
+  const hasExplanation = !!pick.explanation?.headline;
 
   return (
-    <tr className="text-[#c4c7c0]">
-      <td className="py-2 px-3 text-[#9ca39a] whitespace-nowrap">{pick.game_date}</td>
+    <>
+    <tr
+      className={`text-[#c4c7c0] ${hasExplanation ? "cursor-pointer hover:bg-[#0f120f]" : ""} transition-colors`}
+      onClick={hasExplanation ? () => setOpen(!open) : undefined}
+    >
+      <td className="py-2 px-3 text-[#9ca39a] whitespace-nowrap">
+        {hasExplanation && (
+          <span className="inline-block w-3 text-[#4a524a] text-[10px] mr-1">
+            {open ? "▾" : "▸"}
+          </span>
+        )}
+        {pick.game_date}
+      </td>
       <td className="py-2 px-3 whitespace-nowrap">
         <span style={{ color: accent }}>{SPORT_EMOJI[pick.sport]}</span>{" "}
         <span className="text-[10px] text-[#6b7068] uppercase tracking-[0.1em]">
@@ -405,5 +428,28 @@ function PickRow({ pick }: { pick: Pick }) {
         )}
       </td>
     </tr>
+    {/* Expanded "why this pick" — the differentiator. Uses StatsBomb
+        historical g/90, club form, intl uplift, and the divergence math
+        to give every pick a 3-part rationale. */}
+    {open && hasExplanation && pick.explanation && (
+      <tr className="bg-[#0a0b0a]">
+        <td colSpan={7} className="px-6 py-4 border-y border-[#3ee68a]/15">
+          <div className="space-y-3 max-w-3xl">
+            <p className="text-[12px] font-semibold text-[#3ee68a]">
+              {pick.explanation.headline}
+            </p>
+            <p className="text-[11px] leading-relaxed text-[#c4c7c0]">
+              <span className="text-[10px] font-bold text-[#6b7068] uppercase tracking-[0.15em] mr-2">Why</span>
+              {pick.explanation.why}
+            </p>
+            <p className="text-[11px] leading-relaxed text-[#9ca39a]">
+              <span className="text-[10px] font-bold text-[#f5c062] uppercase tracking-[0.15em] mr-2">Caveat</span>
+              {pick.explanation.caveat}
+            </p>
+          </div>
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
