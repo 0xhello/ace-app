@@ -244,10 +244,12 @@ if nba_conn:
     signals = []
     if has_signals:
         try:
+            cols = {row[1] for row in nba_conn.execute("PRAGMA table_info(signal_log)").fetchall()}
+            detected_expr = "logged_at" if "logged_at" in cols else ("detected_at" if "detected_at" in cols else "created_at")
             signals = [dict(r) for r in nba_conn.execute(
                 "SELECT game_id, game_date, home_team, away_team, signal_type as market, "
-                "bet_side, status, covered as correct, logged_at as detected_at "
-                "FROM signal_log ORDER BY logged_at DESC LIMIT 200"
+                "bet_side, status, covered as correct, " + detected_expr + " as detected_at "
+                "FROM signal_log ORDER BY " + detected_expr + " DESC LIMIT 200"
             ).fetchall()]
         except Exception:
             pass

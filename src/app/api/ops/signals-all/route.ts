@@ -82,13 +82,15 @@ conn = open_conn("signal_log.db")
 if conn and table_exists(conn, "signal_log"):
     cols = {row[1] for row in conn.execute("PRAGMA table_info(signal_log)").fetchall()}
     book_expr = "book" if "book" in cols else "NULL"
-    book_odds_expr = "book_odds" if "book_odds" in cols else "NULL"
+    book_odds_expr = "book_odds" if "book_odds" in cols else ("bet_odds" if "bet_odds" in cols else "NULL")
+    edge_expr = "edge" if "edge" in cols else "NULL"
+    detected_expr = "logged_at" if "logged_at" in cols else ("detected_at" if "detected_at" in cols else "created_at")
     for r in conn.execute(
         "SELECT id, game_id, game_date, home_team, away_team, "
         "       signal_type AS market, bet_side, "
         "       line_at_signal AS line, " + book_expr + " AS book, " + book_odds_expr + " AS book_odds, "
-        "       edge AS edge_pp, status, covered AS correct, "
-        "       logged_at AS detected_at, NULL AS confidence_tier, "
+        "       " + edge_expr + " AS edge_pp, status, covered AS correct, "
+        "       " + detected_expr + " AS detected_at, NULL AS confidence_tier, "
         "       NULL AS kelly_fraction, NULL AS closing_pinnacle_prob, "
         "       NULL AS clv_pp "
         "FROM signal_log WHERE game_date >= ?",
