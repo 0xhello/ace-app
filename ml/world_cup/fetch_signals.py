@@ -175,6 +175,34 @@ def fetch_wc_player_props() -> List[Dict[str, Any]]:
     return resp.json()
 
 
+def fetch_scores_for_sport(sport_key: str, days_back: int = 3) -> List[Dict[str, Any]]:
+    """Pull completed-game scores for any soccer sport key on Odds API.
+
+    Used by grade_results to grade signals across multiple competitions
+    (WC + EPL + La Liga + Bundesliga + Serie A + Ligue 1 + UCL) — the
+    grader walks unique sport keys derived from each signal's
+    `tournament` column and calls this once per key.
+
+    Returns [] on 422 (off-season) or 401, raises on 429 (so the worker
+    can back off cleanly).
+    """
+    if not ODDS_API_KEY:
+        raise EnvironmentError("ODDS_API_KEY not set.")
+    url = f"{ODDS_BASE}/sports/{sport_key}/scores"
+    params = {"apiKey": ODDS_API_KEY, "daysFrom": str(days_back)}
+    resp = httpx.get(url, params=params, timeout=15)
+    remaining = resp.headers.get("x-requests-remaining")
+    used      = resp.headers.get("x-requests-used")
+    if remaining:
+        print(f"  [quota] ({sport_key}/scores) {used} used / {remaining} remaining")
+    if resp.status_code in (401, 422):
+        return []
+    if resp.status_code == 429:
+        raise RuntimeError("Odds API quota exceeded.")
+    resp.raise_for_status()
+    return resp.json()
+
+
 def fetch_wc_scores(days_back: int = 3) -> List[Dict[str, Any]]:
     if not ODDS_API_KEY:
         raise EnvironmentError("ODDS_API_KEY not set.")

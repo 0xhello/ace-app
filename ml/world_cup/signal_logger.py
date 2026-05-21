@@ -171,7 +171,9 @@ def init_db(path: Path = DB_PATH) -> None:
 # Meta helpers (same pattern as NBA — used by ops job-status strip)
 # ---------------------------------------------------------------------------
 
-def update_meta(key: str, value: str, path: Path = DB_PATH) -> None:
+def update_meta(key: str, value: str, path: Optional[Path] = None) -> None:
+    if path is None:
+        path = DB_PATH
     init_db(path)
     conn = get_db(path)
     conn.execute(
@@ -182,7 +184,9 @@ def update_meta(key: str, value: str, path: Path = DB_PATH) -> None:
     conn.close()
 
 
-def read_meta(path: Path = DB_PATH) -> Dict[str, str]:
+def read_meta(path: Optional[Path] = None) -> Dict[str, str]:
+    if path is None:
+        path = DB_PATH
     try:
         conn = get_db(path)
         rows = conn.execute("SELECT key, value FROM meta").fetchall()
@@ -408,7 +412,9 @@ def log_player_prop_signal(
     return row_id
 
 
-def get_open_signals(path: Path = DB_PATH) -> List[Dict[str, Any]]:
+def get_open_signals(path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    if path is None:
+        path = DB_PATH
     try:
         init_db(path)
         conn = get_db(path)
@@ -421,7 +427,9 @@ def get_open_signals(path: Path = DB_PATH) -> List[Dict[str, Any]]:
         return []
 
 
-def get_all_signals(path: Path = DB_PATH) -> List[Dict[str, Any]]:
+def get_all_signals(path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    if path is None:
+        path = DB_PATH
     try:
         init_db(path)
         conn = get_db(path)
@@ -506,12 +514,16 @@ def grade_signal(
     game_id: str,
     home_score: int,
     away_score: int,
-    path: Path = DB_PATH,
+    path: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     """
     Grade all open signals for game_id based on final scores.
     Returns list of graded signal dicts with 'correct' field set.
+
+    `path` resolves at call time so tests can monkeypatch.
     """
+    if path is None:
+        path = DB_PATH
     init_db(path)
     conn = get_db(path)
     signals = conn.execute(
