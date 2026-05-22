@@ -182,10 +182,63 @@ def _maybe_bootstrap_soccer_squads(reason: str = "tick") -> None:
     new_thread.start()
 
 
+def _check_api_football_budget() -> tuple[int, Optional[str]]:
+    """One cheap GET to /status — returns (remaining_today, error).
+    A full bootstrap needs ~130 calls; if remaining is below that, skip
+    the run instead of burning the residual quota on a doomed partial sync.
+    """
+    try:
+        import os, httpx
+        api_key = os.getenv("API_FOOTBALL_KEY", "").strip()
+        if not api_key:
+            return (0, "API_FOOTBALL_KEY not set")
+        via_rapid = os.getenv("API_FOOTBALL_VIA_RAPIDAPI", "").lower() in ("1", "true", "yes")
+        if via_rapid:
+            url = "https://api-football-v3.p.rapidapi.com/v3/status"
+            headers = {"X-RapidAPI-Key": api_key,
+                       "X-RapidAPI-Host": "api-football-v3.p.rapidapi.com"}
+        else:
+            url = "https://v3.football.api-sports.io/status"
+            headers = {"x-apisports-key": api_key}
+        r = httpx.get(url, headers=headers, timeout=8)
+        if r.status_code != 200:
+            return (0, f"status check returned {r.status_code}")
+        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        req = (body.get("response", {}) or {}).get("requests", {}) or {}
+        current  = int(req.get("current", 0))
+        limit    = int(req.get("limit_day", 100))
+        return (max(0, limit - current), None)
+    except Exception as e:
+        return (0, f"status check failed: {str(e)[:200]}")
+
+
 def _run_squad_bootstrap_blocking() -> None:
     """The actual sync work, run inside the daemon thread spawned above."""
     started_at = datetime.now(timezone.utc).isoformat()
     error: Optional[str] = None
+
+    # Pre-flight quota check — don't waste residual quota on a partial sync.
+    remaining, qerr = _check_api_football_budget()
+    REQUIRED = 130  # ~48 country + 32 squads + 40 club form + 12 intl form
+    if qerr:
+        error = qerr
+    elif remaining < REQUIRED:
+        error = (
+            f"insufficient API-Football quota: {remaining} calls remaining, "
+            f"need ~{REQUIRED} for full sync. Upgrade plan or wait for daily reset."
+        )
+
+    if error:
+        try:
+            _wc_update_meta("job:players_sync:last_run_at", started_at)
+            _wc_update_meta("job:players_sync:last_error", error)
+            _wc_update_meta("bootstrap:last_stdout", "(pre-flight quota check failed)\n" + error)
+            _wc_update_meta("bootstrap:last_stderr", "")
+        except Exception:
+            pass
+        print(f"  [worker] Bootstrap skipped: {error}", file=sys.stderr, flush=True)
+        return
+
     captured_stdout: list[str] = []
     captured_stderr: list[str] = []
 
