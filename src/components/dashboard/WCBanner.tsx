@@ -78,9 +78,10 @@ export default function WCBanner() {
               </span>
             </div>
             <p className="text-[12px] text-[#9ca39a] leading-snug max-w-[640px]">
-              ACE is already watching every match. The first picks land on kickoff —
-              <span className="text-[#d4d7d0]"> June 11, 9 PM ET</span>. Every signal,
-              every pick, every result tracked publicly.
+              ACE is already live on the Big Five — Premier League, La Liga,
+              Bundesliga, Serie A, Ligue 1, UCL.{" "}
+              <span className="text-[#d4d7d0]">World Cup coverage opens June 11.</span>{" "}
+              Every signal, every pick, every result tracked publicly.
             </p>
           </div>
 

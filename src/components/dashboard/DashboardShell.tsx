@@ -5,6 +5,7 @@ import { Game } from "@/types/game";
 import GameRow from "@/components/GameRow";
 import TopAIPicks from "@/components/TopAIPicks";
 import WCBanner from "@/components/dashboard/WCBanner";
+import SoccerPicksPanel from "@/components/dashboard/SoccerPicksPanel";
 import BetSlip from "@/components/BetSlip";
 import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
@@ -350,6 +351,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
         <div className="flex-1 overflow-y-auto scrollbar-hide">
           <WCBanner />
+          <SoccerPicksPanel />
           <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
 
           <div
