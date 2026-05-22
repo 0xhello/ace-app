@@ -163,8 +163,32 @@ def _maybe_bootstrap_soccer_squads(reason: str = "tick") -> None:
     print(f"  [worker] Soccer squads empty — bootstrapping ({reason})…", flush=True)
     started_at = now.isoformat()
     error: Optional[str] = None
+    captured_stdout: list[str] = []
+    captured_stderr: list[str] = []
+
+    # Tee print()/stderr output so the next readiness probe can see what
+    # the sync chain actually printed (plan-restriction messages, country
+    # discovery output, per-team errors). The previous "0 squads → key
+    # missing" hint was guesswork; this captures the truth.
+    import io, contextlib
+    out_buf, err_buf = io.StringIO(), io.StringIO()
     try:
-        result = _wc_sync_players()
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            result = _wc_sync_players()
+    except Exception as e:
+        error = str(e)
+        result = {}
+
+    captured_stdout = out_buf.getvalue().splitlines()
+    captured_stderr = err_buf.getvalue().splitlines()
+
+    # Replay to real stdout/stderr so Railway logs still see it.
+    for line in captured_stdout:
+        print(line, flush=True)
+    for line in captured_stderr:
+        print(line, file=sys.stderr, flush=True)
+
+    if result and result.get("squads", 0) > 0:
         print(
             f"  [worker] Bootstrap sync: "
             f"{result.get('squads', 0)} squads, "
@@ -172,18 +196,22 @@ def _maybe_bootstrap_soccer_squads(reason: str = "tick") -> None:
             f"{result.get('priors', 0)} priors",
             flush=True,
         )
-        if result.get("squads", 0) == 0:
-            error = (
-                "sync returned 0 squads — most likely API_FOOTBALL_KEY missing "
-                "on Railway, or daily quota exhausted"
-            )
-    except Exception as e:
-        error = str(e)
-        print(f"  [worker] Bootstrap sync error: {e}", file=sys.stderr, flush=True)
+    elif not error:
+        # No exception but 0 squads — the captured stderr will tell us why.
+        # Pull the most informative line (first 'restriction' / 'error' / 'plan' line).
+        for line in captured_stderr:
+            if any(kw in line.lower() for kw in ("restriction", "error", "plan", "quota")):
+                error = line.strip()[:300]
+                break
+        if not error:
+            error = "sync returned 0 squads (see bootstrap:last_stderr for details)"
 
     try:
         _wc_update_meta("job:players_sync:last_run_at", started_at)
         _wc_update_meta("job:players_sync:last_error", error or "")
+        # Stash the captured streams so /api/ops/wc-readiness can surface them
+        _wc_update_meta("bootstrap:last_stdout", "\n".join(captured_stdout)[-4000:])
+        _wc_update_meta("bootstrap:last_stderr", "\n".join(captured_stderr)[-4000:])
     except Exception:
         pass
 
