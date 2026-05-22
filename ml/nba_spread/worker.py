@@ -582,6 +582,33 @@ def run_loop(once: bool = False) -> None:
         print(f"  [worker] Bootstrap hook error (non-fatal): {e}",
               file=sys.stderr, flush=True)
 
+    # Boot-time team-form sync — only if the table is empty. ~15s, free.
+    # Without this, fresh containers wait until 6 AM ET for form data to
+    # appear, which means picks fired in the interim get generic narratives
+    # instead of "Liverpool last 5 home: 3W-2D-0L" context.
+    if _SOCCER_FORM_AVAILABLE:
+        try:
+            from ml.world_cup.signal_logger import DB_PATH as _WC_DB
+            from ml.soccer.form import get_db as _form_db  # type: ignore
+            conn = _form_db(_WC_DB)
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='soccer_team_form'"
+                ).fetchone()
+                form_rows = 0
+                if row and row[0] > 0:
+                    form_rows = int(
+                        conn.execute("SELECT COUNT(*) FROM soccer_team_form").fetchone()[0]
+                    )
+            finally:
+                conn.close()
+            if form_rows == 0:
+                print("  [worker] Soccer team-form table empty — bootstrapping…", flush=True)
+                _soccer_form_sync()
+        except Exception as e:
+            print(f"  [worker] Form bootstrap error (non-fatal): {e}",
+                  file=sys.stderr, flush=True)
+
     while _RUNNING:
         # Scheduled tasks first (non-blocking time checks)
         _run_scheduled_tasks()

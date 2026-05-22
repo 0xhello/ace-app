@@ -36,12 +36,14 @@ def _sig(**kwargs: Any) -> Dict[str, Any]:
 # ─── Headline format ─────────────────────────────────────────────────────────
 
 def test_headline_h2h_home_includes_team_name() -> None:
+    """Headline leads with the bet + price + book at best price. No more
+    statistical filler in the headline — edge math moves to the 'why'."""
     from ml.world_cup.pick_explainer import explain_signal
     out = explain_signal(_sig(market="h2h", bet_side="home", home_team="France"))
     assert "France" in out["headline"]
-    assert "fanduel" in out["headline"].lower()
+    # Book name should appear (nice-formatted, e.g. "FanDuel" not "fanduel")
+    assert "FanDuel" in out["headline"] or "fanduel" in out["headline"].lower()
     assert "+130" in out["headline"]
-    assert "5.0pp" in out["headline"] or "+5.0pp" in out["headline"]
 
 
 def test_headline_totals_uses_line() -> None:
@@ -72,11 +74,14 @@ def test_headline_asian_handicap_includes_team_and_line() -> None:
 
 # ─── Why section uses our data ───────────────────────────────────────────────
 
-def test_why_references_pinnacle_vs_softbook_gap() -> None:
+def test_why_mentions_edge_math_as_supporting_signal() -> None:
+    """The 'why' should still cite the Pinnacle vs soft-book numbers — but
+    as supporting evidence, not the lead. Form context (when available)
+    leads; edge math is one line."""
     from ml.world_cup.pick_explainer import explain_signal
     out = explain_signal(_sig())
-    assert "Pinnacle" in out["why"]
-    assert "fanduel" in out["why"].lower() or "FanDuel" in out["why"]
+    # Pin/book numbers must still be surfaced for transparency
+    assert "Pinnacle" in out["why"] or "pin" in out["why"].lower()
     assert "48.0%" in out["why"] or "48%" in out["why"]  # the pin_prob
 
 
@@ -156,34 +161,43 @@ def test_caveat_warns_on_low_edge() -> None:
     assert "converge" in text or "smaller" in text or "modest" in text or "variance" in text or "soft-book" in text
 
 
-# ─── Confidence phrase mapping ───────────────────────────────────────────────
+# ─── Heavy-favorite caveat ───────────────────────────────────────────────────
 
-def test_strong_edge_strong_label() -> None:
+def test_caveat_warns_heavy_favorite() -> None:
+    """When the best price is shorter than -250, the caveat must warn about
+    risk asymmetry. Subscribers were complaining that -360 picks read as
+    'good edge' without acknowledging the laying-X-to-win-100 math."""
     from ml.world_cup.pick_explainer import explain_signal
-    out = explain_signal(_sig(edge_pp=0.07, confidence_tier="A"))
-    assert "strong" in out["headline"].lower()
+    out = explain_signal(_sig(book_odds=-360, edge_pp=0.045))
+    text = out["caveat"].lower()
+    assert "heavy favorite" in text or "laying" in text or "size" in text
 
 
-def test_modest_edge_modest_label() -> None:
+def test_caveat_warns_short_favorite() -> None:
+    """Anything between -150 and -250 gets a lighter callout about modest
+    payout / size."""
     from ml.world_cup.pick_explainer import explain_signal
-    out = explain_signal(_sig(edge_pp=0.032, confidence_tier="C"))
-    assert "modest" in out["headline"].lower()
+    out = explain_signal(_sig(book_odds=-180, edge_pp=0.045))
+    text = out["caveat"].lower()
+    assert "size" in text or "modest" in text or "payout" in text or "favorite" in text
 
 
-# ─── Tournament-specific narrative ───────────────────────────────────────────
+# ─── Best-price call-out ─────────────────────────────────────────────────────
 
-def test_wc_tournament_adds_context() -> None:
-    """WC matches get a sentence about tournament-context priors —
-    surfaces our unique StatsBomb work."""
+def test_headline_uses_best_book_when_offers_present() -> None:
+    """When book_offers is populated (multi-book signals), the headline
+    shows the BEST price, not just the triggering book."""
     from ml.world_cup.pick_explainer import explain_signal
-    out = explain_signal(_sig(tournament="FIFA World Cup"))
-    assert "tournament" in out["why"].lower() or "world cup" in out["why"].lower()
-
-
-def test_ucl_tournament_adds_context() -> None:
-    from ml.world_cup.pick_explainer import explain_signal
-    out = explain_signal(_sig(tournament="UCL"))
-    assert "UCL" in out["why"] or "Champions League" in out["why"]
+    sig = _sig(book="fanduel", book_odds=+130)
+    sig["book_offers"] = [
+        {"book": "betmgm",     "odds": +145},
+        {"book": "draftkings", "odds": +138},
+        {"book": "fanduel",    "odds": +130},
+    ]
+    out = explain_signal(sig)
+    # Best price is BetMGM +145 — both should appear in the headline
+    assert "+145" in out["headline"]
+    assert "BetMGM" in out["headline"] or "betmgm" in out["headline"].lower()
 
 
 # ─── Return structure ────────────────────────────────────────────────────────

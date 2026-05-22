@@ -136,63 +136,242 @@ def _explain_game_level(
     tier: Optional[str], line: Optional[float], tournament: str,
     game_context: Optional[Dict[str, Any]],
 ) -> Dict[str, str]:
-    """Build the explanation for h2h / totals / spreads / run_line / AH."""
+    """Build the explanation for h2h / totals / spreads / run_line / AH.
+
+    Narrative anatomy (subscriber-grade, not statistical filler):
+      1. Lead with the BET — what to take, at the BEST price.
+      2. Form context — both teams' recent results from free FBref-equivalent
+         data. The "why this team wins" part subscribers actually care about.
+      3. Best price + alternative books — actionable. Where to bet.
+      4. Edge math — supporting, not headline. (One sentence, not a paragraph.)
+      5. Caveat — honest risk callouts. Heavy fav warning, form variance, etc.
+    """
     bet = _bet_label(market, bet_side, line, home, away)
-    odds_str = _fmt_odds(book_odds)
-    edge_str = _fmt_pp(edge_pp)
-    confidence = _confidence_phrase(tier, edge_pp)
 
-    headline = f"{bet} at {book} {odds_str} — {edge_str} {confidence}"
+    # Pull book_offers + best price from the signal (added in the multi-book
+    # transparency pass). Falls back to the triggering soft book for older
+    # signals where book_offers is NULL.
+    offers = _parse_offers(signal.get("book_offers"))
+    # Filter out Pinnacle — US retail can't bet there, so it's noise.
+    showable = [o for o in offers if o.get("book") != "pinnacle"]
+    best       = showable[0] if showable else None
+    best_book  = best["book"] if best else book
+    best_odds  = best["odds"] if best else book_odds
+    alt_books  = showable[1:4]
 
-    # ── Why ──
+    odds_str = _fmt_odds(best_odds)
+
+    # Headline: lead with the bet, name the book at the best price.
+    headline = f"{bet} {odds_str} at {_book_nice(best_book)}"
+    if alt_books:
+        headline += f" — also live at {len(alt_books)} other book{'s' if len(alt_books) != 1 else ''}"
+
+    # ── Form context (the real "why this team wins") ──
     why_parts: List[str] = []
+    game_date = signal.get("game_date")
+
+    home_summary = _form_summary_safe(home, n=5, before_date=game_date)
+    away_summary = _form_summary_safe(away, n=5, before_date=game_date)
+
+    # Specific home/away splits when we're on h2h or asian_handicap
+    if market in ("h2h", "asian_handicap"):
+        home_home = _form_summary_safe(home, n=5, before_date=game_date, venue="home")
+        away_away = _form_summary_safe(away, n=5, before_date=game_date, venue="away")
+        home_used = home_home if home_home["n"] >= 3 else home_summary
+        away_used = away_away if away_away["n"] >= 3 else away_summary
+        home_qual = " at home" if home_used is home_home else " overall"
+        away_qual = " on the road" if away_used is away_away else " overall"
+    else:
+        home_used, away_used = home_summary, away_summary
+        home_qual = away_qual = " last 5"
+
+    if home_used["n"] > 0:
+        why_parts.append(
+            f"{home}{home_qual}: {home_used['record']}, "
+            f"{home_used['gf']} scored / {home_used['ga']} conceded."
+        )
+    if away_used["n"] > 0:
+        why_parts.append(
+            f"{away}{away_qual}: {away_used['record']}, "
+            f"{away_used['gf']} scored / {away_used['ga']} conceded."
+        )
+
+    # Form-derived takeaway — only when we have data for both sides AND the
+    # imbalance is large enough to be meaningful (not just a noisy 5-game blip).
+    if home_used["n"] >= 3 and away_used["n"] >= 3:
+        takeaway = _form_takeaway(bet_side, market, home, away, home_used, away_used)
+        if takeaway:
+            why_parts.append(takeaway)
+
+    # ── Best price call-out ──
+    if best and alt_books:
+        alt_str = ", ".join(f"{_book_nice(o['book'])} {_fmt_odds(o['odds'])}" for o in alt_books)
+        why_parts.append(
+            f"Take {_book_nice(best_book)} at {odds_str} — also {alt_str}."
+        )
+
+    # ── Supporting edge math (one sentence, not the lead) ──
     if pin_prob is not None and book_prob is not None:
+        edge_str = _fmt_pp(edge_pp)
         why_parts.append(
-            f"Pinnacle de-vigged {bet_side} at {_fmt_pct(pin_prob)}, but {book} prices imply only "
-            f"{_fmt_pct(book_prob)} — a soft-book gap of {edge_str}."
-        )
-        why_parts.append(
-            "Pinnacle's closing line is widely considered the sharpest "
-            "indicator of true probability; sustained divergence vs Pinnacle "
-            "is the most-cited predictor of long-run +EV bets in published "
-            "betting research."
-        )
-    elif edge_pp is not None:
-        why_parts.append(
-            f"Our model flagged a {edge_str} divergence between {book}'s line and the sharp benchmark."
-        )
-
-    if market == "totals" and line is not None:
-        why_parts.append(
-            f"Tournament average totals run ~2.7 goals; {line:g} {bet_side} at {edge_str} edge suggests "
-            f"the {book} line is mispriced relative to expected pace."
-        )
-
-    if tournament == "FIFA World Cup":
-        why_parts.append(
-            "World Cup matches show structurally different scoring patterns than club football — "
-            "tournament-context priors weight historical international form heavily, "
-            "and our model accounts for this."
-        )
-    elif tournament == "UCL":
-        why_parts.append(
-            "UCL knockout matches feature aggressive tactical setups and higher variance; "
-            "our model is conservative on sample-thin Champions League data but "
-            "fires when the divergence is meaningful."
+            f"Model edge: Pinnacle de-vigs {bet_side} to {_fmt_pct(pin_prob)}; "
+            f"best soft-book price implies {_fmt_pct(book_prob)} ({edge_str} gap)."
         )
 
     why = " ".join(why_parts) if why_parts else (
-        "The signal cleared our 3pp divergence threshold against the sharp benchmark."
+        "Sharp-book line meaningfully different from soft-book consensus — "
+        "value detected without enough team context to narrate."
     )
 
     # ── Caveat ──
-    caveat = _build_caveat(market, edge_pp, tier, game_context)
+    caveat = _build_caveat_v2(
+        market, bet_side, best_odds, edge_pp, tier, game_context,
+        home_used, away_used,
+    )
 
-    return {
-        "headline": headline,
-        "why":      why,
-        "caveat":   caveat,
-    }
+    return {"headline": headline, "why": why, "caveat": caveat}
+
+
+# ────────── Form / book helpers used by the rewritten game-level path ──────────
+
+def _parse_offers(raw: Any) -> List[Dict[str, Any]]:
+    """book_offers is stored as a JSON string; parse it lazily."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw  # already parsed
+    if isinstance(raw, str):
+        try:
+            import json as _json
+            v = _json.loads(raw)
+            return v if isinstance(v, list) else []
+        except Exception:
+            return []
+    return []
+
+
+_BOOK_NAMES: Dict[str, str] = {
+    "fanduel":       "FanDuel",
+    "draftkings":    "DraftKings",
+    "betmgm":        "BetMGM",
+    "betrivers":     "BetRivers",
+    "williamhill_us":"Caesars",
+    "pointsbet_us":  "PointsBet",
+    "pinnacle":      "Pinnacle",
+}
+
+
+def _book_nice(key: Optional[str]) -> str:
+    if not key:
+        return "—"
+    return _BOOK_NAMES.get(key, key.capitalize())
+
+
+def _form_summary_safe(
+    team: str, n: int, before_date: Optional[str],
+    venue: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Load + summarize team form, returning the empty-summary shape on any
+    failure so the explainer never crashes when the form ingestor hasn't
+    synced yet."""
+    try:
+        from ml.soccer.form import get_recent_form, summarize_form  # type: ignore
+        rows = get_recent_form(team, n=n, before_date=before_date, venue=venue)
+        return summarize_form(rows)
+    except Exception:
+        return {"record": "—", "n": 0, "gf": 0, "ga": 0, "xg_for": None, "xg_against": None}
+
+
+def _form_takeaway(
+    bet_side: str, market: str,
+    home: str, away: str,
+    home_used: Dict[str, Any], away_used: Dict[str, Any],
+) -> Optional[str]:
+    """One-sentence narrative when the form picture actually supports the bet.
+    Returns None when the data is too neutral to add anything.
+
+    Looks at net goal differential (GF - GA) over the sample. A team running
+    +5 vs the other at -3 is a real form gap worth highlighting; +1 vs 0 is
+    noise, skipped.
+    """
+    h_diff = (home_used["gf"] or 0) - (home_used["ga"] or 0)
+    a_diff = (away_used["gf"] or 0) - (away_used["ga"] or 0)
+    gap = h_diff - a_diff
+
+    if abs(gap) < 4:
+        return None  # form too close to draw a conclusion from 5-game sample
+
+    # Which side has the form advantage?
+    stronger = home if gap > 0 else away
+    weaker   = away if gap > 0 else home
+
+    if market == "h2h":
+        if (bet_side == "home" and gap > 0) or (bet_side == "away" and gap < 0):
+            return f"Recent form lines up with the bet — {stronger} markedly outperforming {weaker} on goal differential."
+        if (bet_side == "home" and gap < 0) or (bet_side == "away" and gap > 0):
+            return (
+                f"Form points the other way — {stronger} has been the stronger side recently. "
+                f"The model still likes this because the price gap exceeds the form gap."
+            )
+        # bet_side == "draw"
+        return f"Form: {stronger} clearly ahead of {weaker}. Draw value comes from market overpricing the favorite."
+
+    if market in ("asian_handicap", "spreads"):
+        if (bet_side == "home" and gap > 0) or (bet_side == "away" and gap < 0):
+            return f"Recent form supports the spread — {stronger} on the right side of goal differential."
+        return None
+
+    if market == "totals":
+        # Goals scored is what matters here, not net diff
+        total_recent = (home_used["gf"] or 0) + (away_used["gf"] or 0) + \
+                       (home_used["ga"] or 0) + (away_used["ga"] or 0)
+        n_total = (home_used["n"] or 0) + (away_used["n"] or 0)
+        if n_total > 0:
+            per_game = total_recent / n_total
+            return f"Combined recent goal pace: {per_game:.1f} per game across both sides' last {n_total // 2} matches."
+        return None
+
+    return None
+
+
+def _build_caveat_v2(
+    market: str, bet_side: str,
+    best_odds: Optional[float], edge_pp: Optional[float],
+    tier: Optional[str], game_context: Optional[Dict[str, Any]],
+    home_used: Dict[str, Any], away_used: Dict[str, Any],
+) -> str:
+    """Honest caveats with real teeth, not boilerplate."""
+    parts: List[str] = []
+
+    # Game-context warnings (dead rubber, etc.) come first when present
+    if game_context:
+        notes = game_context.get("notes", [])
+        for n in notes[:2]:
+            parts.append(str(n))
+
+    # Heavy-favorite warning — single most important honest callout
+    if best_odds is not None and best_odds <= -250:
+        risk = abs(int(best_odds))
+        parts.append(
+            f"Heavy favorite — laying ${risk} to win $100. Even at +EV, a single "
+            f"loss costs {risk/100:.1f} units of upside. Size accordingly or "
+            f"consider parlaying with another A-tier favorite."
+        )
+    elif best_odds is not None and best_odds <= -150:
+        parts.append("Favorite is priced -150 or shorter — modest payout for the risk; size matters more than usual.")
+
+    # Form sample warning
+    if (home_used.get("n", 0) < 3) or (away_used.get("n", 0) < 3):
+        parts.append("Recent-form sample is thin (<3 matches per side) — narrative weight should be lower than the numbers suggest.")
+
+    # Small-edge warning
+    if tier == "C" or (edge_pp is not None and edge_pp < 0.04):
+        parts.append("Edge sits at the smaller end of the range — soft and sharp books may converge before kickoff.")
+
+    if not parts:
+        parts.append("Soccer game-level edges tend to run 1-3% ROI long-run; variance dominates over sub-50-pick samples.")
+
+    return " ".join(parts)
 
 
 def _explain_player_prop(
