@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -87,6 +88,26 @@ def _headers() -> Dict[str, str]:
     return {"x-apisports-key": API_FOOTBALL_KEY}
 
 
+# API-Football Free tier rate limit: ~10 req/min on direct (api-sports.io),
+# 10 req/sec but lower daily on RapidAPI. We pace at ~7s between calls to
+# stay under the Free per-minute cap with margin. Paid plans can override
+# via API_FOOTBALL_MIN_INTERVAL_S=0 to disable throttling entirely.
+_MIN_INTERVAL_S = float(os.getenv("API_FOOTBALL_MIN_INTERVAL_S", "7"))
+_last_call_at: float = 0.0
+
+
+def _throttle() -> None:
+    """Sleep just enough to stay under the per-minute rate limit."""
+    global _last_call_at
+    if _MIN_INTERVAL_S <= 0:
+        return
+    now = time.monotonic()
+    wait = _MIN_INTERVAL_S - (now - _last_call_at)
+    if wait > 0:
+        time.sleep(wait)
+    _last_call_at = time.monotonic()
+
+
 def _get(endpoint: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Single GET call. Returns parsed JSON or None on error.
 
@@ -94,39 +115,53 @@ def _get(endpoint: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     a plan-restricted resource is requested (e.g. free-tier asking for
     season 2026). raise_for_status won't catch these — we have to
     inspect the body. Log loudly so prod failures don't silently degrade.
+
+    Rate-limit aware: paces calls to stay under Free-tier 10/min, and
+    retries once on 429 with a 60s sleep. The previous bootstrap fired
+    49+ rapid calls and only the first ~10 succeeded.
     """
     if not API_FOOTBALL_KEY:
         print("  [context] API_FOOTBALL_KEY not set — skipping", file=sys.stderr)
         return None
-    try:
-        resp = httpx.get(
-            f"{BASE_URL}/{endpoint}",
-            headers=_headers(),
-            params=params,
-            timeout=10,
-        )
-        remaining = resp.headers.get("x-ratelimit-requests-remaining")
-        if remaining and int(remaining) < 10:
-            print(f"  [context] API-Football quota low: {remaining} remaining", file=sys.stderr)
-        resp.raise_for_status()
-        data = resp.json()
-        # Surface plan-restriction / auth / param errors (HTTP 200 + errors object)
-        if isinstance(data, dict):
-            err = data.get("errors")
-            # API-Football returns errors as either an object {plan: '...'} OR
-            # an empty list []. Only non-empty dict-style errors are real.
-            if isinstance(err, dict) and err:
-                print(
-                    f"  [context] API-Football {endpoint} restriction: {err}  params={params}",
-                    file=sys.stderr,
-                )
-                # Don't return data on plan errors — caller treats None as
-                # "skip this sync" rather than partial data.
+
+    for attempt in range(2):
+        _throttle()
+        try:
+            resp = httpx.get(
+                f"{BASE_URL}/{endpoint}",
+                headers=_headers(),
+                params=params,
+                timeout=10,
+            )
+            remaining = resp.headers.get("x-ratelimit-requests-remaining")
+            if remaining and int(remaining) < 10:
+                print(f"  [context] API-Football quota low: {remaining} remaining", file=sys.stderr)
+
+            # 429 → cooldown and retry once
+            if resp.status_code == 429:
+                if attempt == 0:
+                    print(f"  [context] API-Football 429 on {endpoint} — cooling 60s and retrying", file=sys.stderr)
+                    time.sleep(60)
+                    continue
+                print(f"  [context] API-Football 429 on {endpoint} (retry exhausted)  params={params}", file=sys.stderr)
                 return None
-        return data
-    except Exception as e:
-        print(f"  [context] API error ({endpoint}): {e}  params={params}", file=sys.stderr)
-        return None
+
+            resp.raise_for_status()
+            data = resp.json()
+            # Surface plan-restriction / auth / param errors (HTTP 200 + errors object)
+            if isinstance(data, dict):
+                err = data.get("errors")
+                if isinstance(err, dict) and err:
+                    print(
+                        f"  [context] API-Football {endpoint} restriction: {err}  params={params}",
+                        file=sys.stderr,
+                    )
+                    return None
+            return data
+        except Exception as e:
+            print(f"  [context] API error ({endpoint}): {e}  params={params}", file=sys.stderr)
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------

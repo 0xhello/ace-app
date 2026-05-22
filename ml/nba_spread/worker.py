@@ -104,6 +104,7 @@ def _handle_signal(sig: int, _frame: object) -> None:
 # failure self-heals within the hour — no manual button-clicking required.
 
 _last_squad_attempt: Optional[datetime] = None
+_squad_thread: Optional[object] = None  # threading.Thread — typed as object to keep imports lazy
 
 
 def _squad_count(path: object) -> int:
@@ -133,8 +134,12 @@ def _maybe_bootstrap_soccer_squads(reason: str = "tick") -> None:
     Writes job:players_sync:last_run_at / last_error meta so the ops API can
     surface any failure (missing API_FOOTBALL_KEY, quota, etc.) instead of
     hiding it behind a silent "0 squads" state.
+
+    Runs in a daemon thread so the main worker tick loop keeps polling for
+    signals while sync_all_players (~80 throttled API calls = ~10 min on
+    Free tier) runs in the background.
     """
-    global _last_squad_attempt
+    global _last_squad_attempt, _squad_thread
     if not _WC_AVAILABLE:
         return
     # Skip when we're well outside the WC window AND no soccer leagues are
@@ -153,6 +158,12 @@ def _maybe_bootstrap_soccer_squads(reason: str = "tick") -> None:
     if _squad_count(_WC_DB) > 0:
         return  # already populated — nothing to do
 
+    # Don't spawn a second thread if one is already running.
+    import threading
+    t = _squad_thread
+    if isinstance(t, threading.Thread) and t.is_alive():
+        return
+
     # Rate-limit retries — once per hour. Boot attempts always proceed.
     now = datetime.now(timezone.utc)
     if reason == "tick" and _last_squad_attempt is not None:
@@ -160,8 +171,20 @@ def _maybe_bootstrap_soccer_squads(reason: str = "tick") -> None:
             return
     _last_squad_attempt = now
 
-    print(f"  [worker] Soccer squads empty — bootstrapping ({reason})…", flush=True)
-    started_at = now.isoformat()
+    print(f"  [worker] Soccer squads empty — bootstrapping ({reason}) in background…", flush=True)
+
+    new_thread = threading.Thread(
+        target=_run_squad_bootstrap_blocking,
+        name=f"soccer-bootstrap-{reason}",
+        daemon=True,
+    )
+    _squad_thread = new_thread
+    new_thread.start()
+
+
+def _run_squad_bootstrap_blocking() -> None:
+    """The actual sync work, run inside the daemon thread spawned above."""
+    started_at = datetime.now(timezone.utc).isoformat()
     error: Optional[str] = None
     captured_stdout: list[str] = []
     captured_stderr: list[str] = []
