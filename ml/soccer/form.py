@@ -64,7 +64,9 @@ def get_db(path: Optional[Path] = None) -> sqlite3.Connection:
 # ── Schema ───────────────────────────────────────────────────────────────────
 
 def init_form_tables(path: Optional[Path] = None) -> None:
-    """Add the team-form table. Additive only — never disturbs other modules."""
+    """Add the team-form table + additive feature columns. Safe to re-run —
+    new columns are added via _migrate_form_table() so existing rows
+    aren't dropped, just extended."""
     conn = get_db(path)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS soccer_team_form (
@@ -87,8 +89,46 @@ def init_form_tables(path: Optional[Path] = None) -> None:
         CREATE INDEX IF NOT EXISTS idx_form_league_date
             ON soccer_team_form(league, match_date DESC);
     """)
+    # Additive migration — bring older deployments up to current schema
+    _migrate_form_table(conn)
     conn.commit()
     conn.close()
+
+
+# Columns added in v2 of the schema (model features). Additive only.
+_V2_COLUMNS: List[Tuple[str, str]] = [
+    ("shots",         "INTEGER"),  # total shots for the team in this match
+    ("shots_against", "INTEGER"),  # shots conceded
+    ("sot",           "INTEGER"),  # shots on target for
+    ("sot_against",   "INTEGER"),  # shots on target against
+    ("corners",       "INTEGER"),
+    ("corners_against","INTEGER"),
+    ("fouls",         "INTEGER"),
+    ("fouls_against", "INTEGER"),
+    ("yellows",       "INTEGER"),
+    ("yellows_against","INTEGER"),
+    ("reds",          "INTEGER"),
+    ("reds_against",  "INTEGER"),
+    ("ht_goals_for",  "INTEGER"),  # half-time goals for
+    ("ht_goals_against","INTEGER"),
+    ("referee",       "TEXT"),     # match referee name
+    # Closing odds (from football-data — used for backtest CLV calculation)
+    ("close_home_odds","REAL"),    # Pinnacle closing decimal odds — home
+    ("close_draw_odds","REAL"),    # Pinnacle closing — draw
+    ("close_away_odds","REAL"),    # Pinnacle closing — away
+    ("close_ou_line", "REAL"),     # Closing over/under line (usually 2.5)
+    ("close_over_odds","REAL"),    # Pinnacle closing over
+    ("close_under_odds","REAL"),   # Pinnacle closing under
+    ("close_ah_line", "REAL"),     # Asian handicap line at close (home perspective)
+]
+
+
+def _migrate_form_table(conn: sqlite3.Connection) -> None:
+    """Add any missing v2 columns to soccer_team_form. Idempotent."""
+    existing = {r["name"] for r in conn.execute("PRAGMA table_info(soccer_team_form)").fetchall()}
+    for col, typ in _V2_COLUMNS:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE soccer_team_form ADD COLUMN {col} {typ}")
 
 
 # ── Source catalog ───────────────────────────────────────────────────────────
@@ -187,10 +227,39 @@ def _parse_date(s: str) -> Optional[str]:
     return None
 
 
+def _int_or_none(s: Any) -> Optional[int]:
+    try:
+        return int((s or "").strip()) if str(s).strip() else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _float_or_none(s: Any) -> Optional[float]:
+    try:
+        v = (s or "").strip() if isinstance(s, str) else s
+        return float(v) if v not in (None, "", "NA", "N/A") else None
+    except (ValueError, TypeError):
+        return None
+
+
 def _parse_completed_matches(csv_text: str) -> List[Dict[str, Any]]:
-    """Returns one dict per fixture with home/away/score. Skips rows with
-    empty scores (rows for unplayed matches — football-data sometimes
-    includes those at the bottom of a partial-season file).
+    """Returns one dict per fixture with full match data — score, shots,
+    corners, cards, referee, and closing odds for backtest. Skips rows
+    with empty scores (unplayed matches).
+
+    Column reference (football-data.co.uk):
+      HS/AS         = home/away total shots
+      HST/AST       = home/away shots on target
+      HC/AC         = home/away corners
+      HF/AF         = home/away fouls
+      HY/AY         = home/away yellow cards
+      HR/AR         = home/away red cards
+      HTHG/HTAG/HTR = half-time goals + result
+      Referee       = match referee name
+      PSCH/D/A      = Pinnacle CLOSING decimal odds (home/draw/away)
+      PC>2.5 / PC<2.5 = Pinnacle CLOSING over/under 2.5 goals
+      AHCh          = Asian handicap line at closing (home line)
+      PCAHH / PCAHA = Pinnacle closing AH home / away odds
     """
     out: List[Dict[str, Any]] = []
     reader = DictReader(io.StringIO(csv_text))
@@ -207,11 +276,35 @@ def _parse_completed_matches(csv_text: str) -> List[Dict[str, Any]]:
         except ValueError:
             continue
         out.append({
-            "date": date_iso,
-            "home": home,
-            "away": away,
-            "gh":   gh,
-            "ga":   ga,
+            "date":              date_iso,
+            "home":              home,
+            "away":              away,
+            "gh":                gh,
+            "ga":                ga,
+            # Match flow features
+            "ht_gh":             _int_or_none(row.get("HTHG")),
+            "ht_ga":             _int_or_none(row.get("HTAG")),
+            "shots_h":           _int_or_none(row.get("HS")),
+            "shots_a":           _int_or_none(row.get("AS")),
+            "sot_h":             _int_or_none(row.get("HST")),
+            "sot_a":             _int_or_none(row.get("AST")),
+            "corners_h":         _int_or_none(row.get("HC")),
+            "corners_a":         _int_or_none(row.get("AC")),
+            "fouls_h":           _int_or_none(row.get("HF")),
+            "fouls_a":           _int_or_none(row.get("AF")),
+            "yellows_h":         _int_or_none(row.get("HY")),
+            "yellows_a":         _int_or_none(row.get("AY")),
+            "reds_h":            _int_or_none(row.get("HR")),
+            "reds_a":            _int_or_none(row.get("AR")),
+            "referee":           (row.get("Referee") or "").strip() or None,
+            # Closing odds (Pinnacle preferred; fall back to Bet365 if absent)
+            "close_h":           _float_or_none(row.get("PSCH") or row.get("B365CH")),
+            "close_d":           _float_or_none(row.get("PSCD") or row.get("B365CD")),
+            "close_a":           _float_or_none(row.get("PSCA") or row.get("B365CA")),
+            "close_ou_line":     _float_or_none(row.get("AvgC>2.5") or 2.5),
+            "close_over":        _float_or_none(row.get("PC>2.5") or row.get("B365C>2.5")),
+            "close_under":       _float_or_none(row.get("PC<2.5") or row.get("B365C<2.5")),
+            "close_ah_line":     _float_or_none(row.get("AHCh") or row.get("AHC")),
         })
     return out
 
@@ -225,25 +318,108 @@ def _result_for(team_goals: int, opp_goals: int) -> str:
 
 
 def _upsert_match(conn: sqlite3.Connection, league: str, m: Dict[str, Any]) -> int:
-    rows = [
-        (m["home"], league, m["date"], m["away"], "home",
-         m["gh"], m["ga"], None, None, _result_for(m["gh"], m["ga"])),
-        (m["away"], league, m["date"], m["home"], "away",
-         m["ga"], m["gh"], None, None, _result_for(m["ga"], m["gh"])),
-    ]
+    """Write home + away perspective rows with full v2 feature payload.
+
+    Closing odds + AH line + over/under line are STORED ON BOTH rows for
+    convenience even though they're a per-match fact — saves a join when
+    backtesting per team.
+    """
+    # Common per-match fields
+    ref       = m.get("referee")
+    ou_line   = m.get("close_ou_line")
+    ou_over   = m.get("close_over")
+    ou_under  = m.get("close_under")
+    ah_line   = m.get("close_ah_line")
+    c_h, c_d, c_a = m.get("close_h"), m.get("close_d"), m.get("close_a")
+
+    # Home team perspective
+    home_row = (
+        m["home"], league, m["date"], m["away"], "home",
+        m["gh"], m["ga"], None, None, _result_for(m["gh"], m["ga"]),
+        m.get("shots_h"),    m.get("shots_a"),
+        m.get("sot_h"),      m.get("sot_a"),
+        m.get("corners_h"),  m.get("corners_a"),
+        m.get("fouls_h"),    m.get("fouls_a"),
+        m.get("yellows_h"),  m.get("yellows_a"),
+        m.get("reds_h"),     m.get("reds_a"),
+        m.get("ht_gh"),      m.get("ht_ga"),
+        ref,
+        c_h, c_d, c_a,
+        ou_line, ou_over, ou_under,
+        ah_line,
+    )
+    # Away team perspective — mirror the per-side fields
+    away_row = (
+        m["away"], league, m["date"], m["home"], "away",
+        m["ga"], m["gh"], None, None, _result_for(m["ga"], m["gh"]),
+        m.get("shots_a"),    m.get("shots_h"),
+        m.get("sot_a"),      m.get("sot_h"),
+        m.get("corners_a"),  m.get("corners_h"),
+        m.get("fouls_a"),    m.get("fouls_h"),
+        m.get("yellows_a"),  m.get("yellows_h"),
+        m.get("reds_a"),     m.get("reds_h"),
+        m.get("ht_ga"),      m.get("ht_gh"),
+        ref,
+        c_h, c_d, c_a,
+        ou_line, ou_over, ou_under,
+        ah_line,
+    )
+
     written = 0
-    for r in rows:
+    for r in (home_row, away_row):
         cur = conn.execute(
             """
             INSERT INTO soccer_team_form
                 (team_name, league, match_date, opponent, venue,
-                 goals_for, goals_against, xg_for, xg_against, result)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 goals_for, goals_against, xg_for, xg_against, result,
+                 shots, shots_against, sot, sot_against,
+                 corners, corners_against,
+                 fouls, fouls_against,
+                 yellows, yellows_against,
+                 reds, reds_against,
+                 ht_goals_for, ht_goals_against,
+                 referee,
+                 close_home_odds, close_draw_odds, close_away_odds,
+                 close_ou_line, close_over_odds, close_under_odds,
+                 close_ah_line)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?,
+                    ?, ?,
+                    ?, ?,
+                    ?, ?,
+                    ?, ?,
+                    ?,
+                    ?, ?, ?,
+                    ?, ?, ?,
+                    ?)
             ON CONFLICT(team_name, match_date, opponent) DO UPDATE SET
-                goals_for     = excluded.goals_for,
-                goals_against = excluded.goals_against,
-                result        = excluded.result,
-                updated_at    = datetime('now')
+                goals_for       = excluded.goals_for,
+                goals_against   = excluded.goals_against,
+                result          = excluded.result,
+                shots           = excluded.shots,
+                shots_against   = excluded.shots_against,
+                sot             = excluded.sot,
+                sot_against     = excluded.sot_against,
+                corners         = excluded.corners,
+                corners_against = excluded.corners_against,
+                fouls           = excluded.fouls,
+                fouls_against   = excluded.fouls_against,
+                yellows         = excluded.yellows,
+                yellows_against = excluded.yellows_against,
+                reds            = excluded.reds,
+                reds_against    = excluded.reds_against,
+                ht_goals_for    = excluded.ht_goals_for,
+                ht_goals_against= excluded.ht_goals_against,
+                referee         = excluded.referee,
+                close_home_odds = excluded.close_home_odds,
+                close_draw_odds = excluded.close_draw_odds,
+                close_away_odds = excluded.close_away_odds,
+                close_ou_line   = excluded.close_ou_line,
+                close_over_odds = excluded.close_over_odds,
+                close_under_odds= excluded.close_under_odds,
+                close_ah_line   = excluded.close_ah_line,
+                updated_at      = datetime('now')
             """,
             r,
         )
