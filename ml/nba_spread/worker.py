@@ -92,6 +92,102 @@ def _handle_signal(sig: int, _frame: object) -> None:
     _RUNNING = False
 
 
+# ── Self-healing soccer-readiness bootstrap ───────────────────────────────────
+# The squad/priors data is the prerequisite for player-prop scanning. It was
+# previously only refreshed by a daily 7:30am ET tick — which meant a missing
+# API_FOOTBALL_KEY (or any transient failure) silently left the system in an
+# unusable state for up to 24h with no surfaced error.
+#
+# This bootstrap runs once on container startup AND retries on each tick if
+# the data is still missing (rate-limited to once per hour). The result: a
+# fresh container will self-populate within minutes, and any transient
+# failure self-heals within the hour — no manual button-clicking required.
+
+_last_squad_attempt: Optional[datetime] = None
+
+
+def _squad_count(path: object) -> int:
+    """Count rows in wc_players. Returns 0 if the table doesn't exist yet."""
+    try:
+        from ml.world_cup.signal_logger import get_db  # type: ignore
+        conn = get_db(path)
+        row = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='wc_players'"
+        ).fetchone()
+        if not row or row[0] == 0:
+            conn.close()
+            return 0
+        n = conn.execute("SELECT COUNT(*) FROM wc_players").fetchone()[0]
+        conn.close()
+        return int(n)
+    except Exception:
+        return 0
+
+
+def _maybe_bootstrap_soccer_squads(reason: str = "tick") -> None:
+    """Ensure wc_players is populated. Idempotent — does nothing when already
+    populated. Rate-limited to once per hour on retry to avoid hammering
+    API-Football if the key is missing.
+
+    Auto-chains compute_all_priors so the squad data is immediately useful.
+    Writes job:players_sync:last_run_at / last_error meta so the ops API can
+    surface any failure (missing API_FOOTBALL_KEY, quota, etc.) instead of
+    hiding it behind a silent "0 squads" state.
+    """
+    global _last_squad_attempt
+    if not _WC_AVAILABLE:
+        return
+    # Skip when we're well outside the WC window AND no soccer leagues are
+    # being scanned — saves API-Football calls in the offseason.
+    today = datetime.now(_TZ_ET).date()
+    in_wc_window = _WC_START <= today <= _WC_END
+    if not in_wc_window and not _SOCCER_LEAGUES_AVAILABLE:
+        return
+
+    # Resolve DB path the same way the rest of the WC code does.
+    try:
+        from ml.world_cup.signal_logger import DB_PATH as _WC_DB
+    except Exception:
+        return
+
+    if _squad_count(_WC_DB) > 0:
+        return  # already populated — nothing to do
+
+    # Rate-limit retries — once per hour. Boot attempts always proceed.
+    now = datetime.now(timezone.utc)
+    if reason == "tick" and _last_squad_attempt is not None:
+        if (now - _last_squad_attempt).total_seconds() < 3600:
+            return
+    _last_squad_attempt = now
+
+    print(f"  [worker] Soccer squads empty — bootstrapping ({reason})…", flush=True)
+    started_at = now.isoformat()
+    error: Optional[str] = None
+    try:
+        result = _wc_sync_players()
+        print(
+            f"  [worker] Bootstrap sync: "
+            f"{result.get('squads', 0)} squads, "
+            f"{result.get('form', 0)} form, "
+            f"{result.get('priors', 0)} priors",
+            flush=True,
+        )
+        if result.get("squads", 0) == 0:
+            error = (
+                "sync returned 0 squads — most likely API_FOOTBALL_KEY missing "
+                "on Railway, or daily quota exhausted"
+            )
+    except Exception as e:
+        error = str(e)
+        print(f"  [worker] Bootstrap sync error: {e}", file=sys.stderr, flush=True)
+
+    try:
+        _wc_update_meta("job:players_sync:last_run_at", started_at)
+        _wc_update_meta("job:players_sync:last_error", error or "")
+    except Exception:
+        pass
+
+
 # ── Task scheduler (simple time-window approach, no external deps) ─────────────
 # Each task has a window (±minutes from scheduled time) and a last-run tracker.
 # The main loop fires every 60s so we'll always land inside a 5-minute window.
@@ -343,9 +439,27 @@ def run_loop(once: bool = False) -> None:
     print(f"  {datetime.now(_TZ_ET).strftime('%Y-%m-%d %H:%M:%S ET')}", flush=True)
     print("=" * 55, flush=True)
 
+    # Boot-time self-heal: if soccer squad data is missing (e.g. fresh
+    # container, or a previous deploy where sync failed), populate it now
+    # rather than waiting for the 7:30am ET daily tick. Idempotent.
+    try:
+        _maybe_bootstrap_soccer_squads(reason="boot")
+    except Exception as e:
+        print(f"  [worker] Bootstrap hook error (non-fatal): {e}",
+              file=sys.stderr, flush=True)
+
     while _RUNNING:
         # Scheduled tasks first (non-blocking time checks)
         _run_scheduled_tasks()
+
+        # Per-tick self-heal — retries every hour while squads remain empty.
+        # No-op once squad data is populated. Surfaces the underlying error
+        # (missing API_FOOTBALL_KEY etc.) via job:players_sync:last_error.
+        try:
+            _maybe_bootstrap_soccer_squads(reason="tick")
+        except Exception as e:
+            print(f"  [worker] Bootstrap hook error (non-fatal): {e}",
+                  file=sys.stderr, flush=True)
 
         # Snapshot poll — returns upcoming games for tip-time caching
         try:

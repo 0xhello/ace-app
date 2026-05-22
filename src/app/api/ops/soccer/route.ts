@@ -144,6 +144,13 @@ export async function GET() {
     lastRunAt: toTs(meta["job:grade_results:last_run_at"] ?? null),
     lastError: meta["job:grade_results:last_error"] || null,
   };
+  // Players-sync job state (squad refresh + auto-chained priors compute).
+  // Previously hidden, which is why a missing API_FOOTBALL_KEY surfaced as
+  // "0 squads in the panel" with no error visible anywhere. Surface it.
+  const playersSyncMeta = {
+    lastRunAt: toTs(meta["job:players_sync:last_run_at"] ?? null),
+    lastError: meta["job:players_sync:last_error"] || null,
+  };
 
   // Performance stats
   const graded  = signals.filter((s) => s.status === "graded");
@@ -169,7 +176,7 @@ export async function GET() {
 
   return NextResponse.json({
     worker: { lastPollAt, lastPollOk },
-    jobs: { fetch: fetchMeta, grade: gradeMeta },
+    jobs: { fetch: fetchMeta, grade: gradeMeta, playersSync: playersSyncMeta },
     signals,
     stats: {
       total: signals.length,

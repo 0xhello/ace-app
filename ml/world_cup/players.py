@@ -1099,17 +1099,22 @@ def compute_all_priors(path: Optional[Path] = None) -> int:
             continue
         conn = get_db(path)
         try:
+            # SQLite treats NULLs as distinct in UNIQUE constraints, so the old
+            # ON CONFLICT(api_player_id, match_game_id) clause silently failed
+            # to upsert team-level priors (match_game_id = NULL) — every
+            # invocation just appended duplicate rows. Delete-then-insert at
+            # the team level avoids that trap; match-level priors (future)
+            # would still need their own row per match.
+            conn.execute(
+                "DELETE FROM wc_player_priors "
+                "WHERE api_player_id = ? AND match_game_id IS NULL",
+                (pid,),
+            )
             conn.execute(
                 """INSERT INTO wc_player_priors
-                   (api_player_id, expected_goals_in_match, anytime_scorer_prob,
-                    first_scorer_prob, assumed_minutes)
-                   VALUES (?, ?, ?, ?, ?)
-                   ON CONFLICT(api_player_id, match_game_id) DO UPDATE SET
-                     expected_goals_in_match = excluded.expected_goals_in_match,
-                     anytime_scorer_prob     = excluded.anytime_scorer_prob,
-                     first_scorer_prob       = excluded.first_scorer_prob,
-                     assumed_minutes         = excluded.assumed_minutes,
-                     computed_at             = datetime('now')""",
+                   (api_player_id, match_game_id, expected_goals_in_match,
+                    anytime_scorer_prob, first_scorer_prob, assumed_minutes)
+                   VALUES (?, NULL, ?, ?, ?, ?)""",
                 (pid, prior["expected_goals_lambda"], prior["anytime_scorer_prob"],
                  prior["first_scorer_prob"], prior["assumed_minutes"]),
             )
