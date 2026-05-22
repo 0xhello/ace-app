@@ -403,11 +403,136 @@ def _scoreline_matrix(
     return M
 
 
+# ── Day 4 adjustments — applied at prediction time, on top of base DC fit ──
+#
+# SoT divergence:
+#   If a team has been generating shots-on-target above what their actual
+#   goal rate implies, they're "due" (regression upward). And vice versa.
+#   We use this as a soft multiplier on the team's α at prediction time.
+#
+# Ref tendency (EPL-only, where ref data exists):
+#   High-card refs raise red-card risk → games with 10-vs-11 stretches
+#   skew unders. Modest λ multiplier downward.
+#
+# Both adjustments are clamped to keep the model honest — no individual
+# feature can move λ by more than ~25%.
+
+SOT_ADJ_LOOKBACK_MATCHES = 10
+SOT_ADJ_MIN_MATCHES      = 5          # Need at least this many to compute
+SOT_ADJ_MIN_MULT         = 0.85
+SOT_ADJ_MAX_MULT         = 1.20
+REF_ADJ_MIN_MULT         = 0.92
+REF_ADJ_MAX_MULT         = 1.08
+
+
+def _league_sot_conversion(league: str, conn: sqlite3.Connection) -> float:
+    """League-wide conversion rate: total goals / total SoT. Used as the
+    baseline for converting team SoT into expected goals."""
+    r = conn.execute(
+        """SELECT SUM(goals_for) AS g, SUM(sot) AS s
+           FROM soccer_team_form
+           WHERE league = ? AND sot IS NOT NULL AND sot > 0""",
+        (league,),
+    ).fetchone()
+    if not r or not r["s"]:
+        return 0.32  # global empirical default
+    return float(r["g"]) / float(r["s"])
+
+
+def _team_sot_adjustment(
+    team: str, league: str, conn: sqlite3.Connection,
+    league_conversion: float,
+    before_date: Optional[str] = None,
+) -> float:
+    """Returns multiplier on team's α based on recent SoT vs actual-goals
+    divergence. > 1 = team's "true" attacking ability is higher than recent
+    goals suggest (positive regression). < 1 = team's true ability is lower."""
+    before = before_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = conn.execute(
+        """SELECT goals_for, sot
+           FROM soccer_team_form
+           WHERE team_name = ? AND league = ? AND match_date < ?
+                 AND sot IS NOT NULL
+           ORDER BY match_date DESC LIMIT ?""",
+        (team, league, before, SOT_ADJ_LOOKBACK_MATCHES),
+    ).fetchall()
+    if len(rows) < SOT_ADJ_MIN_MATCHES:
+        return 1.0
+
+    total_g   = sum((r["goals_for"] or 0) for r in rows)
+    total_sot = sum((r["sot"]       or 0) for r in rows)
+    if total_sot == 0:
+        return 1.0
+
+    actual_rate    = total_g / total_sot
+    # "Expected" rate is the league-wide conversion — anything above
+    # the league means lucky finishing, below means unlucky finishing.
+    # We want to nudge α UP for unlucky teams, DOWN for lucky teams.
+    if actual_rate <= 0:
+        return SOT_ADJ_MAX_MULT  # zero goals on positive SoT — strong regression up
+    ratio = league_conversion / actual_rate
+    # Soften the adjustment — sqrt brings extremes toward 1.0
+    mult = ratio ** 0.5
+    return max(SOT_ADJ_MIN_MULT, min(SOT_ADJ_MAX_MULT, mult))
+
+
+def _ref_card_adjustment(
+    referee: Optional[str], league: str, conn: sqlite3.Connection,
+) -> float:
+    """Returns a multiplier reflecting the referee's card-issuing tendency.
+    High-card refs slightly depress λ (because games where someone goes off
+    on a red have lower scoring on average — fewer players = lower xG).
+
+    Only computes when we have enough history on this ref (≥10 matches).
+    """
+    if not referee:
+        return 1.0
+    # Per-ref cards-per-match for this league
+    r = conn.execute(
+        """SELECT
+               COUNT(*) AS n,
+               AVG(yellows + yellows_against) AS yc_avg,
+               AVG(reds + reds_against)       AS rc_avg
+           FROM soccer_team_form
+           WHERE league = ? AND referee = ? AND venue = 'home'""",
+        (league, referee),
+    ).fetchone()
+    if not r or (r["n"] or 0) < 10:
+        return 1.0
+    # League baseline for comparison
+    base = conn.execute(
+        """SELECT
+               AVG(yellows + yellows_against) AS yc_avg,
+               AVG(reds + reds_against)       AS rc_avg
+           FROM soccer_team_form
+           WHERE league = ? AND referee IS NOT NULL AND venue = 'home'""",
+        (league,),
+    ).fetchone()
+    if not base or (base["yc_avg"] or 0) <= 0:
+        return 1.0
+
+    yc_z = (r["yc_avg"] - base["yc_avg"]) / base["yc_avg"]    # +0.2 = 20% more cards than avg
+    rc_z = (r["rc_avg"] - base["rc_avg"]) / (base["rc_avg"] + 1e-6)
+    # Red cards have more impact than yellows on scoring
+    combined = 0.3 * yc_z + 0.7 * rc_z
+    mult = 1.0 - 0.05 * combined  # heavy-card refs → 5% λ depression at z=1
+    return max(REF_ADJ_MIN_MULT, min(REF_ADJ_MAX_MULT, mult))
+
+
 def predict_match(
     fit: DCFit, home_team: str, away_team: str,
+    league: Optional[str] = None,
+    referee: Optional[str] = None,
+    apply_adjustments: bool = True,
+    conn: Optional[sqlite3.Connection] = None,
 ) -> Optional[Dict[str, Any]]:
     """Returns full probability output for a match. None if either team
-    not in the fitted dataset."""
+    not in the fitted dataset.
+
+    When apply_adjustments=True and a connection is available, layers in:
+      - Per-team SoT divergence adjustment on α
+      - Per-ref card tendency adjustment on λ (only when referee given)
+    """
     a_h = fit.alpha.get(home_team)
     d_h = fit.delta.get(home_team)
     a_a = fit.alpha.get(away_team)
@@ -415,8 +540,26 @@ def predict_match(
     if a_h is None or a_a is None or d_h is None or d_a is None:
         return None
 
+    # Base lambdas from DC fit
     lam_h = a_h * d_a * fit.gamma
     lam_a = a_a * d_h
+
+    # Day 4 adjustments — only when we have a DB to look at
+    sot_mult_h = sot_mult_a = ref_mult = 1.0
+    if apply_adjustments and league:
+        owned_conn = conn is None
+        c = conn or get_db()
+        try:
+            league_conv = _league_sot_conversion(league, c)
+            sot_mult_h = _team_sot_adjustment(home_team, league, c, league_conv)
+            sot_mult_a = _team_sot_adjustment(away_team, league, c, league_conv)
+            ref_mult   = _ref_card_adjustment(referee, league, c)
+        finally:
+            if owned_conn:
+                c.close()
+        lam_h *= sot_mult_h * ref_mult
+        lam_a *= sot_mult_a * ref_mult
+
     M = _scoreline_matrix(lam_h, lam_a, fit.rho)
 
     # 1X2 probabilities
@@ -446,6 +589,12 @@ def predict_match(
         **totals,
         "btts_yes":  btts_yes,
         "btts_no":   1.0 - btts_yes,
+        # Adjustment multipliers (for transparency / debugging)
+        "_adj":      {
+            "sot_mult_h": round(sot_mult_h, 4),
+            "sot_mult_a": round(sot_mult_a, 4),
+            "ref_mult":   round(ref_mult, 4),
+        },
     }
 
 
@@ -566,12 +715,14 @@ if __name__ == "__main__":
                       f"α={r['alpha']:.3f}  δ={r['delta']:.3f}   "
                       f"strength={r['strength']:.3f}")
     elif cmd.startswith("predict:"):
-        # predict:Liverpool:Brighton:Premier League
-        _, home, away, league = cmd.split(":", 3)
+        # predict:Liverpool:Brighton:Premier League:OptionalRefName
+        parts = cmd.split(":", 4)
+        home, away, league = parts[1], parts[2], parts[3]
+        referee = parts[4] if len(parts) > 4 else None
         fits, _ = load_fits()
         if league not in fits:
             print(f"League not fit: {league}", file=sys.stderr); sys.exit(1)
-        p = predict_match(fits[league], home, away)
+        p = predict_match(fits[league], home, away, league=league, referee=referee)
         print(json.dumps(p, indent=2))
     else:
         print("usage: python3 -m ml.soccer.model [fit|rankings|predict:<home>:<away>:<league>]",
