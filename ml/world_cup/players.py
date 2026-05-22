@@ -45,27 +45,35 @@ from .historical import _normalize_player_name
 # `/teams?league=1&season=2026` path is plan-restricted, but `/teams?country=X`
 # isn't. Update as final qualifiers settle (cross-confederation playoffs
 # resolve close to kickoff).
-WC_2026_COUNTRIES: List[str] = [
-    # Hosts
+# Full 49-country set kept as reference. We currently sync a 25-country
+# subset (UEFA + CONMEBOL + hosts) because API-Football Free tier (100/day)
+# can't fit a full bootstrap (~130 calls). If/when we upgrade to Pro, just
+# rename WC_2026_COUNTRIES_FULL → WC_2026_COUNTRIES below.
+WC_2026_COUNTRIES_FULL: List[str] = [
     "USA", "Canada", "Mexico",
-    # UEFA (16 from European qualifying)
     "France", "England", "Germany", "Spain", "Italy", "Netherlands",
     "Portugal", "Belgium", "Croatia", "Denmark", "Switzerland", "Poland",
     "Austria", "Czech-Republic", "Norway", "Ukraine",
-    # CONMEBOL (6 from South American qualifying)
     "Argentina", "Brazil", "Uruguay", "Colombia", "Ecuador", "Paraguay",
-    # AFC (8 from Asian qualifying)
     "Japan", "South-Korea", "Iran", "Saudi-Arabia", "Australia",
     "Iraq", "Qatar", "Uzbekistan",
-    # CAF (9 from African qualifying)
     "Morocco", "Senegal", "Tunisia", "Egypt", "Algeria",
     "Nigeria", "Ghana", "Cameroon", "Ivory-Coast",
-    # CONCACAF (3 non-host qualifiers)
     "Costa-Rica", "Jamaica", "Panama",
-    # OFC (1)
     "New-Zealand",
-    # Inter-confederation playoff slots (likely candidates)
     "Bolivia", "Congo-DR",
+]
+
+WC_2026_COUNTRIES: List[str] = [
+    # Hosts (3)
+    "USA", "Canada", "Mexico",
+    # UEFA (16 from European qualifying) — highest player-prop market density
+    "France", "England", "Germany", "Spain", "Italy", "Netherlands",
+    "Portugal", "Belgium", "Croatia", "Denmark", "Switzerland", "Poland",
+    "Austria", "Czech-Republic", "Norway", "Ukraine",
+    # CONMEBOL (6 from South American qualifying) — Argentina + Brazil
+    # cover the bulk of player-prop interest, others round out the field
+    "Argentina", "Brazil", "Uruguay", "Colombia", "Ecuador", "Paraguay",
 ]
 
 # Manual overrides where teams-by-country returns the wrong team
@@ -90,11 +98,13 @@ _TEAM_ID_OVERRIDES: Dict[str, int] = {
 #   307 = Saudi Pro League (where several stars play now)
 MAJOR_CLUB_LEAGUES = [39, 140, 78, 135, 61, 88, 71, 128, 253, 307]
 
-# Club seasons to pull form from. We keep two seasons so the recency-weighted
-# prior has a current + previous datapoint:
+# Club seasons to pull form from. Under Free-tier API-Football (100/day),
+# only the current season fits in our daily budget. Prior added back when
+# we upgrade to Pro — CLUB_SEASONS_FULL is the full window for reference.
 #   2025 = 2025-26 season (current — strongest weight)
 #   2024 = 2024-25 season (previous — decayed weight)
-CLUB_SEASONS = [2025, 2024]
+CLUB_SEASONS_FULL = [2025, 2024]
+CLUB_SEASONS      = [2025]
 
 # International tournaments to pull top-scorer stats from via API-Football.
 # These are the major competitions that ran in the 12-24 months leading up
@@ -105,13 +115,21 @@ CLUB_SEASONS = [2025, 2024]
 #
 # IDs verified against api-football.com docs; if a season isn't published
 # yet for a given tournament, the fetch returns empty and we skip silently.
-INTL_TOURNAMENTS: List[tuple] = [
+# Free-tier daily budget trims the list to UEFA + CONMEBOL + CONCACAF
+# (matches the trimmed WC_2026_COUNTRIES). AFCON / Asian Cup re-added
+# when we upgrade to API-Football Pro — preserved as INTL_TOURNAMENTS_FULL.
+INTL_TOURNAMENTS_FULL: List[tuple] = [
     (9,   2024, "Copa America 2024",        2024),
     (6,   2024, "AFCON 2024",               2024),
     (7,   2023, "Asian Cup 2023",           2024),  # held Jan 2024
     (22,  2025, "Gold Cup 2025",            2025),
     (5,   2024, "UEFA Nations League 2024", 2024),
     (24,  2024, "CONCACAF Nations League 2024", 2024),
+]
+INTL_TOURNAMENTS: List[tuple] = [
+    (9,   2024, "Copa America 2024",        2024),
+    (5,   2024, "UEFA Nations League 2024", 2024),
+    (22,  2025, "Gold Cup 2025",            2025),
 ]
 
 
