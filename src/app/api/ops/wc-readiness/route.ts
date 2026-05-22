@@ -29,18 +29,65 @@ import json, os, sqlite3, sys
 from pathlib import Path
 db = Path(${JSON.stringify(dbPath)})
 
+api_key = os.getenv("API_FOOTBALL_KEY", "").strip()
+via_rapidapi = os.getenv("API_FOOTBALL_VIA_RAPIDAPI", "").lower() in ("1", "true", "yes")
+
 out = {
     "env": {
-        "API_FOOTBALL_KEY": bool(os.getenv("API_FOOTBALL_KEY", "").strip()),
-        "ODDS_API_KEY":     bool(os.getenv("ODDS_API_KEY", "").strip()),
+        "API_FOOTBALL_KEY":            bool(api_key),
+        "API_FOOTBALL_VIA_RAPIDAPI":   os.getenv("API_FOOTBALL_VIA_RAPIDAPI", "(unset)"),
+        "ODDS_API_KEY":                bool(os.getenv("ODDS_API_KEY", "").strip()),
         "WC_PLAYER_PROPS_ENABLED":      os.getenv("WC_PLAYER_PROPS_ENABLED", "(unset)"),
         "WC_PLAYER_PROPS_CLUB_LEAGUES": os.getenv("WC_PLAYER_PROPS_CLUB_LEAGUES", "(unset)"),
     },
     "counts": {"historical": 0, "squads": 0, "club_players": 0, "priors": 0},
     "jobs": {},
+    "api_test": None,
     "ready_for_player_props": False,
     "blockers": [],
 }
+
+# Live API-Football test — single call with the prod env to surface the
+# actual underlying error (plan restriction / quota / wrong host / etc).
+# Costs 1 call. Returns the response so we can see if it's a key issue,
+# plan issue, or something else.
+if api_key:
+    try:
+        import httpx
+        if via_rapidapi:
+            url = "https://api-football-v3.p.rapidapi.com/v3/status"
+            headers = {
+                "X-RapidAPI-Key":  api_key,
+                "X-RapidAPI-Host": "api-football-v3.p.rapidapi.com",
+            }
+        else:
+            url = "https://v3.football.api-sports.io/status"
+            headers = {"x-apisports-key": api_key}
+        r = httpx.get(url, headers=headers, timeout=8)
+        body = {}
+        try: body = r.json()
+        except Exception: body = {"raw": r.text[:300]}
+        test = {
+            "status_code": r.status_code,
+            "via_rapidapi": via_rapidapi,
+            "errors": body.get("errors") if isinstance(body, dict) else None,
+            "account": (body.get("response", {}) or {}).get("account") if isinstance(body, dict) else None,
+            "requests_today": (body.get("response", {}) or {}).get("requests") if isinstance(body, dict) else None,
+            "subscription": (body.get("response", {}) or {}).get("subscription") if isinstance(body, dict) else None,
+        }
+        out["api_test"] = test
+        if r.status_code == 401 or r.status_code == 403:
+            out["blockers"].append(
+                f"API-Football auth failed ({r.status_code}). Key may be wrong host — "
+                f"try setting API_FOOTBALL_VIA_RAPIDAPI=true (or vice versa)."
+            )
+        elif isinstance(body, dict):
+            err = body.get("errors")
+            if isinstance(err, dict) and err:
+                out["blockers"].append(f"API-Football reported error: {err}")
+    except Exception as e:
+        out["api_test"] = {"error": str(e)[:200]}
+        out["blockers"].append(f"API-Football test call failed: {str(e)[:200]}")
 
 if not db.exists():
     out["blockers"].append("wc_signal_log.db does not exist on this container")
