@@ -75,6 +75,36 @@ if api_key:
             "requests_today": (body.get("response", {}) or {}).get("requests") if isinstance(body, dict) else None,
             "subscription": (body.get("response", {}) or {}).get("subscription") if isinstance(body, dict) else None,
         }
+        # Country-probe — what does /teams?country=X return for a few
+        # known WC qualifiers? If hyphenated names ("Czech-Republic")
+        # silently return 0 teams while the unhyphenated variant works,
+        # that's our bug.
+        try:
+            country_test: dict = {}
+            base_t = "https://api-football-v3.p.rapidapi.com/v3/teams" if via_rapidapi \
+                     else "https://v3.football.api-sports.io/teams"
+            for sample in ["France", "Czech-Republic", "Czech Republic",
+                           "South-Korea", "South Korea", "USA"]:
+                rr = httpx.get(base_t, headers=headers,
+                               params={"country": sample}, timeout=8)
+                jb = {}
+                try: jb = rr.json()
+                except Exception: pass
+                resp_list = (jb.get("response", []) if isinstance(jb, dict) else []) or []
+                # Count national teams (filter out clubs)
+                national = [t for t in resp_list
+                            if isinstance(t, dict)
+                            and (t.get("team", {}) or {}).get("national")]
+                country_test[sample] = {
+                    "http": rr.status_code,
+                    "total_teams_returned": len(resp_list),
+                    "national_teams": len(national),
+                    "errors": jb.get("errors") if isinstance(jb, dict) else None,
+                }
+            test["country_probe"] = country_test
+        except Exception as e:
+            test["country_probe_error"] = str(e)[:200]
+
         out["api_test"] = test
         if r.status_code == 401 or r.status_code == 403:
             out["blockers"].append(
