@@ -961,10 +961,59 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
                 else:
                     signals_skipped += 1
 
+    # ── Per-poll line-history snapshots ─────────────────────────────────────
+    # For every still-open signal, capture today's odds across all books that
+    # are still posting the exact bet. Powers the "line moved from X to Y"
+    # narrative on each pick. Volume is small (~30 open signals × ~6 books =
+    # ~180 rows per poll). Failure here must not break the rest of the run.
     if not snapshot_only:
+        try:
+            snap_total = _capture_open_signal_snapshots(raw_games)
+            if snap_total > 0:
+                print(f"  [snapshots] wrote {snap_total} line-history rows", flush=True)
+        except Exception as e:
+            print(f"  [snapshots] error (non-fatal): {e}", file=sys.stderr, flush=True)
+
         print(f"\n  Signals fired: {signals_fired}  Skipped (dup): {signals_skipped}")
 
     return raw_games
+
+
+def _capture_open_signal_snapshots(games: List[Dict[str, Any]]) -> int:
+    """For each open signal, find the matching market in this poll's games
+    payload, collect all book offers for the exact bet, and append a
+    snapshot row per book. Returns total rows written.
+    """
+    from .signal_logger import get_open_signals, write_odds_snapshot
+    open_sigs = get_open_signals()
+    if not open_sigs:
+        return 0
+    # Index games by id for O(1) lookup
+    games_by_id = {g["id"]: g for g in games}
+    total = 0
+    for sig in open_sigs:
+        sig_id   = sig.get("id")
+        game_id  = sig.get("game_id")
+        market   = sig.get("market")
+        bet_side = sig.get("bet_side")
+        line     = sig.get("total_line")
+        # Player-prop snapshots are a separate beast (they have player_name);
+        # only do game-level signals for now.
+        if sig.get("player_name"):
+            continue
+        if not (sig_id and game_id and market and bet_side):
+            continue
+        game = games_by_id.get(game_id)
+        if not game:
+            continue  # game no longer in the upcoming window
+        offers = _collect_book_offers(
+            game, market, bet_side, line,
+            sig.get("home_team", ""), sig.get("away_team", ""),
+        )
+        if not offers:
+            continue
+        total += write_odds_snapshot(sig_id, offers)
+    return total
 
 
 if __name__ == "__main__":

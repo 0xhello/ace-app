@@ -430,6 +430,51 @@ def summarize_form(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def get_goal_pace(
+    team_name: str,
+    n: int = 10,
+    venue: Optional[str] = None,
+    before_date: Optional[str] = None,
+    path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Per-game goals-for / goals-against rates across the last N matches.
+    Used by the explainer on totals picks: "Liverpool home avg 3.2 goals/
+    game" etc. Bigger sample (default 10) than form (default 5) because
+    pace stabilizes faster than W-L noise.
+
+    Output:
+        {"per_game_for": 2.4, "per_game_against": 1.1,
+         "combined": 3.5, "n": 10}
+    """
+    init_form_tables(path)
+    before = before_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    sql = (
+        "SELECT goals_for, goals_against FROM soccer_team_form "
+        "WHERE team_name = ? AND match_date < ?"
+    )
+    params: List[Any] = [team_name, before]
+    if venue in ("home", "away"):
+        sql += " AND venue = ?"
+        params.append(venue)
+    sql += " ORDER BY match_date DESC LIMIT ?"
+    params.append(n)
+    conn = get_db(path)
+    rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+    conn.close()
+    if not rows:
+        return {"per_game_for": None, "per_game_against": None,
+                "combined": None, "n": 0}
+    gf = sum((r["goals_for"] or 0) for r in rows)
+    ga = sum((r["goals_against"] or 0) for r in rows)
+    n_actual = len(rows)
+    return {
+        "per_game_for":     round(gf / n_actual, 2),
+        "per_game_against": round(ga / n_actual, 2),
+        "combined":         round((gf + ga) / n_actual, 2),
+        "n":                n_actual,
+    }
+
+
 def status(path: Optional[Path] = None) -> Dict[str, Any]:
     """Row counts per league + last-match-date. Used by the ops dashboard."""
     init_form_tables(path)

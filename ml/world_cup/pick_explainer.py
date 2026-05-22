@@ -212,6 +212,11 @@ def _explain_game_level(
         if h2h_line:
             why_parts.append(h2h_line)
 
+    # ── Line movement since detection (when we have snapshots) ──
+    move_line = _line_movement_takeaway(signal.get("id"), best_book, bet_side)
+    if move_line:
+        why_parts.append(move_line)
+
     # ── Best price call-out ──
     if best and alt_books:
         alt_str = ", ".join(f"{_book_nice(o['book'])} {_fmt_odds(o['odds'])}" for o in alt_books)
@@ -289,6 +294,51 @@ def _form_summary_safe(
         return summarize_form(rows)
     except Exception:
         return {"record": "—", "n": 0, "gf": 0, "ga": 0, "xg_for": None, "xg_against": None}
+
+
+def _line_movement_takeaway(
+    signal_id: Optional[int], book: Optional[str], bet_side: str,
+) -> Optional[str]:
+    """One-line narrative about whether the line has moved since we
+    detected the signal. Frames the movement in terms of whether the
+    BETTOR'S available price has improved (longer odds, value preserved)
+    or tightened (shorter odds, the market is catching up).
+
+    Returns None when we have <2 snapshots — first poll after detection,
+    no movement to talk about yet.
+    """
+    if not signal_id or not book:
+        return None
+    try:
+        from .signal_logger import get_line_movement
+        move = get_line_movement(int(signal_id), book=book)
+    except Exception:
+        return None
+    if not move:
+        return None
+    delta = move["movement"]
+    # Filter trivial movement — less than 10 cents on either side is noise
+    if abs(delta) < 10:
+        return None
+    first = move["first_odds"]
+    latest = move["latest_odds"]
+    book_nice = _book_nice(book)
+    # "Longer" means the price is more favorable to the bettor — positive
+    # American odds going UP, or negative odds going CLOSER TO ZERO.
+    def is_longer(prev: float, new: float) -> bool:
+        # +200 → +220 = longer (better payout)
+        # -150 → -140 = longer (less juice)
+        return new > prev
+    longer = is_longer(first, latest)
+    if longer:
+        return (
+            f"Line movement at {book_nice}: {_fmt_odds(first)} → {_fmt_odds(latest)} "
+            f"since detection — price has lengthened, value preserved."
+        )
+    return (
+        f"Line movement at {book_nice}: {_fmt_odds(first)} → {_fmt_odds(latest)} "
+        f"since detection — market is tightening; act sooner rather than later."
+    )
 
 
 def _h2h_takeaway(
@@ -401,7 +451,7 @@ def _form_takeaway(
         n_total = (home_used["n"] or 0) + (away_used["n"] or 0)
         if n_total > 0:
             per_game = total_recent / n_total
-            return f"Combined recent goal pace: {per_game:.1f} per game across both sides' last {n_total // 2} matches."
+            return f"Combined goal pace last 5: {per_game:.1f} per game across both sides."
         return None
 
     return None

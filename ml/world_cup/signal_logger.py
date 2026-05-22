@@ -169,6 +169,21 @@ def init_db(path: Path = DB_PATH) -> None:
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL DEFAULT ''
         );
+
+        -- Per-poll odds snapshots for any open signal. Powers the
+        -- "line moved from X to Y since detection" narrative on each pick.
+        -- One row per (signal_id, book, snapshot_at). Volume ~180 rows per
+        -- poll when ~30 open signals × ~6 books — well within SQLite range.
+        CREATE TABLE IF NOT EXISTS odds_snapshots (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_id    INTEGER NOT NULL,
+            book         TEXT NOT NULL,
+            odds         REAL NOT NULL,
+            snapshot_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (signal_id) REFERENCES soccer_signals(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_odds_snap_lookup
+            ON odds_snapshots(signal_id, book, snapshot_at DESC);
     """)
     _migrate(conn)
     conn.close()
@@ -423,6 +438,99 @@ def log_player_prop_signal(
     conn.commit()
     conn.close()
     return row_id
+
+
+def write_odds_snapshot(
+    signal_id: int,
+    offers: List[Dict[str, Any]],
+    path: Optional[Path] = None,
+) -> int:
+    """Append per-book odds rows for an open signal. `offers` is the same
+    shape we capture at signal-fire time: [{"book": "fanduel", "odds": -150}, ...].
+
+    Idempotent vs duplicates would require a per-second uniqueness check; we
+    skip that — duplicate rows are fine because we always read with ORDER BY
+    snapshot_at DESC LIMIT 1 or similar, and storage is tiny.
+    """
+    if not offers:
+        return 0
+    if path is None:
+        path = DB_PATH
+    init_db(path)
+    conn = get_db(path)
+    written = 0
+    try:
+        for o in offers:
+            book = o.get("book")
+            odds = o.get("odds")
+            if not book or odds is None:
+                continue
+            conn.execute(
+                "INSERT INTO odds_snapshots (signal_id, book, odds) VALUES (?, ?, ?)",
+                (signal_id, book, float(odds)),
+            )
+            written += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return written
+
+
+def get_line_movement(
+    signal_id: int,
+    book: Optional[str] = None,
+    path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return the first-seen + most-recent snapshot for a signal. If `book`
+    is None, picks the book with the best current (highest American odds)
+    price — that's what we surface to subscribers.
+
+    Output:
+        {"book": "betmgm", "first_odds": -150, "latest_odds": -140,
+         "first_at": "2026-05-22T18:30:00", "latest_at": "2026-05-22T22:00:00",
+         "movement": +10}   # positive = lengthened, negative = tightened
+
+    Returns None when we have <2 snapshots (no movement to summarize yet).
+    """
+    if path is None:
+        path = DB_PATH
+    try:
+        init_db(path)
+        conn = get_db(path)
+        try:
+            if book is None:
+                # Pick the book with the highest current (most-recent) odds.
+                latest = conn.execute(
+                    """SELECT book, odds, snapshot_at FROM odds_snapshots
+                       WHERE signal_id = ?
+                       ORDER BY snapshot_at DESC, odds DESC LIMIT 1""",
+                    (signal_id,),
+                ).fetchone()
+                if not latest:
+                    return None
+                book = latest["book"]
+            rows = conn.execute(
+                """SELECT odds, snapshot_at FROM odds_snapshots
+                   WHERE signal_id = ? AND book = ?
+                   ORDER BY snapshot_at ASC""",
+                (signal_id, book),
+            ).fetchall()
+            if len(rows) < 2:
+                return None
+            first, latest = rows[0], rows[-1]
+            return {
+                "book":        book,
+                "first_odds":  float(first["odds"]),
+                "latest_odds": float(latest["odds"]),
+                "first_at":    first["snapshot_at"],
+                "latest_at":   latest["snapshot_at"],
+                "movement":    float(latest["odds"]) - float(first["odds"]),
+                "n_snapshots": len(rows),
+            }
+        finally:
+            conn.close()
+    except Exception:
+        return None
 
 
 def get_open_signals(path: Optional[Path] = None) -> List[Dict[str, Any]]:
