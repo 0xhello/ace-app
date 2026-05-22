@@ -78,10 +78,10 @@ export default function WCBanner() {
               </span>
             </div>
             <p className="text-[12px] text-[#9ca39a] leading-snug max-w-[640px]">
-              ACE is already live on the Big Five — Premier League, La Liga,
-              Bundesliga, Serie A, Ligue 1, UCL.{" "}
-              <span className="text-[#d4d7d0]">World Cup coverage opens June 11.</span>{" "}
-              Every signal, every pick, every result tracked publicly.
+              ACE is training a soccer intelligence model on the Big Five —
+              EPL, La Liga, Bundesliga, Serie A, Ligue 1, UCL.{" "}
+              <span className="text-[#d4d7d0]">First model-driven picks ship for the World Cup, June 11.</span>{" "}
+              Every signal, every pick, every result tracked publicly from kickoff.
             </p>
           </div>
 
