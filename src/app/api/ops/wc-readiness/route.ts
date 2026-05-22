@@ -123,6 +123,19 @@ if not db.exists():
     out["blockers"].append("wc_signal_log.db does not exist on this container")
     print(json.dumps(out)); sys.exit(0)
 
+# Live path-trace through the actual sync chain — runs the same
+# get_wc_teams() the worker bootstrap calls, captures what comes back.
+try:
+    from ml.world_cup.players import get_wc_teams as _gwt, WC_2026_COUNTRIES
+    teams = _gwt()
+    out["sync_trace"] = {
+        "teams_returned": len(teams),
+        "first_3": teams[:3] if teams else [],
+        "countries_attempted": len(WC_2026_COUNTRIES),
+    }
+except Exception as e:
+    out["sync_trace"] = {"error": str(e)[:300]}
+
 try:
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
