@@ -114,6 +114,31 @@ def _current_season_code(today: Optional[datetime] = None) -> str:
     return f"{(yr - 1) % 100:02d}{yr:02d}"
 
 
+def _season_codes_back(n: int, today: Optional[datetime] = None) -> List[str]:
+    """Return [current_season, current_season-1, ..., n total] as football-data
+    season codes. Used to pull multiple seasons of history for H2H lookups
+    where 'last 5 meetings' might span 2-3 seasons.
+    """
+    d = today or datetime.now(timezone.utc)
+    yr = d.year % 100
+    if d.month >= 8:
+        start_yr = yr
+    else:
+        start_yr = (yr - 1) % 100
+    out: List[str] = []
+    for i in range(n):
+        y0 = (start_yr - i) % 100
+        y1 = (start_yr - i + 1) % 100
+        out.append(f"{y0:02d}{y1:02d}")
+    return out
+
+
+# How many past seasons of fixtures to pull. Three covers ~3 years of H2H
+# history — enough for "last 5 meetings" queries even between teams that
+# don't play often (e.g. promoted/relegated club vs an established side).
+_SEASONS_BACK = int(os.getenv("FD_SEASONS_BACK", "3"))
+
+
 # ── Fetcher ──────────────────────────────────────────────────────────────────
 
 _HEADERS = {
@@ -229,13 +254,19 @@ def _upsert_match(conn: sqlite3.Connection, league: str, m: Dict[str, Any]) -> i
 
 def sync_league(league: str, code: str, season: Optional[str] = None,
                 path: Optional[Path] = None) -> int:
-    """Pull one league's current season CSV and upsert. Returns row count."""
+    """Pull one league's CSV for one specific season and upsert. Returns
+    row count. By default targets the current season; pass `season='2425'`
+    etc. for historical pulls. Past-season CSVs don't change after the
+    season closes, so re-pulling is cheap (idempotent upsert) but mostly
+    unnecessary after the first ingest."""
     init_form_tables(path)
     csv_text = _fetch_csv(code, season or _current_season_code())
     if csv_text is None:
         return 0
     matches = _parse_completed_matches(csv_text)
-    print(f"  [form] {league}: {len(matches)} completed matches parsed", flush=True)
+    season_label = season or _current_season_code()
+    print(f"  [form] {league} {season_label}: {len(matches)} completed matches parsed",
+          flush=True)
     if not matches:
         return 0
     conn = get_db(path)
@@ -246,19 +277,33 @@ def sync_league(league: str, code: str, season: Optional[str] = None,
         conn.commit()
     finally:
         conn.close()
-    print(f"  [form] {league}: {written} rows written", flush=True)
+    print(f"  [form] {league} {season_label}: {written} rows written", flush=True)
     return written
 
 
-def sync_all(path: Optional[Path] = None) -> Dict[str, int]:
-    """Refresh every Big 5 league. ~5 HTTP requests, ~12s total wall time.
-    Idempotent — runs daily on the worker."""
+def sync_league_multi_season(league: str, code: str, n_seasons: int = _SEASONS_BACK,
+                              path: Optional[Path] = None) -> int:
+    """Pull the last `n_seasons` of one league. ~15-20s wall time for 3
+    seasons given the polite-pace delay. Past seasons are static so this
+    only really matters on the first run; subsequent syncs hit the cache
+    locally (no API to cache; we just re-upsert and SQLite no-ops dupes)."""
+    total = 0
+    for season in _season_codes_back(n_seasons):
+        total += sync_league(league, code, season, path)
+    return total
+
+
+def sync_all(path: Optional[Path] = None, n_seasons: int = _SEASONS_BACK) -> Dict[str, int]:
+    """Refresh every Big 5 league across the last `n_seasons` seasons.
+    First run: ~75s wall time for 5 leagues × 3 seasons = 15 CSVs.
+    Daily re-runs: same wall time but mostly no-op upserts on past seasons,
+    only the current-season CSV brings new data.
+    """
     init_form_tables(path)
     out: Dict[str, int] = {}
-    season = _current_season_code()
     for league, code in FD_LEAGUES:
         try:
-            out[league] = sync_league(league, code, season, path)
+            out[league] = sync_league_multi_season(league, code, n_seasons, path)
         except Exception as e:
             print(f"  [form] {league} failed: {e}", file=sys.stderr)
             out[league] = 0
@@ -297,6 +342,66 @@ def get_recent_form(
     rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
     conn.close()
     return rows
+
+
+def get_h2h(
+    team_a: str, team_b: str,
+    n: int = 5,
+    before_date: Optional[str] = None,
+    path: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """Return the last N completed matches between team_a and team_b before
+    `before_date` (default: today). Sorted newest-first. Rows are from team_a's
+    perspective — i.e. `result` is 'W' if team_a won, 'L' if team_b won.
+
+    Used by the explainer to compose lines like:
+        "Last 5 meetings: Liverpool 3W-1D-1L vs Brighton, +6 goal differential."
+    """
+    init_form_tables(path)
+    before = before_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    conn = get_db(path)
+    try:
+        rows = conn.execute(
+            "SELECT match_date, opponent, venue, goals_for, goals_against, "
+            "       xg_for, xg_against, result "
+            "FROM soccer_team_form "
+            "WHERE team_name = ? AND opponent = ? AND match_date < ? "
+            "ORDER BY match_date DESC LIMIT ?",
+            (team_a, team_b, before, n),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def summarize_h2h(rows: List[Dict[str, Any]], team_a: str, team_b: str) -> Dict[str, Any]:
+    """Compress H2H rows into a narrative-ready summary.
+
+    Output:
+      {"record": "3W-1D-1L", "n": 5, "goal_diff": +6,
+       "team_a_goals": 11, "team_b_goals": 5}
+
+    `record` is from team_a's perspective. `goal_diff` is team_a_goals minus
+    team_b_goals across all matches sampled. Empty rows → all-zero summary.
+    """
+    if not rows:
+        return {"record": "—", "n": 0, "goal_diff": 0,
+                "team_a_goals": 0, "team_b_goals": 0,
+                "team_a": team_a, "team_b": team_b}
+    w = sum(1 for r in rows if r["result"] == "W")
+    d = sum(1 for r in rows if r["result"] == "D")
+    l = sum(1 for r in rows if r["result"] == "L")
+    gf = sum((r["goals_for"] or 0) for r in rows)
+    ga = sum((r["goals_against"] or 0) for r in rows)
+    return {
+        "record":       f"{w}W-{d}D-{l}L",
+        "n":            len(rows),
+        "goal_diff":    gf - ga,
+        "team_a_goals": gf,
+        "team_b_goals": ga,
+        "team_a":       team_a,
+        "team_b":       team_b,
+    }
 
 
 def summarize_form(rows: List[Dict[str, Any]]) -> Dict[str, Any]:

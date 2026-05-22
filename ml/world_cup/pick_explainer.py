@@ -203,6 +203,15 @@ def _explain_game_level(
         if takeaway:
             why_parts.append(takeaway)
 
+    # H2H history — pulls last 5 meetings between these specific teams across
+    # the seasons we have ingested. Only added when:
+    #   - We have at least 2 prior meetings (1-game H2H is meaningless noise)
+    #   - The H2H signal aligns with the bet OR is notably one-sided
+    if market in ("h2h", "asian_handicap"):
+        h2h_line = _h2h_takeaway(home, away, game_date, bet_side, market)
+        if h2h_line:
+            why_parts.append(h2h_line)
+
     # ── Best price call-out ──
     if best and alt_books:
         alt_str = ", ".join(f"{_book_nice(o['book'])} {_fmt_odds(o['odds'])}" for o in alt_books)
@@ -280,6 +289,70 @@ def _form_summary_safe(
         return summarize_form(rows)
     except Exception:
         return {"record": "—", "n": 0, "gf": 0, "ga": 0, "xg_for": None, "xg_against": None}
+
+
+def _h2h_takeaway(
+    home: str, away: str, before_date: Optional[str],
+    bet_side: str, market: str,
+) -> Optional[str]:
+    """Compose a one-line H2H sentence — when the data actually supports
+    saying something. Skips silently when:
+      - We have <2 prior meetings (noise)
+      - The H2H record is genuinely balanced (1W-0D-1L, no story)
+    """
+    try:
+        from ml.soccer.form import get_h2h, summarize_h2h  # type: ignore
+        # From home team's perspective
+        rows = get_h2h(home, away, n=5, before_date=before_date)
+        sm = summarize_h2h(rows, home, away)
+    except Exception:
+        return None
+
+    if sm["n"] < 2:
+        return None
+
+    # Parse the record into separate W/D/L counts
+    try:
+        w_s, d_s, l_s = sm["record"].split("-")
+        w = int(w_s.rstrip("W")); d = int(d_s.rstrip("D")); l = int(l_s.rstrip("L"))
+    except (ValueError, AttributeError):
+        return None
+
+    # Skip when neither team meaningfully leads
+    if abs(w - l) < 2 and abs(sm["goal_diff"]) < 3:
+        return None
+
+    diff_sign = "+" if sm["goal_diff"] > 0 else ""
+    home_leads = w > l
+    record_label = f"{home} {sm['record']}" if home_leads else f"{away} {l}W-{d}D-{w}L"
+
+    # Tailor the framing to which side we're betting
+    if market == "h2h":
+        if bet_side == "home":
+            if home_leads:
+                return (
+                    f"Last {sm['n']} H2H: {record_label}, "
+                    f"{diff_sign}{sm['goal_diff']} goal differential — "
+                    f"history supports the side."
+                )
+            return (
+                f"Last {sm['n']} H2H: {record_label} — "
+                f"history runs the other way, edge has to overcome that."
+            )
+        if bet_side == "away":
+            if not home_leads:
+                return (
+                    f"Last {sm['n']} H2H: {record_label} — history supports the side."
+                )
+            return (
+                f"Last {sm['n']} H2H: {record_label} — "
+                f"history runs the other way."
+            )
+        # draw
+        return f"Last {sm['n']} H2H: {record_label}."
+
+    # asian_handicap path — just surface the H2H record neutrally
+    return f"Last {sm['n']} H2H: {record_label}, {diff_sign}{sm['goal_diff']} GD."
 
 
 def _form_takeaway(
