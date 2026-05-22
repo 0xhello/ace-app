@@ -219,7 +219,10 @@ def _run_squad_bootstrap_blocking() -> None:
 
     # Pre-flight quota check — don't waste residual quota on a partial sync.
     remaining, qerr = _check_api_football_budget()
-    REQUIRED = 130  # ~48 country + 32 squads + 40 club form + 12 intl form
+    # Trimmed budget (Free tier): 25 countries + 25 squads + 20 club form +
+    # 6 intl form + 1 league call + 1 status = ~78 calls. Add 10 for
+    # retry buffer / readiness probes.
+    REQUIRED = 90
     if qerr:
         error = qerr
     elif remaining < REQUIRED:
