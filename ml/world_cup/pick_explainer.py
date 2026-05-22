@@ -294,19 +294,128 @@ def _book_nice(key: Optional[str]) -> str:
     return _BOOK_NAMES.get(key, key.capitalize())
 
 
+# ── Team-name normalization ──────────────────────────────────────────────────
+# The Odds API (which is what signal_logger sees) and football-data.co.uk
+# (which the form ingestor writes from) use slightly different team-name
+# strings. Without this map, e.g. an "AS Roma" signal returns 0 form rows
+# because football-data writes "Roma". This caused half the prod signals to
+# render with no form context.
+#
+# Strategy: explicit aliases for the well-known mismatches (small, finite
+# set), then a fuzzy-fallback at query time for anything we missed.
+
+_TEAM_NAME_ALIASES_TO_FD: Dict[str, str] = {
+    # Serie A
+    "AC Milan":           "Milan",
+    "AS Roma":            "Roma",
+    "Hellas Verona":      "Verona",
+    "Inter Milan":        "Inter",
+    "SSC Napoli":         "Napoli",
+    "AS Monza":           "Monza",
+    # La Liga
+    "Atletico Madrid":    "Ath Madrid",
+    "Athletic Bilbao":    "Ath Bilbao",
+    "Real Sociedad":      "Sociedad",
+    "Real Betis":         "Betis",
+    "Real Valladolid":    "Valladolid",
+    "Rayo Vallecano":     "Vallecano",
+    "Celta Vigo":         "Celta",
+    "Deportivo Alaves":   "Alaves",
+    "Deportivo La Coruna":"La Coruna",
+    "Real Mallorca":      "Mallorca",
+    "Cadiz CF":           "Cadiz",
+    # Premier League
+    "Manchester United":      "Man United",
+    "Manchester City":        "Man City",
+    "Newcastle United":       "Newcastle",
+    "Nottingham Forest":      "Nott'm Forest",
+    "Wolverhampton Wanderers":"Wolves",
+    "Tottenham Hotspur":      "Tottenham",
+    "West Ham United":        "West Ham",
+    "Leeds United":           "Leeds",
+    "Brighton and Hove Albion":"Brighton",
+    "Leicester City":         "Leicester",
+    "AFC Bournemouth":        "Bournemouth",
+    # Bundesliga
+    "Bayern Munich":          "Bayern Munich",
+    "Bayer Leverkusen":       "Leverkusen",
+    "RB Leipzig":             "RB Leipzig",
+    "Eintracht Frankfurt":    "Ein Frankfurt",
+    "Borussia Dortmund":      "Dortmund",
+    "Borussia Mönchengladbach":"M'gladbach",
+    "Borussia Moenchengladbach":"M'gladbach",
+    "VfB Stuttgart":          "Stuttgart",
+    "VfL Wolfsburg":          "Wolfsburg",
+    "1. FC Heidenheim":       "Heidenheim",
+    "FC Augsburg":            "Augsburg",
+    "TSG Hoffenheim":         "Hoffenheim",
+    "1. FC Union Berlin":     "Union Berlin",
+    "FSV Mainz 05":           "Mainz",
+    "1. FSV Mainz 05":        "Mainz",
+    "SV Werder Bremen":       "Werder Bremen",
+    "FC St. Pauli":           "St Pauli",
+    "Holstein Kiel":          "Holstein Kiel",
+    "VfL Bochum":             "Bochum",
+    "SC Freiburg":            "Freiburg",
+    # Ligue 1
+    "Paris Saint Germain":    "Paris SG",
+    "Paris Saint-Germain":    "Paris SG",
+    "Olympique Marseille":    "Marseille",
+    "Olympique Lyonnais":     "Lyon",
+    "AS Monaco":              "Monaco",
+    "Stade Rennais":          "Rennes",
+    "OGC Nice":               "Nice",
+    "RC Lens":                "Lens",
+    "LOSC Lille":             "Lille",
+    "Stade Brestois 29":      "Brest",
+    "Stade Brest":            "Brest",
+    "AJ Auxerre":             "Auxerre",
+    "Angers SCO":             "Angers",
+    "Toulouse FC":            "Toulouse",
+    "Le Havre AC":            "Le Havre",
+    "FC Nantes":              "Nantes",
+    "Montpellier HSC":        "Montpellier",
+    "Stade de Reims":         "Reims",
+    "AS Saint-Etienne":       "St Etienne",
+    "RC Strasbourg Alsace":   "Strasbourg",
+}
+
+
+def _to_fd_team_name(odds_name: str) -> str:
+    """Map an Odds API team name to the football-data.co.uk form. Identity
+    function for names that match exactly (the majority — most short names
+    like "Arsenal", "Liverpool", "Chelsea" are identical)."""
+    return _TEAM_NAME_ALIASES_TO_FD.get(odds_name, odds_name)
+
+
 def _form_summary_safe(
     team: str, n: int, before_date: Optional[str],
     venue: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Load + summarize team form, returning the empty-summary shape on any
-    failure so the explainer never crashes when the form ingestor hasn't
-    synced yet."""
+    """Load + summarize team form. Tries the team name as-is first; on a
+    zero-row result, falls back to the alias map; on still-zero, attempts a
+    fuzzy substring match across known teams in the form table.
+
+    Returns the empty-summary shape when nothing matches — the explainer
+    never crashes when form is missing.
+    """
+    empty = {"record": "—", "n": 0, "gf": 0, "ga": 0,
+             "xg_for": None, "xg_against": None}
     try:
         from ml.soccer.form import get_recent_form, summarize_form  # type: ignore
+        # First attempt: as-is
         rows = get_recent_form(team, n=n, before_date=before_date, venue=venue)
-        return summarize_form(rows)
+        if rows:
+            return summarize_form(rows)
+        # Alias fallback
+        alias = _to_fd_team_name(team)
+        if alias != team:
+            rows = get_recent_form(alias, n=n, before_date=before_date, venue=venue)
+            if rows:
+                return summarize_form(rows)
+        return empty
     except Exception:
-        return {"record": "—", "n": 0, "gf": 0, "ga": 0, "xg_for": None, "xg_against": None}
+        return empty
 
 
 def _line_movement_takeaway(
@@ -365,9 +474,12 @@ def _h2h_takeaway(
     """
     try:
         from ml.soccer.form import get_h2h, summarize_h2h  # type: ignore
-        # From home team's perspective
-        rows = get_h2h(home, away, n=5, before_date=before_date)
-        sm = summarize_h2h(rows, home, away)
+        # Apply the team-name alias map both sides — soccer_team_form is
+        # keyed on football-data.co.uk names; signals carry Odds API names.
+        home_fd = _to_fd_team_name(home)
+        away_fd = _to_fd_team_name(away)
+        rows = get_h2h(home_fd, away_fd, n=5, before_date=before_date)
+        sm = summarize_h2h(rows, home_fd, away_fd)
     except Exception:
         return None
 
