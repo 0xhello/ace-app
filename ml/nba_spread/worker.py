@@ -60,6 +60,15 @@ try:
 except Exception:
     _SOCCER_LEAGUES_AVAILABLE = False
 
+# FBref team-form ingestor — daily HTML scrape of Big 5 + UCL schedules.
+# Free, no API key. Feeds the pick explainer with real recent-form data
+# instead of statistical filler.
+try:
+    from ml.soccer.form import sync_all as _soccer_form_sync
+    _SOCCER_FORM_AVAILABLE = True
+except Exception:
+    _SOCCER_FORM_AVAILABLE = False
+
 # MLB module — same lazy-load pattern. Divergence-only pipeline (no model yet).
 try:
     from ml.mlb.fetch_signals import run as _mlb_fetch_run
@@ -443,6 +452,24 @@ def _run_scheduled_tasks() -> None:
                 _wc_update_meta("job:players_sync:last_error",  error or "")
             except Exception:
                 pass
+
+    # ── FBref team-form refresh (daily 6 AM ET, free) ─────────────────────────
+    # One HTTP pull per Big 5 + UCL league = 6 requests. Polite-paced.
+    # Feeds the explainer with real recent-form data + xG.
+    if _SOCCER_FORM_AVAILABLE and _daily_due("soccer_form_sync", hour=6, minute=0):
+        started_at = datetime.now(timezone.utc).isoformat()
+        error = None
+        try:
+            result = _soccer_form_sync()
+            print(f"  [worker] FBref form sync: {result}", flush=True)
+        except Exception as e:
+            error = str(e)
+            print(f"  [worker] FBref form sync error: {e}", file=sys.stderr, flush=True)
+        try:
+            _wc_update_meta("job:form_sync:last_run_at", started_at)
+            _wc_update_meta("job:form_sync:last_error", error or "")
+        except Exception:
+            pass
 
     # ── MLB tasks (active during season) ──────────────────────────────────────
     if _MLB_AVAILABLE and _MLB_START <= datetime.now(_TZ_ET).date() <= _MLB_END:
