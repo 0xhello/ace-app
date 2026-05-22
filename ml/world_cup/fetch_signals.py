@@ -582,6 +582,62 @@ def _detect_ah_divergence(
 
 
 # ---------------------------------------------------------------------------
+# Book-offer collector — multi-book transparency
+# ---------------------------------------------------------------------------
+
+def _collect_book_offers(
+    game: Dict[str, Any],
+    market: str,
+    bet_side: str,
+    total_line: Optional[float],
+    home_name: str,
+    away_name: str,
+) -> List[Dict[str, Any]]:
+    """For a given bet (market + side + line), return every book's offer
+    sorted best-to-worst for the bettor.
+
+    "Best" = highest American odds (most favorable payout). Tied books appear
+    in insertion order. Pinnacle is included but typically priced sharper
+    than the soft books, so it usually sits at the bottom of the list.
+
+    Output shape:
+      [{"book": "fanduel",     "odds": -350},
+       {"book": "betmgm",      "odds": -360},
+       {"book": "draftkings",  "odds": -375},
+       {"book": "pinnacle",    "odds": -390}]
+    """
+    offers: List[Dict[str, Any]] = []
+    for bm in game.get("bookmakers", []):
+        book_key = bm["key"]
+        odds: Optional[float] = None
+
+        if market == "h2h":
+            h2h = _extract_h2h_odds(game["bookmakers"], book_key, home_name, away_name)
+            if h2h:
+                key = bet_side  # "home" | "draw" | "away"
+                v = h2h.get(key)
+                if v:
+                    odds = float(v)
+
+        elif market == "totals":
+            tot = _extract_totals_probs(game["bookmakers"], book_key)
+            if tot and total_line is not None and abs(tot["line"] - total_line) < 0.01:
+                odds = float(tot.get(f"{bet_side}_odds", 0)) or None
+
+        elif market == "asian_handicap":
+            ah = _extract_ah_line(game["bookmakers"], book_key, home_name)
+            if ah and total_line is not None and abs(ah.get("home_line", 0) - total_line) < 0.01:
+                odds = float(ah.get(f"{bet_side}_odds", 0)) or None
+
+        if odds is not None and odds != 0:
+            offers.append({"book": book_key, "odds": int(odds)})
+
+    # Highest American odds first (best for the bettor).
+    offers.sort(key=lambda o: -o["odds"])
+    return offers
+
+
+# ---------------------------------------------------------------------------
 # Divergence detection
 # ---------------------------------------------------------------------------
 
@@ -751,6 +807,13 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
         if pin_h2h:
             sig = _detect_h2h_divergence(game, pin_h2h)
             if sig:
+                offers = _collect_book_offers(
+                    game, "h2h", sig["bet_side"], None, home_name, away_name,
+                )
+                sig["book_offers"] = offers
+                if offers:
+                    sig["best_book"]      = offers[0]["book"]
+                    sig["best_book_odds"] = offers[0]["odds"]
                 row_id = log_signal(
                     game_id       = game_id,
                     game_date     = game_date,
@@ -779,6 +842,14 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
         if pin_ah:
             sig = _detect_ah_divergence(game, pin_ah)
             if sig:
+                offers = _collect_book_offers(
+                    game, "asian_handicap", sig["bet_side"], sig.get("total_line"),
+                    home_name, away_name,
+                )
+                sig["book_offers"] = offers
+                if offers:
+                    sig["best_book"]      = offers[0]["book"]
+                    sig["best_book_odds"] = offers[0]["odds"]
                 row_id = log_signal(
                     game_id       = game_id,
                     game_date     = game_date,
@@ -805,6 +876,14 @@ def run(snapshot_only: bool = False) -> List[Dict[str, Any]]:
         if pin_totals:
             sig = _detect_totals_divergence(game, pin_totals)
             if sig:
+                offers = _collect_book_offers(
+                    game, "totals", sig["bet_side"], sig.get("total_line"),
+                    home_name, away_name,
+                )
+                sig["book_offers"] = offers
+                if offers:
+                    sig["best_book"]      = offers[0]["book"]
+                    sig["best_book_odds"] = offers[0]["odds"]
                 row_id = log_signal(
                     game_id       = game_id,
                     game_date     = game_date,

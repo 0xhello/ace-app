@@ -11,6 +11,7 @@ Tables:
 """
 from __future__ import annotations
 
+import json
 import math
 import sqlite3
 from datetime import datetime, timezone
@@ -54,6 +55,12 @@ _PICK_COLUMNS: List[tuple] = [
     ("player_name",           "TEXT"),    # canonical player name (matches wc_historical_form / wc_players)
     ("api_player_id",         "INTEGER"), # API-Football player ID when we resolved the name to a squad row
     ("prior_prob",            "REAL"),    # OUR computed prior — the reference point for player-prop signals
+    # Multi-book transparency — every signal snapshots all books posting the
+    # exact bet (market + side + line) so subscribers can see the full price
+    # landscape, not just the soft book that triggered our divergence math.
+    ("book_offers",           "TEXT"),    # JSON list of {book, odds, prob} sorted best-to-worst for the bettor
+    ("best_book",             "TEXT"),    # convenience column — extracted from book_offers[0]
+    ("best_book_odds",        "REAL"),    # convenience column — extracted from book_offers[0]
 ]
 
 
@@ -287,6 +294,9 @@ def log_signal(
     notes: str = "",
     reasoning_json: Optional[str] = None,
     tournament: str = "FIFA World Cup",
+    book_offers: Optional[List[Dict[str, Any]]] = None,
+    best_book: Optional[str] = None,
+    best_book_odds: Optional[float] = None,
     path: Optional[Path] = None,
 ) -> int:
     """
@@ -312,6 +322,7 @@ def log_signal(
     tier   = confidence_tier(edge_pp)
     kelly  = kelly_fraction(_null_float(pinnacle_prob) or 0.0, _null_float(book_odds) or 0.0)
 
+    offers_json = json.dumps(book_offers) if book_offers else None
     cursor = conn.execute(
         """
         INSERT OR IGNORE INTO soccer_signals
@@ -319,8 +330,9 @@ def log_signal(
              market, bet_side, total_line,
              pinnacle_prob, book, book_prob, book_odds, edge_pp,
              confidence_tier, kelly_fraction, reasoning_json,
-             notes, detected_at)
-        VALUES (?,?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?)
+             notes, detected_at,
+             book_offers, best_book, best_book_odds)
+        VALUES (?,?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?, ?,?,?)
         """,
         (
             game_id, game_date, home_team, away_team, commence_time, tournament,
@@ -329,6 +341,7 @@ def log_signal(
             _null_float(book_odds), _null_float(edge_pp),
             tier, kelly, reasoning_json,
             notes, detected_at,
+            offers_json, best_book, _null_float(best_book_odds),
         ),
     )
     row_id = cursor.lastrowid or 0

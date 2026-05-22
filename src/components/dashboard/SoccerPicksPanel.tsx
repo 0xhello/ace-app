@@ -16,7 +16,7 @@
  */
 import { useEffect, useState, useCallback } from "react";
 import { ChevronDown, ChevronUp, Sparkles, RefreshCw } from "lucide-react";
-import type { SoccerPick, SoccerPicksPayload } from "@/lib/soccer-picks";
+import type { BookOffer, SoccerPick, SoccerPicksPayload } from "@/lib/soccer-picks";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -83,6 +83,71 @@ interface Explanation {
   caveat: string;
 }
 
+function BookName({ book }: { book: string }) {
+  // Quick title-case for display: "betrivers" → "BetRivers", "draftkings" → "DraftKings".
+  // Used for the best-price strip; doesn't need to be exhaustive — falls back to
+  // capitalize-first when we don't have a known mapping.
+  const NICE: Record<string, string> = {
+    fanduel:       "FanDuel",
+    draftkings:    "DraftKings",
+    betmgm:        "BetMGM",
+    betrivers:     "BetRivers",
+    williamhill_us:"Caesars",
+    pointsbet_us:  "PointsBet",
+    pinnacle:      "Pinnacle",
+  };
+  return <>{NICE[book] ?? book.charAt(0).toUpperCase() + book.slice(1)}</>;
+}
+
+function BestPriceStrip({ pick }: { pick: SoccerPick }) {
+  // Surfaces the actual price landscape — the differentiator subscribers
+  // care about. Falls back to the triggering soft book if we don't have
+  // multi-book offers captured yet (older signals).
+  const offers = pick.book_offers ?? [];
+  if (!offers.length) {
+    if (!pick.book || pick.book_odds == null) return null;
+    return (
+      <span className="text-[10px] text-[#9ca39a]">
+        <BookName book={pick.book} />{" "}
+        <span className="text-[#d4d7d0] font-mono ml-0.5">{formatAmerican(pick.book_odds)}</span>
+      </span>
+    );
+  }
+  // Filter Pinnacle from the alts shown to subscribers — they can't bet there
+  // (US-restricted) so it's just noise. Pinnacle's role is the sharp anchor
+  // upstream, not a retail price.
+  const showable = offers.filter((o) => o.book !== "pinnacle");
+  if (showable.length === 0) return null;
+  const top = showable[0];
+  const others = showable.slice(1, 4); // up to 3 alternatives
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[10px]">
+      <span className="text-[#3a4033] uppercase tracking-widest text-[8px] font-bold">
+        Best price
+      </span>
+      <span className="font-bold text-[#3ee68a]">
+        <BookName book={top.book} />{" "}
+        <span className="font-mono">{formatAmerican(top.odds)}</span>
+      </span>
+      {others.length > 0 && (
+        <>
+          <span className="text-[#3a4033]">·</span>
+          <span className="text-[#6b7068]">
+            also{" "}
+            {others.map((o, i) => (
+              <span key={o.book}>
+                <BookName book={o.book} />{" "}
+                <span className="font-mono text-[#9ca39a]">{formatAmerican(o.odds)}</span>
+                {i < others.length - 1 ? <span className="text-[#3a4033]">, </span> : null}
+              </span>
+            ))}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PickCard({ pick }: { pick: SoccerPick }) {
   const [expanded, setExpanded] = useState(false);
   const [explain, setExplain] = useState<Explanation | null>(null);
@@ -145,19 +210,25 @@ function PickCard({ pick }: { pick: SoccerPick }) {
             {/* Bet line */}
             <p className="text-[13px] font-bold text-white mt-1">{describeBet(pick)}</p>
 
-            {/* Book + odds + edge */}
-            <div className="flex items-center gap-3 mt-1.5 text-[10px]">
-              <span className="text-[#6b7068]">
-                {pick.book ? pick.book : "—"}
-                {pick.book_odds != null && (
-                  <span className="text-[#d4d7d0] font-mono ml-1.5">{formatAmerican(pick.book_odds)}</span>
-                )}
-              </span>
-              <span className="text-[#3a4033]">·</span>
-              <span className="font-mono font-bold" style={{ color: tColor }}>
-                {formatEdge(pick.edge_pp)} edge
-              </span>
+            {/* Best price across books — what subscribers actually need
+                to know: where to bet, and the alternatives. */}
+            <div className="mt-1.5">
+              <BestPriceStrip pick={pick} />
             </div>
+
+            {/* Edge chip — the model's read */}
+            {pick.edge_pp != null && (
+              <div className="mt-1 text-[10px]">
+                <span className="font-mono font-bold" style={{ color: tColor }}>
+                  {formatEdge(pick.edge_pp)} model edge
+                </span>
+                {pick.pinnacle_prob != null && (
+                  <span className="text-[#4a524a] ml-2">
+                    pin {(pick.pinnacle_prob * 100).toFixed(1)}%
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="shrink-0 flex items-center gap-1 text-[#6b7068] hover:text-[#3ee68a] transition-colors">

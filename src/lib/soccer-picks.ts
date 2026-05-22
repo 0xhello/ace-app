@@ -15,6 +15,11 @@
 import { spawnSync } from "child_process";
 import path from "path";
 
+export interface BookOffer {
+  book: string;
+  odds: number;
+}
+
 export interface SoccerPick {
   signal_id:        number;
   tournament:       string | null;
@@ -27,6 +32,7 @@ export interface SoccerPick {
   bet_side:         string;       // home | away | over | under | yes | no
   total_line:       number | null;
   player_name:      string | null;
+  // Triggering soft-book — the book whose mispricing fired the signal
   book:             string | null;
   book_odds:        number | null;
   book_prob:        number | null;
@@ -37,6 +43,10 @@ export interface SoccerPick {
   status:           string;       // open | graded
   correct:          number | null; // 1 win, 0 loss, null pending
   clv_pp:           number | null;
+  // Multi-book transparency — snapshot at signal-time, sorted best-to-worst
+  book_offers:      BookOffer[] | null;
+  best_book:        string | null;
+  best_book_odds:   number | null;
 }
 
 export interface SoccerPicksPayload {
@@ -109,6 +119,9 @@ try:
         "status",
         col("correct"),
         col("clv_pp"),
+        col("book_offers"),
+        col("best_book"),
+        col("best_book_odds"),
     ])
 
     open_rows = [dict(r) for r in conn.execute(
@@ -173,6 +186,20 @@ except Exception as e:
     return { ...EMPTY_PAYLOAD, refreshed_at: new Date().toISOString() };
   }
 
+  const parseOffers = (raw: unknown): BookOffer[] | null => {
+    if (!raw || typeof raw !== "string") return null;
+    try {
+      const v = JSON.parse(raw);
+      if (!Array.isArray(v)) return null;
+      return v.filter(
+        (o): o is BookOffer =>
+          typeof o === "object" && o !== null && typeof (o as BookOffer).book === "string"
+      );
+    } catch {
+      return null;
+    }
+  };
+
   const map = (r: Record<string, unknown>): SoccerPick => ({
     signal_id:       Number(r.signal_id ?? 0),
     tournament:      (r.tournament as string | null) ?? null,
@@ -195,6 +222,9 @@ except Exception as e:
     status:          String(r.status ?? "open"),
     correct:         (r.correct as number | null) ?? null,
     clv_pp:          (r.clv_pp as number | null) ?? null,
+    book_offers:     parseOffers(r.book_offers),
+    best_book:       (r.best_book as string | null) ?? null,
+    best_book_odds:  (r.best_book_odds as number | null) ?? null,
   });
 
   const open   = Array.isArray(parsed.open)   ? (parsed.open   as Record<string, unknown>[]).map(map) : [];
