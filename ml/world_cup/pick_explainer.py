@@ -232,6 +232,19 @@ def _explain_game_level(
             f"best soft-book price implies {_fmt_pct(book_prob)} ({edge_str} gap)."
         )
 
+    # ── Stake recommendation (half-Kelly, capped) ──
+    kelly = signal.get("kelly_fraction")
+    if kelly is not None and kelly > 0:
+        # kelly_fraction is stored as a decimal of bankroll (e.g. 0.024 = 2.4%).
+        # Convention: 1 unit = 1% of bankroll. Half-Kelly capped at 5u per
+        # the kelly_fraction() helper in signal_logger.
+        units = round(kelly * 100, 1)
+        cap_note = " (capped)" if kelly >= 0.05 else ""
+        why_parts.append(
+            f"Recommended stake: {units}u{cap_note} on a 100-unit bankroll "
+            f"(half-Kelly)."
+        )
+
     why = " ".join(why_parts) if why_parts else (
         "Sharp-book line meaningfully different from soft-book consensus — "
         "value detected without enough team context to narrate."
