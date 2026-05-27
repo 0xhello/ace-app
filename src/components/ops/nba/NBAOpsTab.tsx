@@ -22,6 +22,7 @@ import {
   EmptyState,
   Tag,
   Dot,
+  EngineInternals,
 } from "@/components/ops/shared/primitives";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -418,36 +419,20 @@ export default function NBAOpsTab() {
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
       <div className="max-w-[1200px] mx-auto px-6 py-7 space-y-5">
 
-        {/* Header — shared shape with Soccer / MLB / Overview */}
+        {/* Header — slim. Grade + Run Picks moved into Engine internals
+            (the worker runs them on schedule; manual triggers are debug-only). */}
         <OpsPageHeader
           icon={Terminal}
           title="NBA"
           tag={today}
           tagColor="#6b7068"
           actions={
-            <>
-              <ActionButton
-                icon={CheckCircle2}
-                label={running === "grade" ? "Grading…" : "Grade"}
-                busy={running === "grade"}
-                disabled={running !== null}
-                onClick={() => runPipeline("grade")}
-              />
-              <ActionButton
-                icon={Zap}
-                label={running === "fetch" ? "Running…" : "Run Picks"}
-                variant="primary"
-                busy={running === "fetch"}
-                disabled={running !== null}
-                onClick={() => runPipeline("fetch")}
-              />
-              <ActionButton
-                icon={RefreshCw}
-                variant="subtle"
-                label={lastRefresh ? `${Math.round((Date.now() - lastRefresh.getTime()) / 1000)}s` : "—"}
-                onClick={loadAll}
-              />
-            </>
+            <ActionButton
+              icon={RefreshCw}
+              variant="subtle"
+              label={lastRefresh ? `${Math.round((Date.now() - lastRefresh.getTime()) / 1000)}s` : "—"}
+              onClick={loadAll}
+            />
           }
         />
 
@@ -1023,6 +1008,32 @@ export default function NBAOpsTab() {
           )}
         </div>
 
+        {/* ══ ENGINE INTERNALS — collapsed by default ═════════════════════════
+            Everything below this is engine-room data: edge validation, model
+            calibration tables, raw picks log, archetype browser, pipeline
+            health. Useful when debugging the model — noisy when you just
+            want to see what to bet. One click reveals it. */}
+        <EngineInternals subtitle="edge validation, model intelligence, picks log, pipeline health">
+
+          {/* Manual job triggers — worker runs these on schedule */}
+          <div className="flex flex-wrap gap-2">
+            <ActionButton
+              icon={Zap}
+              label={running === "fetch" ? "Running…" : "Run picks now"}
+              variant="primary"
+              busy={running === "fetch"}
+              disabled={running !== null}
+              onClick={() => runPipeline("fetch")}
+            />
+            <ActionButton
+              icon={CheckCircle2}
+              label={running === "grade" ? "Grading…" : "Grade now"}
+              busy={running === "grade"}
+              disabled={running !== null}
+              onClick={() => runPipeline("grade")}
+            />
+          </div>
+
         {/* ══ EDGE VALIDATION ══════════════════════════════════════════════════ */}
         <div className="ace-panel p-5">
           <SectionHead title="Edge Validation" icon={BarChart2} />
@@ -1501,6 +1512,8 @@ export default function NBAOpsTab() {
             </div>
           )}
         </div>
+
+        </EngineInternals>
 
         <p className="text-[8px] text-[#1a1e1a] text-center pb-4">ACE · auto-refreshes every 60s</p>
       </div>

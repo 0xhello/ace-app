@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  Activity, AlertTriangle, Brain, CheckCircle2, ChevronDown, ChevronRight, Clock,
-  RefreshCw, Settings, Target, TrendingUp, Zap, Trophy, UserX,
+  Activity, AlertTriangle, Brain, CheckCircle2, Clock,
+  RefreshCw, Target, TrendingUp, Zap, Trophy, UserX,
 } from "lucide-react";
 import {
   KpiCard,
@@ -16,6 +16,7 @@ import {
   Panel,
   Tag,
   EmptyState,
+  EngineInternals,
 } from "@/components/ops/shared/primitives";
 import {
   TodaySlatePanel,
@@ -417,31 +418,6 @@ function humanizeRationale(
   }
 
   return lines;
-}
-
-// ─── Engine internals collapsible ─────────────────────────────────────────────
-
-function EngineInternals({ children, defaultOpen = false }: { children: React.ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="rounded-xl border border-[#1a1e1a] bg-[#0a0b0a]">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-[#0d100d] rounded-xl transition-colors"
-      >
-        {open ? <ChevronDown className="h-4 w-4 text-[#6b7068]" /> : <ChevronRight className="h-4 w-4 text-[#6b7068]" />}
-        <Settings className="h-3.5 w-3.5 text-[#6b7068]" />
-        <span className="text-[12px] font-semibold uppercase tracking-wider text-[#9ca39a]">Engine internals</span>
-        <span className="text-[10px] text-[#3a4033] ml-2">raw metrics, manual job triggers, candidate queue</span>
-      </button>
-      {open && (
-        <div className="px-5 pb-5 pt-2 space-y-4 border-t border-[#1a1e1a]">
-          {children}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ─── Today's plays (humanized) ────────────────────────────────────────────────
@@ -1092,7 +1068,7 @@ export default function SoccerOpsTab() {
             worker status, manual job triggers, the dense candidate table,
             historical signals, market probe, player priors browser.
             Out of the way unless I'm troubleshooting. */}
-        <EngineInternals>
+        <EngineInternals subtitle="raw metrics, manual job triggers, candidate queue">
           {/* Worker / scan / grade status strip */}
           <WorkerStatusStrip
             worker={data?.worker}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, CheckCircle2, Database, Play, RefreshCw } from "lucide-react";
+import { CheckCircle2, Database, Play, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   KpiCard,
@@ -12,6 +12,7 @@ import {
   OpsPageHeader,
   OpsFooter,
   LoadingState,
+  EngineInternals,
 } from "@/components/ops/shared/primitives";
 import {
   TodaySlatePanel,
@@ -152,10 +153,12 @@ export default function MLBOpsTab() {
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
       <div className="max-w-[1200px] mx-auto px-6 py-7 space-y-5">
 
-        {/* Header — same shape as Soccer/NBA/Overview */}
+        {/* Header — slim. Refresh is the only always-visible action; the
+            worker runs Grade + Scan on schedule so they live inside Engine
+            internals for the rare manual override. */}
         <OpsPageHeader
           icon={Trophy}
-          title="MLB · Signal Pipeline"
+          title="MLB"
           tag="live"
           tagColor="#3ee68a"
           actions={
@@ -167,21 +170,6 @@ export default function MLBOpsTab() {
                 </span>
               )}
               <ActionButton
-                icon={CheckCircle2}
-                label={running === "grade" ? "Grading…" : "Grade"}
-                busy={running === "grade"}
-                disabled={running !== null}
-                onClick={() => void runJob("grade")}
-              />
-              <ActionButton
-                icon={Play}
-                label={running === "fetch" ? "Scanning…" : "Scan"}
-                variant="primary"
-                busy={running === "fetch"}
-                disabled={running !== null}
-                onClick={() => void runJob("fetch")}
-              />
-              <ActionButton
                 icon={RefreshCw}
                 variant="subtle"
                 busy={refreshing}
@@ -192,79 +180,90 @@ export default function MLBOpsTab() {
           }
         />
 
-        {/* Horizontal worker/scan/grade status strip */}
-        <WorkerStatusStrip worker={worker} fetch={jobs.fetch} grade={jobs.grade} />
-
-        {/* Performance KPIs — same row pattern as Soccer */}
+        {/* Headline metrics — three numbers a human actually scans for */}
         <div className="flex gap-3 flex-wrap">
-          <KpiCard label="Signals" value={String(stats.total)} />
-          <KpiCard label="Open"    value={String(stats.open)}  color="#f5c062" />
-          <KpiCard label="Graded"  value={String(stats.graded)} />
           <KpiCard
-            label="Record"
+            label="Track record"
             value={stats.graded > 0 ? `${stats.wins}–${stats.losses}` : "—"}
+            sub={stats.graded > 0 ? `${stats.graded} graded · ${fmtPct(stats.winRate)} win rate` : "no graded picks yet"}
             color={stats.winRate !== null && stats.winRate >= 0.524 ? "#3ee68a" : "#d4d7d0"}
-          />
-          <KpiCard
-            label="Win Rate"
-            value={fmtPct(stats.winRate)}
-            sub="52.4% break-even"
-            color={stats.winRate !== null && stats.winRate >= 0.524 ? "#3ee68a"
-                : stats.winRate !== null && stats.winRate >= 0.48 ? "#f5c062"
-                : stats.winRate !== null ? "#ef4444" : "#6b7068"}
           />
           <KpiCard
             label="ROI"
             value={fmtRoi(stats.roi)}
+            sub="vs market closing prices"
             color={stats.roi !== null ? (stats.roi >= 0 ? "#3ee68a" : "#ef4444") : "#6b7068"}
+          />
+          <KpiCard
+            label="Open signals"
+            value={String(stats.open)}
+            sub="awaiting kickoff"
+            color={stats.open > 0 ? "#f5c062" : "#6b7068"}
           />
         </div>
 
-        {/* Today's slate — distinct games we have open signals on right now */}
+        {/* Today's slate + open signals — the only two panels a bettor actually
+            scans before deciding what to play. CLV stats live alongside since
+            it's the headline "are we beating closing line" measure. */}
         <TodaySlatePanel signals={signals} today={today} />
-
-        {/* Open signals — split into actionable today/future vs awaiting grade */}
         <OpenSignalsPanel signals={signals} today={today} />
-
-        {/* Edge validation — CLV / P&L / % positive */}
         <CLVStatsPanel signals={signals} />
 
-        {/* Per-market breakdown — kept for backward-compat with the older v1 view */}
-        <Panel>
-          <SectionHead icon={Database} title="By market" />
-          <div className="grid grid-cols-3 gap-3 text-[11px]">
-            {(["h2h", "run_line", "totals"] as const).map((m) => {
-              const row = stats[m];
-              const wr = row.graded > 0 ? row.wins / row.graded : null;
-              return (
-                <div key={m} className="rounded border border-[#1a1e1a] bg-[#0a0b0a] px-3 py-2">
-                  <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em]">{m.replace("_", " ")}</p>
-                  <p className="text-[14px] font-bold text-white font-mono mt-1">
-                    {row.wins} / {row.graded}
-                  </p>
-                  <p className="text-[9px] text-[#6b7068] mt-0.5">
-                    {wr === null ? "no graded yet" : fmtPct(wr)}
-                  </p>
-                </div>
-              );
-            })}
+        {/* ══ ENGINE INTERNALS — collapsed by default ═════════════════════════
+            Manual triggers, per-market breakdown, by-book divergences, stale
+            signals, activity stream. All useful when debugging, all noise
+            when looking for plays. */}
+        <EngineInternals subtitle="raw metrics, manual job triggers, per-market & by-book detail">
+          <WorkerStatusStrip worker={worker} fetch={jobs.fetch} grade={jobs.grade} />
+
+          <div className="flex flex-wrap gap-2">
+            <ActionButton
+              icon={Play}
+              label={running === "fetch" ? "Scanning…" : "Scan odds"}
+              variant="primary"
+              busy={running === "fetch"}
+              disabled={running !== null}
+              onClick={() => void runJob("fetch")}
+            />
+            <ActionButton
+              icon={CheckCircle2}
+              label={running === "grade" ? "Grading…" : "Grade signals"}
+              busy={running === "grade"}
+              disabled={running !== null}
+              onClick={() => void runJob("grade")}
+            />
           </div>
-        </Panel>
 
-        {/* By book — which soft books are diverging most */}
-        <ByBookPanel signals={signals} />
+          <Panel>
+            <SectionHead icon={Database} title="By market" />
+            <div className="grid grid-cols-3 gap-3 text-[11px]">
+              {(["h2h", "run_line", "totals"] as const).map((m) => {
+                const row = stats[m];
+                const wr = row.graded > 0 ? row.wins / row.graded : null;
+                return (
+                  <div key={m} className="rounded border border-[#1a1e1a] bg-[#0a0b0a] px-3 py-2">
+                    <p className="text-[9px] text-[#6b7068] uppercase tracking-[0.15em]">{m.replace("_", " ")}</p>
+                    <p className="text-[14px] font-bold text-white font-mono mt-1">
+                      {row.wins} / {row.graded}
+                    </p>
+                    <p className="text-[9px] text-[#6b7068] mt-0.5">
+                      {wr === null ? "no graded yet" : fmtPct(wr)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </Panel>
 
-        {/* Stale signals — open and old, eligible for auto-void */}
-        <StaleSignalsPanel signals={signals} today={today} />
+          <ByBookPanel signals={signals} />
+          <StaleSignalsPanel signals={signals} today={today} />
+          <ActivityStreamPanel signals={signals} />
 
-        {/* Activity stream — last 30 signals across all statuses */}
-        <ActivityStreamPanel signals={signals} />
-
-        {/* Schema state */}
-        <OpsFooter
-          refreshedAt={data.refreshedAt}
-          schemaText={`Schema migrated · ${schema.migrationRunAt ?? "not yet"}`}
-        />
+          <OpsFooter
+            refreshedAt={data.refreshedAt}
+            schemaText={`Schema migrated · ${schema.migrationRunAt ?? "not yet"}`}
+          />
+        </EngineInternals>
       </div>
     </div>
   );

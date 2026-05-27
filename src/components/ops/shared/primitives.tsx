@@ -21,7 +21,8 @@
  *                #6b7068 (muted label)   #4a524a (faint)   #3a4033 (placeholder)
  */
 import type { LucideIcon } from "lucide-react";
-import { RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronRight, RefreshCw, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Sport accents (centralized so every tab agrees) ──────────────────────────
@@ -411,5 +412,48 @@ export function LoadingState({ label = "Loading…" }: { label?: string }) {
 export function EmptyState({ children }: { children: React.ReactNode }) {
   return (
     <p className="text-[11px] text-[#6b7068] text-center py-6">{children}</p>
+  );
+}
+
+// ── EngineInternals — collapsible "show me the raw data" container ──────────
+//
+// Used across NBA / MLB / Soccer ops tabs to hide engine-room data (manual
+// job triggers, dense KPI strips, raw signal tables, debug pipelines) from
+// the default view. The user opens it only when troubleshooting. Default
+// closed so the top of the page stays calm.
+//
+// Pass a short `subtitle` to give a hint about what's inside, e.g.
+// "raw metrics, manual job triggers, candidate queue".
+
+export function EngineInternals({
+  children,
+  defaultOpen = false,
+  subtitle = "raw metrics + manual job triggers",
+}: {
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  subtitle?: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-[#1a1e1a] bg-[#0a0b0a]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-[#0d100d] rounded-xl transition-colors"
+      >
+        {open
+          ? <ChevronDown className="h-4 w-4 text-[#6b7068]" />
+          : <ChevronRight className="h-4 w-4 text-[#6b7068]" />}
+        <Settings className="h-3.5 w-3.5 text-[#6b7068]" />
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-[#9ca39a]">Engine internals</span>
+        <span className="text-[10px] text-[#3a4033] ml-2">{subtitle}</span>
+      </button>
+      {open && (
+        <div className="px-5 pb-5 pt-2 space-y-4 border-t border-[#1a1e1a]">
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
