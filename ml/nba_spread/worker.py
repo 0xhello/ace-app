@@ -188,6 +188,31 @@ def _squad_count(path: object) -> int:
         return 0
 
 
+def _form_row_count(path: object) -> int:
+    """Count rows in wc_player_form. Returns 0 if the table doesn't exist yet.
+
+    Used by the bootstrap gate to detect when squads are populated but form
+    is not — the M12/M13 ordering means prod can land with wc_players full
+    and wc_player_form empty if Sportmonks lands the squad sync first but
+    the topscorers chain fails (or, more commonly, if a prior deploy
+    populated only the squads).
+    """
+    try:
+        from ml.world_cup.signal_logger import get_db  # type: ignore
+        conn = get_db(path)
+        row = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='wc_player_form'"
+        ).fetchone()
+        if not row or row[0] == 0:
+            conn.close()
+            return 0
+        n = conn.execute("SELECT COUNT(*) FROM wc_player_form").fetchone()[0]
+        conn.close()
+        return int(n)
+    except Exception:
+        return 0
+
+
 def _maybe_bootstrap_soccer_squads(reason: str = "tick") -> None:
     """Ensure wc_players is populated. Idempotent — does nothing when already
     populated. Rate-limited to once per hour on retry to avoid hammering
@@ -218,8 +243,15 @@ def _maybe_bootstrap_soccer_squads(reason: str = "tick") -> None:
     except Exception:
         return
 
-    if _squad_count(_WC_DB) > 0:
-        return  # already populated — nothing to do
+    # Bootstrap runs whenever EITHER squads or form is empty. This lets us
+    # land M13 (Sportmonks topscorers → wc_player_form) on prod even when
+    # wc_players was already populated by an earlier M12 deploy. The chain
+    # itself is idempotent (ON CONFLICT UPDATE on every table) so re-running
+    # the squad sync just refreshes player metadata — no duplicates.
+    n_squads = _squad_count(_WC_DB)
+    n_form = _form_row_count(_WC_DB)
+    if n_squads > 0 and n_form > 0:
+        return  # both populated — nothing to do
 
     # Don't spawn a second thread if one is already running.
     import threading
