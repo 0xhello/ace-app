@@ -30,6 +30,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import signal
 import sqlite3
 import subprocess
@@ -49,6 +50,9 @@ try:
     from ml.world_cup.context import sync_all as _wc_sync_context, sync_lineups as _wc_sync_lineups
     from ml.world_cup.players import sync_all_players as _wc_sync_players
     from ml.world_cup.market_probe import run_probe as _wc_market_probe
+    # Sportmonks-based WC squad sync — replaces the suspended API-Football path
+    # when SPORTMONKS_API_TOKEN is available (which it always is on prod).
+    from ml.world_cup.sportmonks_squads import sync_wc_2026_squads as _wc_sync_squads_sportmonks
     _WC_AVAILABLE = True
 except Exception:
     _WC_AVAILABLE = False
@@ -266,10 +270,54 @@ def _check_api_football_budget() -> tuple[int, Optional[str]]:
 
 
 def _run_squad_bootstrap_blocking() -> None:
-    """The actual sync work, run inside the daemon thread spawned above."""
+    """The actual sync work, run inside the daemon thread spawned above.
+
+    Provider selection:
+      • If SPORTMONKS_API_TOKEN is set → use Sportmonks (preferred path; our
+        API-Football account has been suspended in the past and Sportmonks
+        already covers WC 2026 under our existing paid plan).
+      • Otherwise fall back to API-Football (the original path).
+    """
     started_at = datetime.now(timezone.utc).isoformat()
     error: Optional[str] = None
 
+    sportmonks_token = (
+        os.getenv("SPORTMONKS_API_TOKEN")
+        or os.getenv("SPORTMONKS_TOKEN")
+        or ""
+    ).strip()
+
+    # ── Path A: Sportmonks (preferred when token present) ────────────────────
+    if sportmonks_token:
+        try:
+            print("  [worker] WC squad bootstrap via Sportmonks (season 26618)…", flush=True)
+            summary = _wc_sync_squads_sportmonks()
+            n = int(summary.get("players_synced", 0))
+            teams = int(summary.get("teams_seen", 0))
+            try:
+                _wc_update_meta("job:players_sync:last_run_at", started_at)
+                _wc_update_meta("job:players_sync:last_error", "")
+                _wc_update_meta(
+                    "bootstrap:last_stdout",
+                    f"[sportmonks] synced {n} players across {teams} teams",
+                )
+                _wc_update_meta("bootstrap:last_stderr", "")
+                _wc_update_meta("job:players_sync:last_provider", "sportmonks")
+            except Exception:
+                pass
+            print(
+                f"  [worker] Sportmonks WC bootstrap: {n} players across {teams} teams",
+                flush=True,
+            )
+            return
+        except Exception as e:
+            # Sportmonks failed — fall through to API-Football. Capture the
+            # error so we can surface it if the fallback also fails.
+            sportmonks_error = f"sportmonks bootstrap failed: {str(e)[:240]}"
+            print(f"  [worker] {sportmonks_error}", file=sys.stderr, flush=True)
+            error = sportmonks_error
+
+    # ── Path B: API-Football fallback (original path) ────────────────────────
     # Pre-flight quota check — don't waste residual quota on a partial sync.
     remaining, qerr = _check_api_football_budget()
     # Trimmed budget (Free tier): 25 countries + 25 squads + 20 club form +
@@ -277,7 +325,7 @@ def _run_squad_bootstrap_blocking() -> None:
     # retry buffer / readiness probes.
     REQUIRED = 90
     if qerr:
-        error = qerr
+        error = qerr if not error else f"{error}; api-football: {qerr}"
     elif remaining < REQUIRED:
         error = (
             f"insufficient API-Football quota: {remaining} calls remaining, "
@@ -288,7 +336,7 @@ def _run_squad_bootstrap_blocking() -> None:
         try:
             _wc_update_meta("job:players_sync:last_run_at", started_at)
             _wc_update_meta("job:players_sync:last_error", error)
-            _wc_update_meta("bootstrap:last_stdout", "(pre-flight quota check failed)\n" + error)
+            _wc_update_meta("bootstrap:last_stdout", "(pre-flight check failed)\n" + error)
             _wc_update_meta("bootstrap:last_stderr", "")
         except Exception:
             pass
@@ -487,24 +535,46 @@ def _run_scheduled_tasks() -> None:
                     pass
 
         # Refresh WC squads + club form + intl tournaments (~84 calls).
-        # Auto-chains compute_all_priors at the end so the freshly-synced
-        # squad data immediately has priors ready for the next fetch tick.
-        # Runs at 7:30am ET so it doesn't collide with sync_context.
+        # Daily WC squad refresh — keeps player rosters current as managers
+        # finalize/swap players in the run-up to kickoff. Prefers Sportmonks
+        # (paid, includes WC 2026); falls back to API-Football if SPORTMONKS
+        # token is missing.
         if _daily_due("wc_players_sync", hour=7, minute=30):
             started_at = datetime.now(timezone.utc).isoformat()
-            error = None
-            try:
-                result = _wc_sync_players()
-                print(f"  [worker] WC players sync: "
-                      f"{result.get('squads', 0)} squads, "
-                      f"{result.get('form', 0)} form rows, "
-                      f"{result.get('priors', 0)} priors", flush=True)
-            except Exception as e:
-                error = str(e)
-                print(f"  [worker] WC players sync error: {e}", file=sys.stderr, flush=True)
+            error: Optional[str] = None
+            sportmonks_token = (
+                os.getenv("SPORTMONKS_API_TOKEN")
+                or os.getenv("SPORTMONKS_TOKEN")
+                or ""
+            ).strip()
+            if sportmonks_token:
+                try:
+                    summary = _wc_sync_squads_sportmonks()
+                    print(
+                        f"  [worker] WC squad sync (sportmonks): "
+                        f"{summary.get('players_synced', 0)} players across "
+                        f"{summary.get('teams_seen', 0)} teams",
+                        flush=True,
+                    )
+                    _wc_update_meta("job:players_sync:last_provider", "sportmonks")
+                except Exception as e:
+                    error = f"sportmonks sync failed: {str(e)[:240]}"
+                    print(f"  [worker] {error}", file=sys.stderr, flush=True)
+            else:
+                # Fall back to API-Football if Sportmonks token isn't set.
+                try:
+                    result = _wc_sync_players()
+                    print(f"  [worker] WC players sync (api-football): "
+                          f"{result.get('squads', 0)} squads, "
+                          f"{result.get('form', 0)} form rows, "
+                          f"{result.get('priors', 0)} priors", flush=True)
+                except Exception as e:
+                    error = str(e)
+                    print(f"  [worker] WC players sync error: {e}",
+                          file=sys.stderr, flush=True)
             try:
                 _wc_update_meta("job:players_sync:last_run_at", started_at)
-                _wc_update_meta("job:players_sync:last_error",  error or "")
+                _wc_update_meta("job:players_sync:last_error", error or "")
             except Exception:
                 pass
 
