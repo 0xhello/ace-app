@@ -448,6 +448,258 @@ REF_ADJ_MIN_MULT         = 0.92
 REF_ADJ_MAX_MULT         = 1.08
 
 
+# ── Understat xG prior adjustments ─────────────────────────────────────────
+# The Dixon-Coles α/δ are fit from actual GOALS over historical matches.
+# xG is the gold-standard predictive metric for soccer — it measures shot
+# quality, which is more predictive of FUTURE goal output than past goals
+# (which include luck / variance).
+#
+# When a team's recent xG diverges from their recent goals, our DC α/δ
+# is mis-calibrated:
+#   • xG_for/match > goals_for/match → team's been UNLUCKY → α should be higher
+#   • xG_for/match < goals_for/match → team's been LUCKY → α should be lower
+#   • xG_against/match > goals_against → defense is BETTER than results show
+#   • xG_against/match < goals_against → defense is WORSE than results show
+#
+# We use Understat's pre-cached `soccer_source_team_match_stats` (3,500+
+# rows of real xG_for / xG_against / np_xG per match across Big 5 since
+# at least 2024-25). No live scraping at predict time.
+#
+# Output: two multipliers per team — xg_alpha_mult (regress own α toward
+# xG-implied) and xg_delta_mult (regress own δ toward xG-against-implied).
+
+# Map our DC league names to Understat's "ISO3-LEAGUE" convention used in
+# the soccer_source_team_match_stats.league column.
+_UNDERSTAT_LEAGUE_MAP: Dict[str, str] = {
+    "Premier League": "ENG-Premier League",
+    "La Liga":        "ESP-La Liga",
+    "Bundesliga":     "GER-Bundesliga",
+    "Serie A":        "ITA-Serie A",
+    "Ligue 1":        "FRA-Ligue 1",
+}
+
+XG_LOOKBACK_MATCHES = 12
+XG_MIN_MATCHES      = 5
+XG_ADJ_MIN          = 0.85
+XG_ADJ_MAX          = 1.15
+
+
+def _tokenize_team(name: str) -> set:
+    """Lowercase non-stopword tokens of length ≥ 3."""
+    import re as _re
+    STOP = {"fc", "afc", "cf", "sc", "the", "ac", "as", "rc", "sv", "club", "de"}
+    return {
+        t for t in _re.split(r"\W+", (name or "").lower())
+        if t and t not in STOP and len(t) >= 3
+    }
+
+
+def _tokens_compatible(qtokens: set, ttokens: set) -> Tuple[bool, int]:
+    """Token compatibility with prefix-aware matching.
+
+    Returns (compatible, overlap_count). A query token "matches" a team
+    token if they're equal OR if the shorter is a prefix of the longer
+    (≥ 3 chars). This catches "Man United" → "Manchester United"
+    ("man" is a prefix of "manchester") while still rejecting
+    "Saint Etienne" → "Paris Saint Germain" (only "saint" overlaps
+    out of two query tokens).
+
+    `compatible` = at least one side's tokens are FULLY covered by
+    the other side (q_coverage or t_coverage == 1.0). Same rule as the
+    plain token-set match used by the Sportmonks resolver.
+    """
+    if not qtokens or not ttokens:
+        return False, 0
+
+    def prefix_match(a: str, b: str) -> bool:
+        if a == b:
+            return True
+        if len(a) < 3 or len(b) < 3:
+            return False
+        shorter, longer = (a, b) if len(a) < len(b) else (b, a)
+        return longer.startswith(shorter)
+
+    matched_q = 0
+    for q in qtokens:
+        for t in ttokens:
+            if prefix_match(q, t):
+                matched_q += 1
+                break
+    matched_t = 0
+    for t in ttokens:
+        for q in qtokens:
+            if prefix_match(q, t):
+                matched_t += 1
+                break
+
+    q_cov = matched_q / len(qtokens)
+    t_cov = matched_t / len(ttokens)
+    overlap = max(matched_q, matched_t)
+    return (q_cov >= 1.0 or t_cov >= 1.0), overlap
+
+
+def _understat_team_name(
+    fit_team: str, understat_league: str, conn: sqlite3.Connection,
+    before_date: Optional[str] = None,
+) -> Optional[str]:
+    """Resolve a DC fit team name to the corresponding Understat team name
+    via exact / substring / token-overlap (with prefix-awareness) match.
+    None when no Understat rows exist for this team (in which case the
+    xG adjustment no-ops to 1.0 and we fall back to SoT)."""
+    if not fit_team:
+        return None
+
+    lname = fit_team.lower().strip()
+    date_filter = " AND match_date < ?" if before_date else ""
+    date_args = (before_date,) if before_date else ()
+
+    # Exact + substring
+    row = conn.execute(
+        f"""SELECT DISTINCT team FROM soccer_source_team_match_stats
+           WHERE league = ?
+             AND (LOWER(team) = ? OR LOWER(team) LIKE ? OR ? LIKE '%' || LOWER(team) || '%')
+             {date_filter}
+           LIMIT 1""",
+        (understat_league, lname, f"%{lname}%", lname) + date_args,
+    ).fetchone()
+    if row:
+        return row[0]
+
+    # Token-overlap with prefix matching
+    qtokens = _tokenize_team(lname)
+    if not qtokens:
+        return None
+
+    all_teams = conn.execute(
+        f"""SELECT DISTINCT team FROM soccer_source_team_match_stats
+           WHERE league = ? {date_filter}""",
+        (understat_league,) + date_args,
+    ).fetchall()
+
+    best_match = None
+    best_overlap = 0
+    for tr in all_teams:
+        ttokens = _tokenize_team(tr[0] or "")
+        ok, overlap = _tokens_compatible(qtokens, ttokens)
+        if ok and overlap > best_overlap:
+            best_overlap = overlap
+            best_match = tr[0]
+    return best_match
+
+
+def _league_xg_baselines(
+    understat_league: str, conn: sqlite3.Connection,
+    before_date: Optional[str] = None,
+) -> Tuple[float, float]:
+    """League-wide rolling xG-for and xG-against per match. Used as the
+    baseline to regress team xG toward."""
+    date_filter = " AND match_date < ?" if before_date else ""
+    date_args = (before_date,) if before_date else ()
+    r = conn.execute(
+        f"""SELECT AVG(xg_for) AS avg_xgf, AVG(xg_against) AS avg_xga
+           FROM soccer_source_team_match_stats
+           WHERE league = ? AND xg_for IS NOT NULL AND xg_against IS NOT NULL
+                 {date_filter}""",
+        (understat_league,) + date_args,
+    ).fetchone()
+    if not r or r["avg_xgf"] is None:
+        # Reasonable global priors when league has no Understat data
+        return 1.40, 1.40
+    return float(r["avg_xgf"]), float(r["avg_xga"])
+
+
+def _xg_prior_adjustment(
+    fit_team: str, league: str, conn: sqlite3.Connection,
+    before_date: Optional[str] = None,
+) -> Tuple[float, float, Dict[str, Any]]:
+    """Compute team xG-based α and δ prior multipliers.
+
+    Returns (alpha_mult, delta_mult, trace):
+      - alpha_mult adjusts the team's OWN attacking strength. >1.0 means
+        the team's xG-for has been higher than their recent goals suggest
+        → unlucky finishing, expected regression upward.
+      - delta_mult adjusts the team's OWN defensive strength. Note δ
+        convention in our fit: LOWER δ = better defense. So a delta_mult
+        > 1.0 means the team's defense has been WORSE than goals show
+        (conceded high xG, opponent finishing was poor) → expected
+        regression toward conceding more.
+      - trace shows the matched team name + counts + raw vs clamped.
+
+    Both clamped to [0.85, 1.15]. No-op (1.0, 1.0) when team has fewer
+    than XG_MIN_MATCHES of recent xG data.
+
+    Same `before_date` leakage protocol used elsewhere in the model.
+    """
+    understat_league = _UNDERSTAT_LEAGUE_MAP.get(league)
+    if not understat_league:
+        return 1.0, 1.0, {"reason": "league-not-in-understat-map"}
+
+    us_team = _understat_team_name(fit_team, understat_league, conn, before_date)
+    if not us_team:
+        return 1.0, 1.0, {"reason": "team-not-in-understat"}
+
+    date_filter = " AND match_date < ?" if before_date else ""
+    date_args = (before_date,) if before_date else ()
+    rows = conn.execute(
+        f"""SELECT goals_for, goals_against, xg_for, xg_against
+           FROM soccer_source_team_match_stats
+           WHERE league = ? AND team = ?
+                 AND xg_for IS NOT NULL AND xg_against IS NOT NULL
+                 {date_filter}
+           ORDER BY match_date DESC LIMIT ?""",
+        (understat_league, us_team) + date_args + (XG_LOOKBACK_MATCHES,),
+    ).fetchall()
+    if len(rows) < XG_MIN_MATCHES:
+        return 1.0, 1.0, {"reason": "insufficient-xg-history",
+                           "team": us_team, "n_matches": len(rows)}
+
+    n = len(rows)
+    team_xg_for_pg     = sum((r["xg_for"]      or 0) for r in rows) / n
+    team_xg_against_pg = sum((r["xg_against"]  or 0) for r in rows) / n
+    team_g_for_pg      = sum((r["goals_for"]   or 0) for r in rows) / n
+    team_g_against_pg  = sum((r["goals_against"] or 0) for r in rows) / n
+
+    league_xg_for, league_xg_against = _league_xg_baselines(
+        understat_league, conn, before_date,
+    )
+
+    # α (attack) prior — team's xG_for relative to league baseline,
+    # blended with the team's actual goal output. Sqrt softens the
+    # adjustment so extreme single-match runs don't dominate.
+    if league_xg_for <= 0 or team_g_for_pg <= 0:
+        alpha_raw = 1.0
+    else:
+        # If xG > actual, team is due upward regression → alpha_mult > 1
+        # If xG < actual, team's finishing has been hot → alpha_mult < 1
+        alpha_raw = (team_xg_for_pg / team_g_for_pg) ** 0.5
+    alpha_mult = max(XG_ADJ_MIN, min(XG_ADJ_MAX, alpha_raw))
+
+    # δ (defense) prior — same logic on the conceded side. Note:
+    # higher delta_mult = MORE goals conceded expected (defense worse
+    # than recent results suggest).
+    if team_g_against_pg <= 0:
+        delta_raw = 1.0
+    else:
+        delta_raw = (team_xg_against_pg / team_g_against_pg) ** 0.5
+    delta_mult = max(XG_ADJ_MIN, min(XG_ADJ_MAX, delta_raw))
+
+    return alpha_mult, delta_mult, {
+        "team":              us_team,
+        "matched_dc_name":   fit_team,
+        "n_matches":         n,
+        "team_xg_for_pg":    round(team_xg_for_pg, 3),
+        "team_g_for_pg":     round(team_g_for_pg, 3),
+        "team_xg_against_pg": round(team_xg_against_pg, 3),
+        "team_g_against_pg":  round(team_g_against_pg, 3),
+        "league_xg_for_pg":  round(league_xg_for, 3),
+        "league_xg_against_pg": round(league_xg_against, 3),
+        "alpha_raw":         round(alpha_raw, 4),
+        "alpha_clamped":     round(alpha_mult, 4),
+        "delta_raw":         round(delta_raw, 4),
+        "delta_clamped":     round(delta_mult, 4),
+    }
+
+
 def _league_sot_conversion(
     league: str, conn: sqlite3.Connection, before_date: Optional[str] = None,
 ) -> float:
@@ -908,14 +1160,17 @@ def predict_match(
     lam_h = a_h * d_a * fit.gamma
     lam_a = a_a * d_h
 
-    # Day 4 + M7 + M8 adjustments — only when we have a DB to look at
+    # Day 4 + M7 + M8 + M9 adjustments — only when we have a DB to look at
     sot_mult_h = sot_mult_a = ref_mult = 1.0
     lineup_mult_h = lineup_mult_a = 1.0
     defense_vuln_h = defense_vuln_a = 1.0
+    xg_alpha_h = xg_alpha_a = xg_delta_h = xg_delta_a = 1.0
     lineup_trace_h: Dict[str, Any] = {}
     lineup_trace_a: Dict[str, Any] = {}
     defense_trace_h: Dict[str, Any] = {}
     defense_trace_a: Dict[str, Any] = {}
+    xg_trace_h: Dict[str, Any] = {}
+    xg_trace_a: Dict[str, Any] = {}
     if apply_adjustments and league:
         owned_conn = conn is None
         c = conn or get_db()
@@ -944,14 +1199,28 @@ def predict_match(
             defense_vuln_a, defense_trace_a = _lineup_defensive_availability_adjustment(
                 away_team, c, before_date=before_date,
             )
+            # M9: Understat xG priors. Regress α and δ toward what recent
+            # xG suggests they should be. xg_alpha bumps own α when team
+            # has been creating chances above their goal output. xg_delta
+            # bumps own δ (toward 'weaker defense' direction) when team
+            # has been conceding high-xG chances despite few goals against.
+            xg_alpha_h, xg_delta_h, xg_trace_h = _xg_prior_adjustment(
+                home_team, league, c, before_date=before_date,
+            )
+            xg_alpha_a, xg_delta_a, xg_trace_a = _xg_prior_adjustment(
+                away_team, league, c, before_date=before_date,
+            )
         finally:
             if owned_conn:
                 c.close()
         # Attack multipliers act on own team's λ; defense vulnerability acts
-        # on OPPONENT's λ. Ref multiplier dampens both sides equally
-        # (red-card risk affects both teams' xG).
-        lam_h *= sot_mult_h * lineup_mult_h * defense_vuln_a * ref_mult
-        lam_a *= sot_mult_a * lineup_mult_a * defense_vuln_h * ref_mult
+        # on OPPONENT's λ. Ref multiplier dampens both sides equally.
+        # xG α-prior multiplies own λ (their attacking output should be
+        # regressed). xG δ-prior multiplies OPPONENT's λ (since a high
+        # δ_mult means this team's defense is "weaker than results show",
+        # which boosts the opponent's expected goals).
+        lam_h *= sot_mult_h * lineup_mult_h * xg_alpha_h * defense_vuln_a * xg_delta_a * ref_mult
+        lam_a *= sot_mult_a * lineup_mult_a * xg_alpha_a * defense_vuln_h * xg_delta_h * ref_mult
 
     M = _scoreline_matrix(lam_h, lam_a, fit.rho)
 
@@ -1017,6 +1286,12 @@ def predict_match(
             "defense_vuln_a":        round(defense_vuln_a, 4),
             "defense_trace_h":       defense_trace_h,
             "defense_trace_a":       defense_trace_a,
+            "xg_alpha_h":            round(xg_alpha_h, 4),
+            "xg_alpha_a":            round(xg_alpha_a, 4),
+            "xg_delta_h":            round(xg_delta_h, 4),
+            "xg_delta_a":            round(xg_delta_a, 4),
+            "xg_trace_h":            xg_trace_h,
+            "xg_trace_a":            xg_trace_a,
             "shrinkage":   {
                 "applied":     apply_shrinkage,
                 "factor_1x2":  SHRINKAGE_FACTOR_1X2,
