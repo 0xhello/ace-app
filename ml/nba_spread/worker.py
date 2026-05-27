@@ -53,6 +53,12 @@ try:
     # Sportmonks-based WC squad sync — replaces the suspended API-Football path
     # when SPORTMONKS_API_TOKEN is available (which it always is on prod).
     from ml.world_cup.sportmonks_squads import sync_wc_2026_squads as _wc_sync_squads_sportmonks
+    # Sportmonks topscorers → wc_player_form. Pairs with sportmonks_squads
+    # above: squads give us "who's in the WC pool", topscorers give us
+    # "how many goals each has this season" — together they drive
+    # compute_all_priors().
+    from ml.world_cup.sportmonks_form import sync_topscorers_for_all_leagues as _wc_sync_form_sportmonks
+    from ml.world_cup.players import compute_all_priors as _wc_compute_priors
     _WC_AVAILABLE = True
 except Exception:
     _WC_AVAILABLE = False
@@ -291,24 +297,49 @@ def _run_squad_bootstrap_blocking() -> None:
     if sportmonks_token:
         try:
             print("  [worker] WC squad bootstrap via Sportmonks (season 26618)…", flush=True)
-            summary = _wc_sync_squads_sportmonks()
-            n = int(summary.get("players_synced", 0))
-            teams = int(summary.get("teams_seen", 0))
+            squad_summary = _wc_sync_squads_sportmonks()
+            n_players = int(squad_summary.get("players_synced", 0))
+            teams = int(squad_summary.get("teams_seen", 0))
+            print(
+                f"  [worker] Sportmonks WC squads: {n_players} players across {teams} teams",
+                flush=True,
+            )
+
+            # Chain topscorers ingest + prior compute so the squad data is
+            # immediately useful for player-prop picks. Non-fatal: if topscorers
+            # fails (network blip, plan limit), the squad sync still counts as
+            # a success and we surface a warning rather than throwing.
+            form_summary: Dict[str, object] = {}
+            priors_written = 0
+            chain_error: Optional[str] = None
+            try:
+                print("  [worker] WC form via Sportmonks topscorers…", flush=True)
+                form_summary = _wc_sync_form_sportmonks()
+                print(
+                    f"  [worker] Sportmonks topscorers: "
+                    f"{form_summary.get('rows_written', 0)} form rows across "
+                    f"{form_summary.get('leagues_scanned', 0)} leagues",
+                    flush=True,
+                )
+                priors_written = _wc_compute_priors()
+                print(f"  [worker] Goalscorer priors written: {priors_written}", flush=True)
+            except Exception as ce:
+                chain_error = f"form/priors chain failed: {str(ce)[:240]}"
+                print(f"  [worker] {chain_error}", file=sys.stderr, flush=True)
+
             try:
                 _wc_update_meta("job:players_sync:last_run_at", started_at)
-                _wc_update_meta("job:players_sync:last_error", "")
+                _wc_update_meta("job:players_sync:last_error", chain_error or "")
                 _wc_update_meta(
                     "bootstrap:last_stdout",
-                    f"[sportmonks] synced {n} players across {teams} teams",
+                    f"[sportmonks] {n_players} players / {teams} teams / "
+                    f"{form_summary.get('rows_written', 0)} form / "
+                    f"{priors_written} priors",
                 )
-                _wc_update_meta("bootstrap:last_stderr", "")
+                _wc_update_meta("bootstrap:last_stderr", chain_error or "")
                 _wc_update_meta("job:players_sync:last_provider", "sportmonks")
             except Exception:
                 pass
-            print(
-                f"  [worker] Sportmonks WC bootstrap: {n} players across {teams} teams",
-                flush=True,
-            )
             return
         except Exception as e:
             # Sportmonks failed — fall through to API-Football. Capture the
@@ -549,13 +580,26 @@ def _run_scheduled_tasks() -> None:
             ).strip()
             if sportmonks_token:
                 try:
-                    summary = _wc_sync_squads_sportmonks()
+                    squad_summary = _wc_sync_squads_sportmonks()
                     print(
                         f"  [worker] WC squad sync (sportmonks): "
-                        f"{summary.get('players_synced', 0)} players across "
-                        f"{summary.get('teams_seen', 0)} teams",
+                        f"{squad_summary.get('players_synced', 0)} players across "
+                        f"{squad_summary.get('teams_seen', 0)} teams",
                         flush=True,
                     )
+                    # Chain form + priors (best-effort; non-fatal if either fails)
+                    try:
+                        form_summary = _wc_sync_form_sportmonks()
+                        priors_n = _wc_compute_priors()
+                        print(
+                            f"  [worker] WC form (sportmonks): "
+                            f"{form_summary.get('rows_written', 0)} form rows, "
+                            f"{priors_n} priors",
+                            flush=True,
+                        )
+                    except Exception as ce:
+                        print(f"  [worker] form/priors chain failed: {ce}",
+                              file=sys.stderr, flush=True)
                     _wc_update_meta("job:players_sync:last_provider", "sportmonks")
                 except Exception as e:
                     error = f"sportmonks sync failed: {str(e)[:240]}"
