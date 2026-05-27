@@ -76,6 +76,18 @@ SPORTMONKS_BASE = "https://api.sportmonks.com/v3/football"
 # response orders by Redcards (alphabetic — weird Sportmonks quirk).
 GOAL_TOPSCORER_TYPE_ID = 208
 
+# Type IDs for the per-player season statistics endpoint. Pinned because
+# Sportmonks doesn't expose a stable name-keyed schema — type_id is the
+# only join key into the details array. Discovered by inspecting live
+# Erling Haaland response (player 154421).
+STAT_TYPE_GOALS               = 52
+STAT_TYPE_ASSISTS             = 79
+STAT_TYPE_SHOTS_TOTAL         = 42
+STAT_TYPE_SHOTS_OFF_TARGET    = 41
+STAT_TYPE_SHOTS_ON_TARGET     = 86
+STAT_TYPE_MINUTES_PLAYED      = 119
+STAT_TYPE_APPEARANCES         = 321
+
 
 # League-id → display name. Mirror naming convention used elsewhere in the
 # codebase ("Premier League" not "EPL") so name-keyed joins (with StatsBomb
@@ -144,6 +156,143 @@ def fetch_topscorers(season_id: int) -> List[Dict[str, Any]]:
         },
     )
     return body.get("data") or []
+
+
+# ── Per-player season stats fetcher ──────────────────────────────────────────
+#
+# The topscorers endpoint gives us goals + rank but not minutes, appearances,
+# or shots. This helper pulls all of those by player_id, indexed by season_id.
+# One call per player covers EVERY season they've played — so when we have a
+# player appearing in both Premier League AND Champions League topscorers, we
+# pay for the lookup once and reuse for both league rows.
+
+def fetch_player_season_stats(player_id: int) -> Dict[int, Dict[str, int]]:
+    """All-seasons stats for one player, keyed by season_id.
+
+    Returns ``{season_id: {goals, assists, minutes, appearances, shots_total,
+    shots_on_target, shots_off_target}}``. Missing stats (e.g. goalkeeper
+    appearances older than 2018) come back as 0. Returns an empty dict if
+    the player has no statistics rows at all (very young players).
+    """
+    body = _sportmonks_get(
+        f"/players/{player_id}",
+        {"include": "statistics.details.type"},
+    )
+    stats_by_season: Dict[int, Dict[str, int]] = {}
+    statistics = ((body.get("data") or {}).get("statistics") or [])
+    for s in statistics:
+        season_id = s.get("season_id")
+        if not season_id:
+            continue
+        details = s.get("details") or []
+        row: Dict[str, int] = {
+            "goals": 0, "assists": 0,
+            "minutes": 0, "appearances": 0,
+            "shots_total": 0, "shots_on_target": 0, "shots_off_target": 0,
+        }
+        for d in details:
+            tid = d.get("type_id")
+            val = d.get("value") or {}
+            # The "value" object has multiple keys depending on stat type.
+            # For counters we always want value.total; some stats (penalties,
+            # cards) also expose value.scored / value.committed etc. — those
+            # are not relevant to goalscorer priors so we skip.
+            total = val.get("total")
+            if total is None:
+                continue
+            if tid == STAT_TYPE_GOALS:           row["goals"]           = int(total)
+            elif tid == STAT_TYPE_ASSISTS:       row["assists"]         = int(total)
+            elif tid == STAT_TYPE_MINUTES_PLAYED:row["minutes"]         = int(total)
+            elif tid == STAT_TYPE_APPEARANCES:   row["appearances"]     = int(total)
+            elif tid == STAT_TYPE_SHOTS_TOTAL:   row["shots_total"]     = int(total)
+            elif tid == STAT_TYPE_SHOTS_ON_TARGET: row["shots_on_target"] = int(total)
+            elif tid == STAT_TYPE_SHOTS_OFF_TARGET:row["shots_off_target"]= int(total)
+        stats_by_season[int(season_id)] = row
+    return stats_by_season
+
+
+def enrich_form_rows_with_real_stats(
+    conn: sqlite3.Connection,
+    *,
+    sleep_between_calls: float = 0.2,
+    max_players: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Replace rank-based minute estimates with real Sportmonks stats.
+
+    Walks every distinct api_player_id in wc_player_form, fetches that
+    player's full per-season stats once, and UPDATEs each row with the real
+    minutes / appearances / shots / shots_on_target for the matching
+    season_id. Goals stay as written (topscorers is the authoritative
+    source — its filter is the definitive 'season goal total').
+
+    Skips rows where the player's stats endpoint returns no entry for that
+    season_id (data not yet uploaded by Sportmonks — sometimes the case for
+    in-progress seasons).
+
+    Returns a summary suitable for ops logging.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT api_player_id FROM wc_player_form"
+    ).fetchall()
+    player_ids = [int(r[0]) for r in rows if r[0] is not None]
+    if max_players is not None:
+        player_ids = player_ids[:max_players]
+
+    enriched = 0
+    skipped_no_stats = 0
+    api_errors = 0
+    for i, pid in enumerate(player_ids):
+        try:
+            stats = fetch_player_season_stats(pid)
+        except Exception:
+            api_errors += 1
+            stats = {}
+        if not stats:
+            skipped_no_stats += 1
+            if i < len(player_ids) - 1 and sleep_between_calls > 0:
+                time.sleep(sleep_between_calls)
+            continue
+        # For each form row this player has, see if we have real stats for
+        # that season_id; if so, update minutes/appearances/shots/sot.
+        form_rows = conn.execute(
+            "SELECT id, season, club_league_id FROM wc_player_form WHERE api_player_id = ?",
+            (pid,),
+        ).fetchall()
+        for fr in form_rows:
+            season_id = int(fr["season"])
+            real = stats.get(season_id)
+            if not real:
+                continue
+            conn.execute(
+                """
+                UPDATE wc_player_form
+                   SET minutes         = ?,
+                       appearances     = ?,
+                       shots           = ?,
+                       shots_on_target = ?,
+                       updated_at      = ?
+                 WHERE id = ?
+                """,
+                (
+                    real["minutes"] or 0,
+                    real["appearances"] or 0,
+                    real["shots_total"] or 0,
+                    real["shots_on_target"] or 0,
+                    datetime.now(timezone.utc).isoformat(),
+                    fr["id"],
+                ),
+            )
+            enriched += 1
+        conn.commit()
+        if i < len(player_ids) - 1 and sleep_between_calls > 0:
+            time.sleep(sleep_between_calls)
+
+    return {
+        "players_checked":   len(player_ids),
+        "rows_enriched":     enriched,
+        "no_stats_skipped":  skipped_no_stats,
+        "api_errors":        api_errors,
+    }
 
 
 # ── Minute estimate ──────────────────────────────────────────────────────────
@@ -298,8 +447,14 @@ def sync_topscorers_for_all_leagues(
     leagues: Optional[List[Dict[str, Any]]] = None,
     seasons_per_league: int = 2,
     sleep_between_calls: float = 0.3,
+    enrich_stats: bool = True,
 ) -> Dict[str, Any]:
     """Pull topscorers for every (league, recent N seasons) → wc_player_form.
+
+    When ``enrich_stats`` is True (default), follow up with a per-player
+    season-stats lookup that replaces rank-based minute estimates with the
+    real values. Costs ~125 extra Sportmonks calls per sync but produces
+    materially better g/90 rates downstream.
 
     Returns a summary dict suitable for ops logging.
     """
@@ -357,6 +512,20 @@ def sync_topscorers_for_all_leagues(
                     "rows_written": rows_written,
                 })
             per_league.append(league_summary)
+
+        # Enrichment pass — replace rank-based minute estimates with real
+        # Sportmonks per-player season stats. Runs INSIDE the same conn so we
+        # don't need to re-open. Errors here are swallowed and reported in
+        # the summary; topscorers ingest still counts as a success since the
+        # estimated-minutes rows are usable on their own.
+        enrich_summary: Dict[str, Any] = {}
+        if enrich_stats and total_rows > 0:
+            try:
+                enrich_summary = enrich_form_rows_with_real_stats(
+                    conn, sleep_between_calls=sleep_between_calls,
+                )
+            except Exception as e:
+                enrich_summary = {"error": str(e)[:240]}
     finally:
         conn.close()
 
@@ -366,6 +535,7 @@ def sync_topscorers_for_all_leagues(
         "leagues_scanned": len(leagues_to_scan),
         "rows_written": total_rows,
         "per_league": per_league,
+        "enrichment": enrich_summary,
     }
 
 
@@ -387,10 +557,16 @@ def main() -> None:
         "--sleep", type=float, default=0.3,
         help="Sleep between API calls (seconds)",
     )
+    parser.add_argument(
+        "--no-enrich", action="store_true",
+        help="Skip the per-player stats enrichment pass (use rank-based minute "
+             "estimates only). Useful for fast smoke tests.",
+    )
     args = parser.parse_args()
     summary = sync_topscorers_for_all_leagues(
         seasons_per_league=args.seasons,
         sleep_between_calls=args.sleep,
+        enrich_stats=not args.no_enrich,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 

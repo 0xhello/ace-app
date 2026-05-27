@@ -11,11 +11,22 @@ import sqlite3
 
 import pytest
 
+from unittest.mock import patch
+
 from ml.world_cup.sportmonks_form import (
     GOAL_TOPSCORER_TYPE_ID,
     LEAGUES,
+    STAT_TYPE_APPEARANCES,
+    STAT_TYPE_ASSISTS,
+    STAT_TYPE_GOALS,
+    STAT_TYPE_MINUTES_PLAYED,
+    STAT_TYPE_SHOTS_OFF_TARGET,
+    STAT_TYPE_SHOTS_ON_TARGET,
+    STAT_TYPE_SHOTS_TOTAL,
     _estimate_minutes_from_rank,
     _ensure_table,
+    enrich_form_rows_with_real_stats,
+    fetch_player_season_stats,
     topscorer_to_form_row,
     upsert_form_row,
 )
@@ -191,3 +202,175 @@ def test_upsert_skips_invalid_payload(in_memory_db):
     assert upsert_form_row(conn, {}) is False
     assert upsert_form_row(conn, {"api_player_id": 1}) is False  # no season
     assert upsert_form_row(conn, {"season": 2025}) is False     # no player_id
+
+
+# ── Per-player season stats (M14 enrichment) ────────────────────────────────
+
+def test_stat_type_ids_pinned():
+    """Pin Sportmonks type_ids — if they rotate, downstream silently drops
+    to 0 for every player. Lock with explicit values."""
+    assert STAT_TYPE_GOALS == 52
+    assert STAT_TYPE_ASSISTS == 79
+    assert STAT_TYPE_SHOTS_TOTAL == 42
+    assert STAT_TYPE_SHOTS_OFF_TARGET == 41
+    assert STAT_TYPE_SHOTS_ON_TARGET == 86
+    assert STAT_TYPE_MINUTES_PLAYED == 119
+    assert STAT_TYPE_APPEARANCES == 321
+
+
+def _fake_player_response(player_id=154421, seasons=None):
+    """Mimic the live /players/{id}?include=statistics.details.type shape."""
+    if seasons is None:
+        seasons = [
+            {
+                "season_id": 25583,  # PL 25/26
+                "details": [
+                    {"type_id": 52,  "value": {"total": 27}},  # goals
+                    {"type_id": 119, "value": {"total": 2750}},  # minutes
+                    {"type_id": 321, "value": {"total": 34}},  # appearances
+                    {"type_id": 42,  "value": {"total": 126}},  # shots total
+                    {"type_id": 86,  "value": {"total": 73}},   # shots on target
+                    {"type_id": 41,  "value": {"total": 43}},   # shots off target
+                ],
+            },
+            {
+                "season_id": 23614,  # PL 24/25
+                "details": [
+                    {"type_id": 52,  "value": {"total": 24}},
+                    {"type_id": 119, "value": {"total": 2680}},
+                    {"type_id": 321, "value": {"total": 33}},
+                ],
+            },
+        ]
+    return {"data": {"id": player_id, "statistics": seasons}}
+
+
+def test_fetch_player_season_stats_parses_real_shape():
+    """End-to-end parse of a realistic Sportmonks response."""
+    with patch(
+        "ml.world_cup.sportmonks_form._sportmonks_get",
+        return_value=_fake_player_response(),
+    ):
+        out = fetch_player_season_stats(154421)
+    assert 25583 in out and 23614 in out
+    cur = out[25583]
+    assert cur["goals"] == 27
+    assert cur["minutes"] == 2750
+    assert cur["appearances"] == 34
+    assert cur["shots_total"] == 126
+    assert cur["shots_on_target"] == 73
+    assert cur["shots_off_target"] == 43
+
+
+def test_fetch_player_season_stats_handles_empty():
+    """Player with no statistics rows yet → empty dict, no crash."""
+    with patch(
+        "ml.world_cup.sportmonks_form._sportmonks_get",
+        return_value={"data": {"id": 1, "statistics": []}},
+    ):
+        assert fetch_player_season_stats(1) == {}
+
+
+def test_fetch_player_season_stats_handles_missing_total():
+    """Detail rows without a 'total' field (e.g. card stats with breakdowns)
+    must not crash — they're just skipped."""
+    response = {
+        "data": {
+            "id": 1,
+            "statistics": [{
+                "season_id": 25583,
+                "details": [
+                    {"type_id": 52,  "value": {"total": 5}},
+                    {"type_id": 47,  "value": {"won": 0, "scored": 3}},  # no total
+                    {"type_id": 119, "value": {"total": 1800}},
+                ],
+            }],
+        }
+    }
+    with patch(
+        "ml.world_cup.sportmonks_form._sportmonks_get",
+        return_value=response,
+    ):
+        out = fetch_player_season_stats(1)
+    assert out[25583]["goals"] == 5
+    assert out[25583]["minutes"] == 1800
+    # Penalty row was skipped (no total key in its value dict)
+
+
+def test_enrich_updates_minutes_to_real_value(in_memory_db):
+    """Seed wc_player_form with estimated minutes, then enrich, and verify
+    the real Sportmonks numbers overwrote them."""
+    conn = in_memory_db
+    # Seed: Haaland in PL 25/26 with rank-based 2700 estimate
+    row = topscorer_to_form_row(
+        _sample_topscorer(player_id=154421, total=27, position=1),
+        league_id=8, league_name="Premier League", season_id=25583,
+    )
+    upsert_form_row(conn, row)
+    assert conn.execute(
+        "SELECT minutes FROM wc_player_form WHERE api_player_id=154421"
+    ).fetchone()[0] == 2700
+
+    with patch(
+        "ml.world_cup.sportmonks_form._sportmonks_get",
+        return_value=_fake_player_response(),
+    ):
+        summary = enrich_form_rows_with_real_stats(conn, sleep_between_calls=0)
+
+    real_minutes = conn.execute(
+        "SELECT minutes FROM wc_player_form WHERE api_player_id=154421 AND season=25583"
+    ).fetchone()[0]
+    assert real_minutes == 2750  # the API-reported value, not the estimate
+    assert summary["players_checked"] == 1
+    assert summary["rows_enriched"] == 1
+
+
+def test_enrich_skips_seasons_without_stats(in_memory_db):
+    """When the player stats response has no entry for the season_id our
+    form row is keyed to, we leave the row alone instead of zeroing it."""
+    conn = in_memory_db
+    # Seed Haaland in a season the fake response doesn't cover (Bundesliga 22/23)
+    row = topscorer_to_form_row(
+        _sample_topscorer(player_id=154421, total=22, position=2),
+        league_id=82, league_name="Bundesliga", season_id=99999,
+    )
+    upsert_form_row(conn, row)
+    seeded_minutes = conn.execute(
+        "SELECT minutes FROM wc_player_form WHERE season=99999"
+    ).fetchone()[0]
+
+    with patch(
+        "ml.world_cup.sportmonks_form._sportmonks_get",
+        return_value=_fake_player_response(),  # only has 25583, 23614
+    ):
+        summary = enrich_form_rows_with_real_stats(conn, sleep_between_calls=0)
+
+    # Row is untouched
+    after = conn.execute(
+        "SELECT minutes FROM wc_player_form WHERE season=99999"
+    ).fetchone()[0]
+    assert after == seeded_minutes
+    assert summary["rows_enriched"] == 0
+
+
+def test_enrich_handles_api_error_gracefully(in_memory_db):
+    """If the stats endpoint blows up for a player, we count it as an
+    api_error and move on — the rest of the enrichment still runs."""
+    conn = in_memory_db
+    row = topscorer_to_form_row(
+        _sample_topscorer(player_id=154421, total=27),
+        league_id=8, league_name="Premier League", season_id=25583,
+    )
+    upsert_form_row(conn, row)
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("simulated network failure")
+
+    with patch("ml.world_cup.sportmonks_form._sportmonks_get", side_effect=boom):
+        summary = enrich_form_rows_with_real_stats(conn, sleep_between_calls=0)
+
+    assert summary["api_errors"] == 1
+    # Rank-based estimate survives the failure
+    assert conn.execute(
+        "SELECT minutes FROM wc_player_form WHERE api_player_id=154421"
+    ).fetchone()[0] == 2700

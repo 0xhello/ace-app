@@ -233,6 +233,41 @@ def test_normalize_unknown_names_pass_through() -> None:
     assert _normalize_player_name("  Extra   Whitespace  ") == "Extra Whitespace"
 
 
+def test_normalize_m14_new_aliases() -> None:
+    """Aliases added in M14 — every WC starter whose Sportmonks vs StatsBomb
+    name differs enough to break the squad↔historical join. If any of these
+    regress, downstream priors silently drop for those players."""
+    # Accent variants resolve to ASCII canonical form
+    assert _normalize_player_name("Viktor Gyökeres") == "Viktor Gyokeres"
+    assert _normalize_player_name("Hakan Çalhanoğlu") == "Hakan Calhanoglu"
+    assert _normalize_player_name("Ousmane Dembélé") == "Ousmane Dembele"
+    assert _normalize_player_name("Rúben Dias") == "Ruben Dias"
+    assert _normalize_player_name("Álvaro Morata") == "Alvaro Morata"
+    assert _normalize_player_name("Julián Álvarez") == "Julian Alvarez"
+    assert _normalize_player_name("João Félix") == "Joao Felix"
+    assert _normalize_player_name("Rafael Leão") == "Rafael Leao"
+
+    # Initialed first-name variants resolve
+    assert _normalize_player_name("V. Gyokeres") == "Viktor Gyokeres"
+    assert _normalize_player_name("F. Wirtz") == "Florian Wirtz"
+    assert _normalize_player_name("L. Yamal") == "Lamine Yamal"
+    assert _normalize_player_name("J. Musiala") == "Jamal Musiala"
+
+    # Long-form / legal-name variants
+    assert _normalize_player_name("Raphael Dias Belloli") == "Raphinha"
+    assert _normalize_player_name("Pablo Martín Páez Gavira") == "Gavi"
+    assert _normalize_player_name("Pedro González López") == "Pedri"
+
+    # Single-name star players
+    assert _normalize_player_name("Endrick") == "Endrick"
+    assert _normalize_player_name("Pedri") == "Pedri"
+    assert _normalize_player_name("Rodri") == "Rodri"
+
+    # Dashed / hyphenated names — dashes get stripped to spaces
+    assert _normalize_player_name("Son Heung-min") == "Son Heung-min"
+    assert _normalize_player_name("Heung-min Son") == "Son Heung-min"
+
+
 def test_normalize_handles_empty_and_none() -> None:
     assert _normalize_player_name("") == ""
     assert _normalize_player_name(None) == ""

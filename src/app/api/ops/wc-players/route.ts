@@ -135,16 +135,37 @@ try:
             a["latest_goals"] = r["goals"] or 0
             a["latest_minutes"] = r["minutes"] or 0
 
+    # ── Name canonicalization ──────────────────────────────────────────
+    # Squad rows (Sportmonks) carry display names with diacritics:
+    #   "Kylian Mbappé", "Viktor Gyökeres", "Hakan Çalhanoğlu".
+    # Historical rows (StatsBomb) carry ASCII-stripped names:
+    #   "Kylian Mbappe", "Viktor Gyokeres", "Hakan Calhanoglu".
+    # Joining by literal player_name misses these. _normalize_player_name
+    # NFKD-strips + lowercases + maps known aliases → canonical form;
+    # using it on BOTH sides of the join recovers ~40+% of star players
+    # that were previously showing api_player_id=null.
+    try:
+        from ml.world_cup.historical import _normalize_player_name as _canon
+    except Exception:
+        # Fallback if module path fails — strip accents inline.
+        import unicodedata as _ud, re as _re
+        def _canon(name):
+            if not name: return ""
+            s = _ud.normalize("NFKD", name)
+            s = "".join(c for c in s if not _ud.combining(c))
+            return _re.sub(r"\\s+", " ", s).strip()
+
     # ── Squad joins ────────────────────────────────────────────────────
-    squads_by_name = {}
+    squads_by_canon = {}
+    squad_rows_raw = []
     if table_exists("wc_players"):
-        rows = [dict(r) for r in conn.execute(
+        squad_rows_raw = [dict(r) for r in conn.execute(
             "SELECT api_player_id, player_name, team_name, position, age, shirt_number "
             "FROM wc_players"
         ).fetchall()]
-        out["meta"]["squads_rows"] = len(rows)
-        for r in rows:
-            squads_by_name[r["player_name"]] = r
+        out["meta"]["squads_rows"] = len(squad_rows_raw)
+        for r in squad_rows_raw:
+            squads_by_canon[_canon(r["player_name"])] = r
 
     # ── Prior joins (by api_player_id) ─────────────────────────────────
     priors_by_pid = {}
@@ -177,11 +198,23 @@ try:
         out["propCandidates"] = []
 
     # ── Assemble ───────────────────────────────────────────────────────
+    # Two passes:
+    #   (1) Every historical-data player → match to squad by canonical name,
+    #       carry over country/position/prior. Most well-known stars land here.
+    #   (2) Every squad player NOT already emitted in (1) → emit a row with
+    #       zero historical data but with the prior (which compute_goalscorer
+    #       _prior may still have written via the current-season club form
+    #       layer). This catches young WC starters who weren't in WC 2018/22
+    #       or Euro 2020/24 — e.g. Lamine Yamal, Endrick.
     players = []
+    seen_pids = set()
     for name, a in agg.items():
-        squad = squads_by_name.get(name)
+        canon = _canon(name)
+        squad = squads_by_canon.get(canon)
         pid   = squad["api_player_id"] if squad else None
         prior = priors_by_pid.get(pid) if pid is not None else None
+        if pid is not None:
+            seen_pids.add(pid)
         gpm = None
         if a["total_minutes"] >= 180:
             gpm = a["total_goals"] / (a["total_minutes"] / 90.0)
@@ -205,10 +238,51 @@ try:
             "anytime_scorer_prob":    prior["anytime_scorer_prob"]    if prior else None,
             "first_scorer_prob":      prior["first_scorer_prob"]      if prior else None,
             "expected_goals_lambda":  prior["expected_goals_in_match"] if prior else None,
+            "source":          "historical+squad" if squad else "historical-only",
         })
 
-    # Default sort: career goals desc, secondary by goals/90 desc
-    players.sort(key=lambda p: (-p["total_goals"], -(p["goals_per_90"] or 0)))
+    # Pass 2: squad-only players (no StatsBomb history) but priors exist
+    # because Sportmonks topscorers contributed current-season club form.
+    for sq in squad_rows_raw:
+        pid = sq["api_player_id"]
+        if pid in seen_pids:
+            continue
+        prior = priors_by_pid.get(pid)
+        if not prior:
+            # Skip squad rows with neither history nor prior — they'd be
+            # all-null and just noise in the response.
+            continue
+        players.append({
+            "player_name":     sq["player_name"],
+            "country":         sq["team_name"],
+            "total_goals":     0,
+            "total_minutes":   0,
+            "total_matches":   0,
+            "comps_count":     0,
+            "comps":           [],
+            "goals_per_90":    None,
+            "latest_comp":     None,
+            "latest_goals":    0,
+            "latest_minutes":  0,
+            "api_player_id":   pid,
+            "position":        sq["position"],
+            "age":             sq["age"],
+            "shirt_number":    sq["shirt_number"],
+            "team_name":       sq["team_name"],
+            "anytime_scorer_prob":    prior["anytime_scorer_prob"],
+            "first_scorer_prob":      prior["first_scorer_prob"],
+            "expected_goals_lambda":  prior["expected_goals_in_match"],
+            "source":          "squad-only",
+        })
+
+    # Default sort: career goals desc, secondary by goals/90 desc, then
+    # by anytime_scorer_prob (so squad-only entries with strong priors rank
+    # higher than no-data entries).
+    players.sort(key=lambda p: (
+        -p["total_goals"],
+        -(p["goals_per_90"] or 0),
+        -(p["anytime_scorer_prob"] or 0),
+    ))
     out["players"] = players
     conn.close()
 except Exception as e:
@@ -216,7 +290,15 @@ except Exception as e:
 
 print(json.dumps(out))
 `;
-  const r = spawnSync("python3", ["-c", script], { encoding: "utf-8", timeout: 8_000 });
+  const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
+  const r = spawnSync("python3", ["-c", script], {
+    encoding: "utf-8",
+    timeout: 8_000,
+    // cwd MUST be appRoot so the subprocess can import ml.world_cup.historical
+    // for the canonical name helper. Without this, the fallback inline NFKD
+    // path runs — works for accents but misses alias-driven canonicalization.
+    cwd: appRoot,
+  });
   try {
     const parsed = JSON.parse(r.stdout) as Response;
     parsed.meta.refreshed_at = new Date().toISOString();
