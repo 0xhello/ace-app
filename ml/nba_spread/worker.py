@@ -60,6 +60,20 @@ try:
 except Exception:
     _SOCCER_LEAGUES_AVAILABLE = False
 
+# Soccer live-pick bridge: Odds fixture -> Sportmonks state -> prop prices.
+# Runs inside this Railway worker, not via external cron.
+try:
+    from ml.soccer.live_pipeline import run as _soccer_live_pipeline_run
+    _SOCCER_LIVE_PIPELINE_AVAILABLE = True
+except Exception:
+    _SOCCER_LIVE_PIPELINE_AVAILABLE = False
+
+try:
+    from ml.soccer.sportmonks_inventory import run as _sportmonks_inventory_run
+    _SPORTMONKS_INVENTORY_AVAILABLE = True
+except Exception:
+    _SPORTMONKS_INVENTORY_AVAILABLE = False
+
 # FBref team-form ingestor — daily HTML scrape of Big 5 + UCL schedules.
 # Free, no API key. Feeds the pick explainer with real recent-form data
 # instead of statistical filler.
@@ -310,6 +324,7 @@ def _run_squad_bootstrap_blocking() -> None:
 
 _last_daily:  Dict[str, date] = {}   # task → last date it ran
 _last_weekly: Dict[str, date] = {}   # task → last date it ran
+_last_interval: Dict[str, datetime] = {}  # task → last UTC datetime it ran
 
 
 def _daily_due(task: str, hour: int, minute: int = 0, window: int = 4) -> bool:
@@ -338,6 +353,16 @@ def _weekly_due(task: str, weekday: int, hour: int, minute: int = 0, window: int
         _last_weekly[task] = today
         return True
     return False
+
+
+def _interval_due(task: str, minutes: int) -> bool:
+    """True when a server-side interval task is due in this worker process."""
+    now = datetime.now(timezone.utc)
+    last = _last_interval.get(task)
+    if last is not None and (now - last).total_seconds() < minutes * 60:
+        return False
+    _last_interval[task] = now
+    return True
 
 
 def _run_task(module: str, *extra_args: str) -> None:
@@ -452,6 +477,25 @@ def _run_scheduled_tasks() -> None:
                 _wc_update_meta("job:players_sync:last_error",  error or "")
             except Exception:
                 pass
+
+    # ── Soccer live-pick bridge / inventory (server-side worker, no cron) ─────
+    # Inventory runs once daily so we know what the Sportmonks trial actually
+    # exposes. The live pipeline runs every 30 minutes: map upcoming Odds
+    # fixtures to Sportmonks, sync live state, then price/generate prop cards.
+    if _SPORTMONKS_INVENTORY_AVAILABLE and _daily_due("sportmonks_inventory", hour=6, minute=10):
+        started_at = datetime.now(timezone.utc).isoformat()
+        error = None
+        try:
+            result = _sportmonks_inventory_run()
+            print(f"  [worker] Sportmonks inventory: {len(result.get('probes', {}))} probes", flush=True)
+        except Exception as e:
+            error = str(e)
+            print(f"  [worker] Sportmonks inventory error: {e}", file=sys.stderr, flush=True)
+        try:
+            _wc_update_meta("job:sportmonks_inventory:last_run_at", started_at)
+            _wc_update_meta("job:sportmonks_inventory:last_error", error or "")
+        except Exception:
+            pass
 
     # ── FBref team-form refresh (daily 6 AM ET, free) ─────────────────────────
     # One HTTP pull per Big 5 + UCL league = 6 requests. Polite-paced.
@@ -671,6 +715,33 @@ def run_loop(once: bool = False) -> None:
                 print(f"  [worker] soccer leagues scan error: {e}", file=sys.stderr, flush=True)
                 try:
                     _wc_update_meta("job:soccer_leagues:last_error", str(e)[:200])
+                except Exception:
+                    pass
+
+        # Soccer live prop-pick bridge. Server-side interval, not OpenClaw cron.
+        # Bounded to 4 per-event prop-price fetches/run to control Odds API spend.
+        if _SOCCER_LIVE_PIPELINE_AVAILABLE and _interval_due("soccer_live_pipeline", minutes=30):
+            try:
+                result = _soccer_live_pipeline_run(
+                    horizon_hours=168,
+                    with_market=True,
+                    max_market_events=4,
+                    limit_per_team=4,
+                    sync_limit=12,
+                )
+                props = result.get("prop_cards", {})
+                mapping = result.get("mapping", {})
+                live_state = result.get("live_state", {})
+                print(
+                    f"  [worker] soccer live pipeline: mapped={mapping.get('mapped', 0)} "
+                    f"synced={live_state.get('synced', 0)} cards={props.get('cards', 0)} "
+                    f"priced={props.get('priced_cards', 0)}",
+                    flush=True,
+                )
+            except Exception as e:
+                print(f"  [worker] soccer live pipeline error: {e}", file=sys.stderr, flush=True)
+                try:
+                    _wc_update_meta("job:soccer_live_pipeline:last_error", str(e)[:200])
                 except Exception:
                     pass
 

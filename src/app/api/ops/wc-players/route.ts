@@ -50,6 +50,8 @@ export interface PlayerAggregate {
 
 interface Response {
   players: PlayerAggregate[];
+  propCandidates?: unknown[];
+  propStatus?: Record<string, unknown>;
   meta: {
     historical_rows: number;
     historical_competitions: string[];
@@ -154,6 +156,25 @@ try:
         out["meta"]["priors_rows"] = len(rows)
         for r in rows:
             priors_by_pid[r["api_player_id"]] = r
+
+    # ── Local player-prop layer from cached StatsBomb/international baselines ──
+    try:
+        from ml.soccer.player_props import data_status, scorer_candidates, club_prop_context_cards
+        out["propStatus"] = data_status()
+        club_props = (
+            club_prop_context_cards("Manchester City", "Arsenal", team_goal_lambda=2.0, limit=3) +
+            club_prop_context_cards("Real Madrid", "Barcelona", team_goal_lambda=2.1, limit=3) +
+            club_prop_context_cards("Arsenal", "Manchester City", team_goal_lambda=1.9, limit=3)
+        )
+        intl_props = (
+            scorer_candidates("France", team_goal_lambda=1.8, limit=2) +
+            scorer_candidates("England", team_goal_lambda=1.7, limit=2) +
+            scorer_candidates("Portugal", team_goal_lambda=1.7, limit=2)
+        )
+        out["propCandidates"] = club_props or intl_props
+    except Exception as e:
+        out["propStatus"] = {"error": str(e)}
+        out["propCandidates"] = []
 
     # ── Assemble ───────────────────────────────────────────────────────
     players = []

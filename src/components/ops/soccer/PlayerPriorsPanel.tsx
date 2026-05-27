@@ -45,8 +45,32 @@ interface PlayerAggregate {
   expected_goals_lambda: number | null;
 }
 
+interface PropCandidate {
+  country: string;
+  team?: string | null;
+  opponent?: string | null;
+  player_name: string;
+  position_bucket: string | null;
+  sample_confidence: string | null;
+  assumed_minutes: number;
+  expected_goals: number;
+  anytime_scorer_prob: number;
+  shots_mean: number;
+  sot_mean: number | null;
+  goals_per_90_shrunk: number | null;
+  context?: {
+    player_baseline?: { xg_per_90?: number | null; shots_per_90?: number | null; confidence?: string | null };
+    role_today?: { lineup_status?: string | null; penalty_role?: string | null; assumed_minutes?: number | null };
+    team_environment?: { projected_team_goals?: number | null; recent_xg_for?: number | null; sample_matches?: number | null };
+    opponent_weakness?: { opponent?: string | null; grade?: string | null; recent_xg_against?: number | null } | null;
+    market_check?: { status?: string | null; best_book?: string | null; american_odds?: number | null; implied_prob?: number | null; edge_pp?: number | null };
+  };
+}
+
 interface Response {
   players: PlayerAggregate[];
+  propCandidates?: PropCandidate[];
+  propStatus?: Record<string, unknown>;
   meta: {
     historical_rows: number;
     historical_competitions: string[];
@@ -234,6 +258,48 @@ export default function PlayerPriorsPanel() {
         {!haveSquads && " · Run sync_squads to add team/position joins."}
         {!havePriors && " · Run priors CLI to add goalscorer probabilities."}
       </p>
+
+      {data.propCandidates && data.propCandidates.length > 0 && (
+        <div className="mb-4 rounded-xl border border-[#1a211c] bg-[#080a08] p-3">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="text-[11px] font-bold text-white">Player prop context cards</p>
+              <p className="text-[9px] text-[#6b7068]">Player baseline → role/minutes → team xG → opponent weakness → market check.</p>
+            </div>
+            <Tag label={`${data.propCandidates.length} cards`} color="#f5c062" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {data.propCandidates.slice(0, 6).map((p) => {
+              const ctx = p.context;
+              const opp = ctx?.opponent_weakness;
+              const teamEnv = ctx?.team_environment;
+              const market = ctx?.market_check;
+              return (
+                <div key={`${p.country}-${p.player_name}`} className="rounded-lg border border-[#151a15] bg-[#0b0d0b] px-3 py-2">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold text-white truncate">{p.player_name}</p>
+                      <p className="text-[9px] text-[#6b7068] truncate">{p.team ?? p.country}{p.opponent ? ` vs ${p.opponent}` : ""} · {p.position_bucket ?? "player"} · {p.assumed_minutes} min</p>
+                    </div>
+                    <span className="text-[11px] font-mono font-bold text-[#3ee68a]">{fmtPct(p.anytime_scorer_prob)}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[9px] font-mono mb-2">
+                    <span className="text-[#9ca39a]">xG {fmtRate(p.expected_goals)}</span>
+                    <span className="text-[#9ca39a]">Sh {fmtRate(p.shots_mean)}</span>
+                    <span className="text-[#9ca39a]">SoT {fmtRate(p.sot_mean)}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 text-[8px] leading-tight">
+                    <span className="rounded bg-[#101410] px-1.5 py-1 text-[#9ca39a]">Team xG <b className="text-white">{fmtRate(teamEnv?.projected_team_goals ?? null)}</b></span>
+                    <span className="rounded bg-[#101410] px-1.5 py-1 text-[#9ca39a]">Opp <b className="text-white">{opp?.grade ?? "—"}</b></span>
+                    <span className="rounded bg-[#101410] px-1.5 py-1 text-[#9ca39a]">xGA <b className="text-white">{fmtRate(opp?.recent_xg_against ?? null)}</b></span>
+                    <span className="rounded bg-[#101410] px-1.5 py-1 text-[#9ca39a]">Market <b className="text-white">{market?.status === "priced" ? `${market.best_book} ${market.american_odds}` : "pending"}</b></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Search + sort + limit controls */}
       <div className="flex items-center gap-3 mb-3 flex-wrap">

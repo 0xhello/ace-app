@@ -1,0 +1,1434 @@
+{
+  "config": {
+    "holdout_frac": 0.2,
+    "edge_thresholds": [
+      0.03,
+      0.05,
+      0.07,
+      0.1
+    ]
+  },
+  "ran_at": "2026-05-27T01:57:59.273183+00:00",
+  "per_league": {
+    "Premier League": {
+      "split_date": "2025-12-06",
+      "holdout_matches": 226,
+      "predictions": 1130,
+      "calibration": [
+        {
+          "bucket": "0-10%",
+          "n": 2,
+          "predicted": 0.0797,
+          "actual": 0.0,
+          "miss_pp": -7.97
+        },
+        {
+          "bucket": "10-20%",
+          "n": 52,
+          "predicted": 0.1688,
+          "actual": 0.0769,
+          "miss_pp": -9.19
+        },
+        {
+          "bucket": "20-30%",
+          "n": 311,
+          "predicted": 0.2609,
+          "actual": 0.3119,
+          "miss_pp": 5.1
+        },
+        {
+          "bucket": "30-40%",
+          "n": 206,
+          "predicted": 0.3522,
+          "actual": 0.3641,
+          "miss_pp": 1.19
+        },
+        {
+          "bucket": "40-50%",
+          "n": 252,
+          "predicted": 0.4503,
+          "actual": 0.4603,
+          "miss_pp": 1.01
+        },
+        {
+          "bucket": "50-60%",
+          "n": 218,
+          "predicted": 0.5459,
+          "actual": 0.5138,
+          "miss_pp": -3.22
+        },
+        {
+          "bucket": "60-70%",
+          "n": 83,
+          "predicted": 0.6332,
+          "actual": 0.5301,
+          "miss_pp": -10.31
+        },
+        {
+          "bucket": "70-80%",
+          "n": 6,
+          "predicted": 0.7242,
+          "actual": 0.6667,
+          "miss_pp": -5.75
+        },
+        {
+          "bucket": "80-90%",
+          "n": 0,
+          "predicted": null,
+          "actual": null,
+          "miss_pp": null
+        },
+        {
+          "bucket": "90-100%",
+          "n": 0,
+          "predicted": null,
+          "actual": null,
+          "miss_pp": null
+        }
+      ],
+      "log_loss": 0.6507,
+      "baseline_ll": 0.6558,
+      "brier": 0.2298,
+      "roi_by_thr": {
+        "\u22653pp": {
+          "n_bets": 425,
+          "wins": 140,
+          "losses": 285,
+          "win_rate": 0.3294,
+          "total_staked": 425.0,
+          "total_return": -19.36,
+          "roi": -0.0456
+        },
+        "\u22655pp": {
+          "n_bets": 322,
+          "wins": 105,
+          "losses": 217,
+          "win_rate": 0.3261,
+          "total_staked": 322.0,
+          "total_return": -20.55,
+          "roi": -0.0638
+        },
+        "\u22657pp": {
+          "n_bets": 230,
+          "wins": 78,
+          "losses": 152,
+          "win_rate": 0.3391,
+          "total_staked": 230.0,
+          "total_return": -14.04,
+          "roi": -0.061
+        },
+        "\u226510pp": {
+          "n_bets": 140,
+          "wins": 47,
+          "losses": 93,
+          "win_rate": 0.3357,
+          "total_staked": 140.0,
+          "total_return": -13.12,
+          "roi": -0.0937
+        }
+      },
+      "hit_rate_by_edge": [
+        {
+          "bucket": "0-3pp",
+          "n": 187,
+          "hit_rate": 0.4225,
+          "avg_model_prob": 0.3578,
+          "avg_book_prob": 0.3421
+        },
+        {
+          "bucket": "3-5pp",
+          "n": 103,
+          "hit_rate": 0.3398,
+          "avg_model_prob": 0.3563,
+          "avg_book_prob": 0.3172
+        },
+        {
+          "bucket": "5-7pp",
+          "n": 92,
+          "hit_rate": 0.2935,
+          "avg_model_prob": 0.3588,
+          "avg_book_prob": 0.2987
+        },
+        {
+          "bucket": "7-10pp",
+          "n": 90,
+          "hit_rate": 0.3444,
+          "avg_model_prob": 0.429,
+          "avg_book_prob": 0.3453
+        },
+        {
+          "bucket": "10pp+",
+          "n": 140,
+          "hit_rate": 0.3357,
+          "avg_model_prob": 0.486,
+          "avg_book_prob": 0.3425
+        }
+      ],
+      "market_breakdown": {
+        "h2h_away": {
+          "n": 226,
+          "avg_model_prob": 0.297,
+          "actual_rate": 0.3009,
+          "log_loss": 0.5855,
+          "brier": 0.2001,
+          "roi_5pp": {
+            "n_bets": 54,
+            "wins": 10,
+            "losses": 44,
+            "win_rate": 0.1852,
+            "total_staked": 54.0,
+            "total_return": -9.12,
+            "roi": -0.1689
+          }
+        },
+        "h2h_draw": {
+          "n": 226,
+          "avg_model_prob": 0.2663,
+          "actual_rate": 0.3142,
+          "log_loss": 0.6299,
+          "brier": 0.2186,
+          "roi_5pp": {
+            "n_bets": 46,
+            "wins": 12,
+            "losses": 34,
+            "win_rate": 0.2609,
+            "total_staked": 46.0,
+            "total_return": 15.83,
+            "roi": 0.3441
+          }
+        },
+        "h2h_home": {
+          "n": 226,
+          "avg_model_prob": 0.4367,
+          "actual_rate": 0.385,
+          "log_loss": 0.6302,
+          "brier": 0.2203,
+          "roi_5pp": {
+            "n_bets": 85,
+            "wins": 22,
+            "losses": 63,
+            "win_rate": 0.2588,
+            "total_staked": 85.0,
+            "total_return": -21.9,
+            "roi": -0.2576
+          }
+        },
+        "over_2.5": {
+          "n": 226,
+          "avg_model_prob": 0.504,
+          "actual_rate": 0.5442,
+          "log_loss": 0.7039,
+          "brier": 0.2551,
+          "roi_5pp": {
+            "n_bets": 27,
+            "wins": 15,
+            "losses": 12,
+            "win_rate": 0.5556,
+            "total_staked": 27.0,
+            "total_return": 1.71,
+            "roi": 0.0633
+          }
+        },
+        "under_2.5": {
+          "n": 226,
+          "avg_model_prob": 0.496,
+          "actual_rate": 0.4558,
+          "log_loss": 0.7039,
+          "brier": 0.2551,
+          "roi_5pp": {
+            "n_bets": 110,
+            "wins": 46,
+            "losses": 64,
+            "win_rate": 0.4182,
+            "total_staked": 110.0,
+            "total_return": -7.07,
+            "roi": -0.0643
+          }
+        }
+      }
+    },
+    "La Liga": {
+      "split_date": "2025-12-06",
+      "holdout_matches": 226,
+      "predictions": 1130,
+      "calibration": [
+        {
+          "bucket": "0-10%",
+          "n": 5,
+          "predicted": 0.0809,
+          "actual": 0.0,
+          "miss_pp": -8.09
+        },
+        {
+          "bucket": "10-20%",
+          "n": 59,
+          "predicted": 0.1626,
+          "actual": 0.1017,
+          "miss_pp": -6.09
+        },
+        {
+          "bucket": "20-30%",
+          "n": 273,
+          "predicted": 0.2621,
+          "actual": 0.2601,
+          "miss_pp": -0.2
+        },
+        {
+          "bucket": "30-40%",
+          "n": 294,
+          "predicted": 0.3443,
+          "actual": 0.3707,
+          "miss_pp": 2.65
+        },
+        {
+          "bucket": "40-50%",
+          "n": 203,
+          "predicted": 0.4469,
+          "actual": 0.5123,
+          "miss_pp": 6.54
+        },
+        {
+          "bucket": "50-60%",
+          "n": 167,
+          "predicted": 0.5505,
+          "actual": 0.4731,
+          "miss_pp": -7.74
+        },
+        {
+          "bucket": "60-70%",
+          "n": 95,
+          "predicted": 0.6437,
+          "actual": 0.6316,
+          "miss_pp": -1.21
+        },
+        {
+          "bucket": "70-80%",
+          "n": 31,
+          "predicted": 0.7406,
+          "actual": 0.6452,
+          "miss_pp": -9.54
+        },
+        {
+          "bucket": "80-90%",
+          "n": 3,
+          "predicted": 0.8271,
+          "actual": 1.0,
+          "miss_pp": 17.29
+        },
+        {
+          "bucket": "90-100%",
+          "n": 0,
+          "predicted": null,
+          "actual": null,
+          "miss_pp": null
+        }
+      ],
+      "log_loss": 0.6354,
+      "baseline_ll": 0.6413,
+      "brier": 0.2231,
+      "roi_by_thr": {
+        "\u22653pp": {
+          "n_bets": 406,
+          "wins": 144,
+          "losses": 262,
+          "win_rate": 0.3547,
+          "total_staked": 406.0,
+          "total_return": -19.06,
+          "roi": -0.0469
+        },
+        "\u22655pp": {
+          "n_bets": 282,
+          "wins": 105,
+          "losses": 177,
+          "win_rate": 0.3723,
+          "total_staked": 282.0,
+          "total_return": -4.21,
+          "roi": -0.0149
+        },
+        "\u22657pp": {
+          "n_bets": 184,
+          "wins": 74,
+          "losses": 110,
+          "win_rate": 0.4022,
+          "total_staked": 184.0,
+          "total_return": -0.57,
+          "roi": -0.0031
+        },
+        "\u226510pp": {
+          "n_bets": 102,
+          "wins": 42,
+          "losses": 60,
+          "win_rate": 0.4118,
+          "total_staked": 102.0,
+          "total_return": -5.47,
+          "roi": -0.0536
+        }
+      },
+      "hit_rate_by_edge": [
+        {
+          "bucket": "0-3pp",
+          "n": 189,
+          "hit_rate": 0.3122,
+          "avg_model_prob": 0.3633,
+          "avg_book_prob": 0.3481
+        },
+        {
+          "bucket": "3-5pp",
+          "n": 124,
+          "hit_rate": 0.3145,
+          "avg_model_prob": 0.3743,
+          "avg_book_prob": 0.3344
+        },
+        {
+          "bucket": "5-7pp",
+          "n": 98,
+          "hit_rate": 0.3163,
+          "avg_model_prob": 0.3857,
+          "avg_book_prob": 0.3267
+        },
+        {
+          "bucket": "7-10pp",
+          "n": 82,
+          "hit_rate": 0.3902,
+          "avg_model_prob": 0.4396,
+          "avg_book_prob": 0.3564
+        },
+        {
+          "bucket": "10pp+",
+          "n": 102,
+          "hit_rate": 0.4118,
+          "avg_model_prob": 0.5432,
+          "avg_book_prob": 0.3993
+        }
+      ],
+      "market_breakdown": {
+        "h2h_away": {
+          "n": 226,
+          "avg_model_prob": 0.3039,
+          "actual_rate": 0.2699,
+          "log_loss": 0.5515,
+          "brier": 0.1848,
+          "roi_5pp": {
+            "n_bets": 69,
+            "wins": 20,
+            "losses": 49,
+            "win_rate": 0.2899,
+            "total_staked": 69.0,
+            "total_return": 17.09,
+            "roi": 0.2477
+          }
+        },
+        "h2h_draw": {
+          "n": 226,
+          "avg_model_prob": 0.282,
+          "actual_rate": 0.2345,
+          "log_loss": 0.5376,
+          "brier": 0.1771,
+          "roi_5pp": {
+            "n_bets": 38,
+            "wins": 3,
+            "losses": 35,
+            "win_rate": 0.0789,
+            "total_staked": 38.0,
+            "total_return": -27.8,
+            "roi": -0.7316
+          }
+        },
+        "h2h_home": {
+          "n": 226,
+          "avg_model_prob": 0.4141,
+          "actual_rate": 0.4956,
+          "log_loss": 0.6594,
+          "brier": 0.2338,
+          "roi_5pp": {
+            "n_bets": 39,
+            "wins": 16,
+            "losses": 23,
+            "win_rate": 0.4103,
+            "total_staked": 39.0,
+            "total_return": 8.23,
+            "roi": 0.211
+          }
+        },
+        "over_2.5": {
+          "n": 226,
+          "avg_model_prob": 0.4533,
+          "actual_rate": 0.5133,
+          "log_loss": 0.7144,
+          "brier": 0.26,
+          "roi_5pp": {
+            "n_bets": 35,
+            "wins": 18,
+            "losses": 17,
+            "win_rate": 0.5143,
+            "total_staked": 35.0,
+            "total_return": 4.21,
+            "roi": 0.1203
+          }
+        },
+        "under_2.5": {
+          "n": 226,
+          "avg_model_prob": 0.5467,
+          "actual_rate": 0.4867,
+          "log_loss": 0.7144,
+          "brier": 0.26,
+          "roi_5pp": {
+            "n_bets": 101,
+            "wins": 48,
+            "losses": 53,
+            "win_rate": 0.4752,
+            "total_staked": 101.0,
+            "total_return": -5.94,
+            "roi": -0.0588
+          }
+        }
+      }
+    },
+    "Bundesliga": {
+      "split_date": "2025-12-14",
+      "holdout_matches": 183,
+      "predictions": 915,
+      "calibration": [
+        {
+          "bucket": "0-10%",
+          "n": 11,
+          "predicted": 0.0607,
+          "actual": 0.1818,
+          "miss_pp": 12.12
+        },
+        {
+          "bucket": "10-20%",
+          "n": 56,
+          "predicted": 0.1578,
+          "actual": 0.125,
+          "miss_pp": -3.28
+        },
+        {
+          "bucket": "20-30%",
+          "n": 224,
+          "predicted": 0.2622,
+          "actual": 0.25,
+          "miss_pp": -1.22
+        },
+        {
+          "bucket": "30-40%",
+          "n": 167,
+          "predicted": 0.3457,
+          "actual": 0.3413,
+          "miss_pp": -0.43
+        },
+        {
+          "bucket": "40-50%",
+          "n": 203,
+          "predicted": 0.4535,
+          "actual": 0.4335,
+          "miss_pp": -2.0
+        },
+        {
+          "bucket": "50-60%",
+          "n": 180,
+          "predicted": 0.5457,
+          "actual": 0.5611,
+          "miss_pp": 1.55
+        },
+        {
+          "bucket": "60-70%",
+          "n": 54,
+          "predicted": 0.6329,
+          "actual": 0.7037,
+          "miss_pp": 7.08
+        },
+        {
+          "bucket": "70-80%",
+          "n": 13,
+          "predicted": 0.7524,
+          "actual": 1.0,
+          "miss_pp": 24.76
+        },
+        {
+          "bucket": "80-90%",
+          "n": 6,
+          "predicted": 0.8163,
+          "actual": 0.6667,
+          "miss_pp": -14.96
+        },
+        {
+          "bucket": "90-100%",
+          "n": 1,
+          "predicted": 0.9001,
+          "actual": 0.0,
+          "miss_pp": -90.01
+        }
+      ],
+      "log_loss": 0.6162,
+      "baseline_ll": 0.638,
+      "brier": 0.2133,
+      "roi_by_thr": {
+        "\u22653pp": {
+          "n_bets": 326,
+          "wins": 96,
+          "losses": 230,
+          "win_rate": 0.2945,
+          "total_staked": 326.0,
+          "total_return": -41.22,
+          "roi": -0.1264
+        },
+        "\u22655pp": {
+          "n_bets": 224,
+          "wins": 62,
+          "losses": 162,
+          "win_rate": 0.2768,
+          "total_staked": 224.0,
+          "total_return": -34.83,
+          "roi": -0.1555
+        },
+        "\u22657pp": {
+          "n_bets": 154,
+          "wins": 41,
+          "losses": 113,
+          "win_rate": 0.2662,
+          "total_staked": 154.0,
+          "total_return": -31.6,
+          "roi": -0.2052
+        },
+        "\u226510pp": {
+          "n_bets": 86,
+          "wins": 23,
+          "losses": 63,
+          "win_rate": 0.2674,
+          "total_staked": 86.0,
+          "total_return": -15.58,
+          "roi": -0.1812
+        }
+      },
+      "hit_rate_by_edge": [
+        {
+          "bucket": "0-3pp",
+          "n": 175,
+          "hit_rate": 0.3314,
+          "avg_model_prob": 0.3471,
+          "avg_book_prob": 0.3321
+        },
+        {
+          "bucket": "3-5pp",
+          "n": 102,
+          "hit_rate": 0.3333,
+          "avg_model_prob": 0.3591,
+          "avg_book_prob": 0.3195
+        },
+        {
+          "bucket": "5-7pp",
+          "n": 70,
+          "hit_rate": 0.3,
+          "avg_model_prob": 0.3699,
+          "avg_book_prob": 0.3104
+        },
+        {
+          "bucket": "7-10pp",
+          "n": 68,
+          "hit_rate": 0.2647,
+          "avg_model_prob": 0.3997,
+          "avg_book_prob": 0.3153
+        },
+        {
+          "bucket": "10pp+",
+          "n": 86,
+          "hit_rate": 0.2674,
+          "avg_model_prob": 0.4842,
+          "avg_book_prob": 0.3308
+        }
+      ],
+      "market_breakdown": {
+        "h2h_away": {
+          "n": 183,
+          "avg_model_prob": 0.2744,
+          "actual_rate": 0.3115,
+          "log_loss": 0.5654,
+          "brier": 0.1905,
+          "roi_5pp": {
+            "n_bets": 11,
+            "wins": 3,
+            "losses": 8,
+            "win_rate": 0.2727,
+            "total_staked": 11.0,
+            "total_return": -1.15,
+            "roi": -0.1045
+          }
+        },
+        "h2h_draw": {
+          "n": 183,
+          "avg_model_prob": 0.2687,
+          "actual_rate": 0.2787,
+          "log_loss": 0.591,
+          "brier": 0.2,
+          "roi_5pp": {
+            "n_bets": 50,
+            "wins": 9,
+            "losses": 41,
+            "win_rate": 0.18,
+            "total_staked": 50.0,
+            "total_return": 3.98,
+            "roi": 0.0796
+          }
+        },
+        "h2h_home": {
+          "n": 183,
+          "avg_model_prob": 0.457,
+          "actual_rate": 0.4098,
+          "log_loss": 0.6201,
+          "brier": 0.2147,
+          "roi_5pp": {
+            "n_bets": 53,
+            "wins": 12,
+            "losses": 41,
+            "win_rate": 0.2264,
+            "total_staked": 53.0,
+            "total_return": -20.58,
+            "roi": -0.3883
+          }
+        },
+        "over_2.5": {
+          "n": 183,
+          "avg_model_prob": 0.5301,
+          "actual_rate": 0.6448,
+          "log_loss": 0.6523,
+          "brier": 0.2306,
+          "roi_5pp": {
+            "n_bets": 10,
+            "wins": 6,
+            "losses": 4,
+            "win_rate": 0.6,
+            "total_staked": 10.0,
+            "total_return": 0.76,
+            "roi": 0.076
+          }
+        },
+        "under_2.5": {
+          "n": 183,
+          "avg_model_prob": 0.4699,
+          "actual_rate": 0.3552,
+          "log_loss": 0.6523,
+          "brier": 0.2306,
+          "roi_5pp": {
+            "n_bets": 100,
+            "wins": 32,
+            "losses": 68,
+            "win_rate": 0.32,
+            "total_staked": 100.0,
+            "total_return": -17.84,
+            "roi": -0.1784
+          }
+        }
+      }
+    },
+    "Serie A": {
+      "split_date": "2025-12-14",
+      "holdout_matches": 226,
+      "predictions": 1130,
+      "calibration": [
+        {
+          "bucket": "0-10%",
+          "n": 1,
+          "predicted": 0.0937,
+          "actual": 0.0,
+          "miss_pp": -9.37
+        },
+        {
+          "bucket": "10-20%",
+          "n": 60,
+          "predicted": 0.1717,
+          "actual": 0.1167,
+          "miss_pp": -5.51
+        },
+        {
+          "bucket": "20-30%",
+          "n": 246,
+          "predicted": 0.2625,
+          "actual": 0.252,
+          "miss_pp": -1.05
+        },
+        {
+          "bucket": "30-40%",
+          "n": 298,
+          "predicted": 0.3416,
+          "actual": 0.3523,
+          "miss_pp": 1.07
+        },
+        {
+          "bucket": "40-50%",
+          "n": 232,
+          "predicted": 0.4545,
+          "actual": 0.5129,
+          "miss_pp": 5.85
+        },
+        {
+          "bucket": "50-60%",
+          "n": 194,
+          "predicted": 0.5427,
+          "actual": 0.5155,
+          "miss_pp": -2.73
+        },
+        {
+          "bucket": "60-70%",
+          "n": 87,
+          "predicted": 0.6389,
+          "actual": 0.6092,
+          "miss_pp": -2.97
+        },
+        {
+          "bucket": "70-80%",
+          "n": 12,
+          "predicted": 0.7437,
+          "actual": 0.5,
+          "miss_pp": -24.37
+        },
+        {
+          "bucket": "80-90%",
+          "n": 0,
+          "predicted": null,
+          "actual": null,
+          "miss_pp": null
+        },
+        {
+          "bucket": "90-100%",
+          "n": 0,
+          "predicted": null,
+          "actual": null,
+          "miss_pp": null
+        }
+      ],
+      "log_loss": 0.6372,
+      "baseline_ll": 0.6522,
+      "brier": 0.2236,
+      "roi_by_thr": {
+        "\u22653pp": {
+          "n_bets": 428,
+          "wins": 153,
+          "losses": 275,
+          "win_rate": 0.3575,
+          "total_staked": 428.0,
+          "total_return": -2.18,
+          "roi": -0.0051
+        },
+        "\u22655pp": {
+          "n_bets": 341,
+          "wins": 125,
+          "losses": 216,
+          "win_rate": 0.3666,
+          "total_staked": 341.0,
+          "total_return": 15.47,
+          "roi": 0.0454
+        },
+        "\u22657pp": {
+          "n_bets": 265,
+          "wins": 93,
+          "losses": 172,
+          "win_rate": 0.3509,
+          "total_staked": 265.0,
+          "total_return": 1.16,
+          "roi": 0.0044
+        },
+        "\u226510pp": {
+          "n_bets": 164,
+          "wins": 61,
+          "losses": 103,
+          "win_rate": 0.372,
+          "total_staked": 164.0,
+          "total_return": 13.75,
+          "roi": 0.0838
+        }
+      },
+      "hit_rate_by_edge": [
+        {
+          "bucket": "0-3pp",
+          "n": 177,
+          "hit_rate": 0.3785,
+          "avg_model_prob": 0.3697,
+          "avg_book_prob": 0.3542
+        },
+        {
+          "bucket": "3-5pp",
+          "n": 87,
+          "hit_rate": 0.3218,
+          "avg_model_prob": 0.3802,
+          "avg_book_prob": 0.3402
+        },
+        {
+          "bucket": "5-7pp",
+          "n": 76,
+          "hit_rate": 0.4211,
+          "avg_model_prob": 0.4037,
+          "avg_book_prob": 0.3436
+        },
+        {
+          "bucket": "7-10pp",
+          "n": 101,
+          "hit_rate": 0.3168,
+          "avg_model_prob": 0.3805,
+          "avg_book_prob": 0.2968
+        },
+        {
+          "bucket": "10pp+",
+          "n": 164,
+          "hit_rate": 0.372,
+          "avg_model_prob": 0.464,
+          "avg_book_prob": 0.322
+        }
+      ],
+      "market_breakdown": {
+        "h2h_away": {
+          "n": 226,
+          "avg_model_prob": 0.3132,
+          "actual_rate": 0.3805,
+          "log_loss": 0.6013,
+          "brier": 0.2085,
+          "roi_5pp": {
+            "n_bets": 78,
+            "wins": 18,
+            "losses": 60,
+            "win_rate": 0.2308,
+            "total_staked": 78.0,
+            "total_return": 0.39,
+            "roi": 0.005
+          }
+        },
+        "h2h_draw": {
+          "n": 226,
+          "avg_model_prob": 0.2937,
+          "actual_rate": 0.2389,
+          "log_loss": 0.5591,
+          "brier": 0.1856,
+          "roi_5pp": {
+            "n_bets": 64,
+            "wins": 14,
+            "losses": 50,
+            "win_rate": 0.2188,
+            "total_staked": 64.0,
+            "total_return": 3.03,
+            "roi": 0.0473
+          }
+        },
+        "h2h_home": {
+          "n": 226,
+          "avg_model_prob": 0.3931,
+          "actual_rate": 0.3805,
+          "log_loss": 0.6219,
+          "brier": 0.2167,
+          "roi_5pp": {
+            "n_bets": 62,
+            "wins": 12,
+            "losses": 50,
+            "win_rate": 0.1935,
+            "total_staked": 62.0,
+            "total_return": -20.12,
+            "roi": -0.3245
+          }
+        },
+        "over_2.5": {
+          "n": 226,
+          "avg_model_prob": 0.4365,
+          "actual_rate": 0.469,
+          "log_loss": 0.7019,
+          "brier": 0.2535,
+          "roi_5pp": {
+            "n_bets": 54,
+            "wins": 30,
+            "losses": 24,
+            "win_rate": 0.5556,
+            "total_staked": 54.0,
+            "total_return": 16.79,
+            "roi": 0.3109
+          }
+        },
+        "under_2.5": {
+          "n": 226,
+          "avg_model_prob": 0.5635,
+          "actual_rate": 0.531,
+          "log_loss": 0.7019,
+          "brier": 0.2535,
+          "roi_5pp": {
+            "n_bets": 83,
+            "wins": 51,
+            "losses": 32,
+            "win_rate": 0.6145,
+            "total_staked": 83.0,
+            "total_return": 15.38,
+            "roi": 0.1853
+          }
+        }
+      }
+    },
+    "Ligue 1": {
+      "split_date": "2025-11-30",
+      "holdout_matches": 183,
+      "predictions": 915,
+      "calibration": [
+        {
+          "bucket": "0-10%",
+          "n": 5,
+          "predicted": 0.0835,
+          "actual": 0.0,
+          "miss_pp": -8.35
+        },
+        {
+          "bucket": "10-20%",
+          "n": 65,
+          "predicted": 0.1639,
+          "actual": 0.2308,
+          "miss_pp": 6.69
+        },
+        {
+          "bucket": "20-30%",
+          "n": 244,
+          "predicted": 0.2527,
+          "actual": 0.2377,
+          "miss_pp": -1.5
+        },
+        {
+          "bucket": "30-40%",
+          "n": 170,
+          "predicted": 0.3508,
+          "actual": 0.3941,
+          "miss_pp": 4.34
+        },
+        {
+          "bucket": "40-50%",
+          "n": 167,
+          "predicted": 0.4486,
+          "actual": 0.491,
+          "miss_pp": 4.24
+        },
+        {
+          "bucket": "50-60%",
+          "n": 146,
+          "predicted": 0.549,
+          "actual": 0.5342,
+          "miss_pp": -1.48
+        },
+        {
+          "bucket": "60-70%",
+          "n": 92,
+          "predicted": 0.6434,
+          "actual": 0.5652,
+          "miss_pp": -7.82
+        },
+        {
+          "bucket": "70-80%",
+          "n": 23,
+          "predicted": 0.7379,
+          "actual": 0.4783,
+          "miss_pp": -25.97
+        },
+        {
+          "bucket": "80-90%",
+          "n": 3,
+          "predicted": 0.8075,
+          "actual": 1.0,
+          "miss_pp": 19.25
+        },
+        {
+          "bucket": "90-100%",
+          "n": 0,
+          "predicted": null,
+          "actual": null,
+          "miss_pp": null
+        }
+      ],
+      "log_loss": 0.6421,
+      "baseline_ll": 0.6503,
+      "brier": 0.2255,
+      "roi_by_thr": {
+        "\u22653pp": {
+          "n_bets": 327,
+          "wins": 108,
+          "losses": 219,
+          "win_rate": 0.3303,
+          "total_staked": 327.0,
+          "total_return": -48.3,
+          "roi": -0.1477
+        },
+        "\u22655pp": {
+          "n_bets": 260,
+          "wins": 86,
+          "losses": 174,
+          "win_rate": 0.3308,
+          "total_staked": 260.0,
+          "total_return": -37.93,
+          "roi": -0.1459
+        },
+        "\u22657pp": {
+          "n_bets": 197,
+          "wins": 61,
+          "losses": 136,
+          "win_rate": 0.3096,
+          "total_staked": 197.0,
+          "total_return": -44.7,
+          "roi": -0.2269
+        },
+        "\u226510pp": {
+          "n_bets": 125,
+          "wins": 43,
+          "losses": 82,
+          "win_rate": 0.344,
+          "total_staked": 125.0,
+          "total_return": -16.77,
+          "roi": -0.1342
+        }
+      },
+      "hit_rate_by_edge": [
+        {
+          "bucket": "0-3pp",
+          "n": 126,
+          "hit_rate": 0.3968,
+          "avg_model_prob": 0.3757,
+          "avg_book_prob": 0.3612
+        },
+        {
+          "bucket": "3-5pp",
+          "n": 67,
+          "hit_rate": 0.3284,
+          "avg_model_prob": 0.3629,
+          "avg_book_prob": 0.3217
+        },
+        {
+          "bucket": "5-7pp",
+          "n": 63,
+          "hit_rate": 0.3968,
+          "avg_model_prob": 0.4376,
+          "avg_book_prob": 0.3783
+        },
+        {
+          "bucket": "7-10pp",
+          "n": 72,
+          "hit_rate": 0.25,
+          "avg_model_prob": 0.4449,
+          "avg_book_prob": 0.3605
+        },
+        {
+          "bucket": "10pp+",
+          "n": 125,
+          "hit_rate": 0.344,
+          "avg_model_prob": 0.5277,
+          "avg_book_prob": 0.3682
+        }
+      ],
+      "market_breakdown": {
+        "h2h_away": {
+          "n": 183,
+          "avg_model_prob": 0.286,
+          "actual_rate": 0.3224,
+          "log_loss": 0.5695,
+          "brier": 0.194,
+          "roi_5pp": {
+            "n_bets": 33,
+            "wins": 9,
+            "losses": 24,
+            "win_rate": 0.2727,
+            "total_staked": 33.0,
+            "total_return": 4.34,
+            "roi": 0.1315
+          }
+        },
+        "h2h_draw": {
+          "n": 183,
+          "avg_model_prob": 0.2437,
+          "actual_rate": 0.2459,
+          "log_loss": 0.5665,
+          "brier": 0.1882,
+          "roi_5pp": {
+            "n_bets": 20,
+            "wins": 2,
+            "losses": 18,
+            "win_rate": 0.1,
+            "total_staked": 20.0,
+            "total_return": -11.6,
+            "roi": -0.58
+          }
+        },
+        "h2h_home": {
+          "n": 183,
+          "avg_model_prob": 0.4703,
+          "actual_rate": 0.4317,
+          "log_loss": 0.6563,
+          "brier": 0.2317,
+          "roi_5pp": {
+            "n_bets": 87,
+            "wins": 27,
+            "losses": 60,
+            "win_rate": 0.3103,
+            "total_staked": 87.0,
+            "total_return": -5.53,
+            "roi": -0.0636
+          }
+        },
+        "over_2.5": {
+          "n": 183,
+          "avg_model_prob": 0.5217,
+          "actual_rate": 0.5355,
+          "log_loss": 0.7091,
+          "brier": 0.2569,
+          "roi_5pp": {
+            "n_bets": 52,
+            "wins": 22,
+            "losses": 30,
+            "win_rate": 0.4231,
+            "total_staked": 52.0,
+            "total_return": -12.19,
+            "roi": -0.2344
+          }
+        },
+        "under_2.5": {
+          "n": 183,
+          "avg_model_prob": 0.4783,
+          "actual_rate": 0.4645,
+          "log_loss": 0.7091,
+          "brier": 0.2569,
+          "roi_5pp": {
+            "n_bets": 68,
+            "wins": 26,
+            "losses": 42,
+            "win_rate": 0.3824,
+            "total_staked": 68.0,
+            "total_return": -12.95,
+            "roi": -0.1904
+          }
+        }
+      }
+    }
+  },
+  "overall": {
+    "predictions": 5220,
+    "calibration": [
+      {
+        "bucket": "0-10%",
+        "n": 24,
+        "predicted": 0.0726,
+        "actual": 0.0833,
+        "miss_pp": 1.07
+      },
+      {
+        "bucket": "10-20%",
+        "n": 292,
+        "predicted": 0.165,
+        "actual": 0.1336,
+        "miss_pp": -3.14
+      },
+      {
+        "bucket": "20-30%",
+        "n": 1298,
+        "predicted": 0.2601,
+        "actual": 0.265,
+        "miss_pp": 0.49
+      },
+      {
+        "bucket": "30-40%",
+        "n": 1135,
+        "predicted": 0.3462,
+        "actual": 0.3639,
+        "miss_pp": 1.77
+      },
+      {
+        "bucket": "40-50%",
+        "n": 1057,
+        "predicted": 0.4509,
+        "actual": 0.4816,
+        "miss_pp": 3.07
+      },
+      {
+        "bucket": "50-60%",
+        "n": 905,
+        "predicted": 0.5465,
+        "actual": 0.5193,
+        "miss_pp": -2.72
+      },
+      {
+        "bucket": "60-70%",
+        "n": 411,
+        "predicted": 0.6391,
+        "actual": 0.601,
+        "miss_pp": -3.81
+      },
+      {
+        "bucket": "70-80%",
+        "n": 85,
+        "predicted": 0.741,
+        "actual": 0.6353,
+        "miss_pp": -10.57
+      },
+      {
+        "bucket": "80-90%",
+        "n": 12,
+        "predicted": 0.8168,
+        "actual": 0.8333,
+        "miss_pp": 1.65
+      },
+      {
+        "bucket": "90-100%",
+        "n": 1,
+        "predicted": 0.9001,
+        "actual": 0.0,
+        "miss_pp": -90.01
+      }
+    ],
+    "log_loss": 0.6369,
+    "baseline_ll": 0.6523,
+    "brier": 0.2234,
+    "roi_by_thr": {
+      "\u22653pp": {
+        "n_bets": 1912,
+        "wins": 641,
+        "losses": 1271,
+        "win_rate": 0.3353,
+        "total_staked": 1912.0,
+        "total_return": -130.12,
+        "roi": -0.0681
+      },
+      "\u22655pp": {
+        "n_bets": 1429,
+        "wins": 483,
+        "losses": 946,
+        "win_rate": 0.338,
+        "total_staked": 1429.0,
+        "total_return": -82.05,
+        "roi": -0.0574
+      },
+      "\u22657pp": {
+        "n_bets": 1030,
+        "wins": 347,
+        "losses": 683,
+        "win_rate": 0.3369,
+        "total_staked": 1030.0,
+        "total_return": -89.75,
+        "roi": -0.0871
+      },
+      "\u226510pp": {
+        "n_bets": 617,
+        "wins": 216,
+        "losses": 401,
+        "win_rate": 0.3501,
+        "total_staked": 617.0,
+        "total_return": -37.19,
+        "roi": -0.0603
+      }
+    },
+    "hit_rate_by_edge": [
+      {
+        "bucket": "0-3pp",
+        "n": 854,
+        "hit_rate": 0.3665,
+        "avg_model_prob": 0.3619,
+        "avg_book_prob": 0.3467
+      },
+      {
+        "bucket": "3-5pp",
+        "n": 483,
+        "hit_rate": 0.3271,
+        "avg_model_prob": 0.3667,
+        "avg_book_prob": 0.3269
+      },
+      {
+        "bucket": "5-7pp",
+        "n": 399,
+        "hit_rate": 0.3409,
+        "avg_model_prob": 0.3883,
+        "avg_book_prob": 0.3287
+      },
+      {
+        "bucket": "7-10pp",
+        "n": 413,
+        "hit_rate": 0.3172,
+        "avg_model_prob": 0.4172,
+        "avg_book_prob": 0.3334
+      },
+      {
+        "bucket": "10pp+",
+        "n": 617,
+        "hit_rate": 0.3501,
+        "avg_model_prob": 0.4978,
+        "avg_book_prob": 0.35
+      }
+    ],
+    "market_breakdown": {
+      "h2h_away": {
+        "n": 1044,
+        "avg_model_prob": 0.2961,
+        "actual_rate": 0.317,
+        "log_loss": 0.5752,
+        "brier": 0.1959,
+        "roi_5pp": {
+          "n_bets": 245,
+          "wins": 60,
+          "losses": 185,
+          "win_rate": 0.2449,
+          "total_staked": 245.0,
+          "total_return": 11.55,
+          "roi": 0.0471
+        }
+      },
+      "h2h_draw": {
+        "n": 1044,
+        "avg_model_prob": 0.2721,
+        "actual_rate": 0.2625,
+        "log_loss": 0.5766,
+        "brier": 0.1939,
+        "roi_5pp": {
+          "n_bets": 218,
+          "wins": 40,
+          "losses": 178,
+          "win_rate": 0.1835,
+          "total_staked": 218.0,
+          "total_return": -16.56,
+          "roi": -0.076
+        }
+      },
+      "h2h_home": {
+        "n": 1044,
+        "avg_model_prob": 0.4318,
+        "actual_rate": 0.4205,
+        "log_loss": 0.6375,
+        "brier": 0.2234,
+        "roi_5pp": {
+          "n_bets": 326,
+          "wins": 89,
+          "losses": 237,
+          "win_rate": 0.273,
+          "total_staked": 326.0,
+          "total_return": -59.9,
+          "roi": -0.1837
+        }
+      },
+      "over_2.5": {
+        "n": 1044,
+        "avg_model_prob": 0.4861,
+        "actual_rate": 0.5374,
+        "log_loss": 0.6976,
+        "brier": 0.2518,
+        "roi_5pp": {
+          "n_bets": 178,
+          "wins": 91,
+          "losses": 87,
+          "win_rate": 0.5112,
+          "total_staked": 178.0,
+          "total_return": 11.28,
+          "roi": 0.0634
+        }
+      },
+      "under_2.5": {
+        "n": 1044,
+        "avg_model_prob": 0.5139,
+        "actual_rate": 0.4626,
+        "log_loss": 0.6976,
+        "brier": 0.2518,
+        "roi_5pp": {
+          "n_bets": 462,
+          "wins": 203,
+          "losses": 259,
+          "win_rate": 0.4394,
+          "total_staked": 462.0,
+          "total_return": -28.42,
+          "roi": -0.0615
+        }
+      }
+    }
+  }
+}

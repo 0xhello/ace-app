@@ -301,11 +301,19 @@ def _parse_completed_matches(csv_text: str) -> List[Dict[str, Any]]:
             "close_h":           _float_or_none(row.get("PSCH") or row.get("B365CH")),
             "close_d":           _float_or_none(row.get("PSCD") or row.get("B365CD")),
             "close_a":           _float_or_none(row.get("PSCA") or row.get("B365CA")),
-            "close_ou_line":     _float_or_none(row.get("AvgC>2.5") or 2.5),
             "close_over":        _float_or_none(row.get("PC>2.5") or row.get("B365C>2.5")),
             "close_under":       _float_or_none(row.get("PC<2.5") or row.get("B365C<2.5")),
             "close_ah_line":     _float_or_none(row.get("AHCh") or row.get("AHC")),
         })
+        # football-data.co.uk publishes dedicated Over/Under 2.5 odds columns
+        # (PC>2.5 / PC<2.5, or B365 fallbacks), not a varying totals line.
+        # The previous implementation accidentally stored AvgC>2.5 (an odds
+        # value) as the line, which caused the backtest to silently skip almost
+        # every totals market.
+        if out[-1].get("close_over") is not None and out[-1].get("close_under") is not None:
+            out[-1]["close_ou_line"] = 2.5
+        else:
+            out[-1]["close_ou_line"] = None
     return out
 
 
