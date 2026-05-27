@@ -507,6 +507,151 @@ def _team_sot_adjustment(
     return max(SOT_ADJ_MIN_MULT, min(SOT_ADJ_MAX_MULT, mult))
 
 
+def _lineup_availability_adjustment(
+    team_name: str, conn: sqlite3.Connection,
+    before_date: Optional[str] = None,
+) -> Tuple[float, Dict[str, Any]]:
+    """Compute team α multiplier from Sportmonks player feature snapshot.
+
+    The data lives in soccer_player_feature_snapshot — every player on the
+    matchday squad has lineup_status (confirmed_starting / bench / out)
+    plus attack_role_score (0-1, 1.0 = team's top attacker) and
+    projected_minutes.
+
+    Multiplier = available_attack / expected_attack where:
+      - confirmed_starting: weight = attack_role × (projected_minutes / 90)
+      - bench / confirmed_bench: weight = attack_role × 0.25 (sub appearance)
+      - out / sidelined / suspended / injured: weight = 0
+      - unknown lineup_status: weight = attack_role × 0.70 (gentle penalty)
+
+    Returns (multiplier, trace) where trace logs what data was used.
+
+    Falls back to 1.0 (no-op) when no snapshot exists for the team.
+    Clamped to [0.75, 1.10] to prevent extreme swings on small snapshots.
+
+    Team name matching is fuzzy — Sportmonks uses "Paris Saint Germain"
+    while our fitted model uses "Paris SG". We try exact match first,
+    then case-insensitive contains either direction.
+
+    `before_date` enforces no-leakage during backtests. The snapshot table
+    has no fixture/match-date binding — only `updated_at`. So a historical
+    backtest of a 2026-05-24 match would otherwise pick up snapshots refreshed
+    AFTER that date (e.g. the next matchday's lineup). When `before_date`
+    is provided, only snapshots with updated_at strictly before it are
+    eligible; if none qualify, the multiplier no-ops to 1.0.
+    """
+    if not team_name:
+        return 1.0, {}
+
+    # Try exact + substring fuzzy matches first
+    lname = team_name.lower().strip()
+    date_filter = " AND updated_at < ?" if before_date else ""
+    date_args = (before_date,) if before_date else ()
+
+    candidates = conn.execute(
+        f"""SELECT DISTINCT team FROM soccer_player_feature_snapshot
+           WHERE (LOWER(team) = ? OR LOWER(team) LIKE ? OR ? LIKE '%' || LOWER(team) || '%')
+                 {date_filter}""",
+        (lname, f"%{lname}%", lname) + date_args,
+    ).fetchall()
+
+    # Token-overlap fallback: "Paris SG" → "Paris Saint Germain" doesn't
+    # substring-match either direction, but they share the distinctive
+    # "paris" token. Walk all distinct teams in snapshot and find one
+    # where at least one non-trivial token overlaps with the query.
+    if not candidates:
+        import re as _re
+        STOP = {"fc", "afc", "cf", "sc", "the", "ac", "as", "rc", "sv", "club", "de"}
+        qtokens = {
+            t for t in _re.split(r"\W+", lname)
+            if t and t not in STOP and len(t) >= 3
+        }
+        if qtokens:
+            all_teams = conn.execute(
+                f"""SELECT DISTINCT team FROM soccer_player_feature_snapshot
+                   WHERE 1=1 {date_filter}""",
+                date_args,
+            ).fetchall()
+            best_match = None
+            best_overlap = 0
+            best_q_coverage = 0.0
+            for row in all_teams:
+                tname = (row[0] or "").lower().strip()
+                ttokens = {
+                    t for t in _re.split(r"\W+", tname)
+                    if t and t not in STOP and len(t) >= 3
+                }
+                if not ttokens:
+                    continue
+                overlap = len(qtokens & ttokens)
+                if overlap == 0:
+                    continue
+                # Require ONE side's tokens to be fully covered by the other.
+                # "Paris SG" (q={paris}) ⊆ "Paris Saint Germain" t={paris,saint,germain} ✓
+                # "Saint Etienne" (q={saint,etienne}) vs "Paris Saint Germain" — only
+                # 1 of 2 q-tokens match → reject.
+                q_coverage = overlap / len(qtokens)
+                t_coverage = overlap / len(ttokens)
+                full_match = q_coverage >= 1.0 or t_coverage >= 1.0
+                if full_match and overlap > best_overlap:
+                    best_overlap = overlap
+                    best_q_coverage = q_coverage
+                    best_match = row[0]
+            if best_match:
+                candidates = [(best_match,)]
+
+    if not candidates:
+        return 1.0, {"reason": "no-snapshot"}
+
+    # Use the first match (Sportmonks shouldn't have ambiguous team names in flight)
+    sb_team = candidates[0][0]
+    rows = conn.execute(
+        f"""SELECT player_name, lineup_status, attack_role_score,
+                  is_attacking_role, projected_minutes, unavailable_reason
+           FROM soccer_player_feature_snapshot
+           WHERE team = ? {date_filter}""",
+        (sb_team,) + date_args,
+    ).fetchall()
+    if not rows:
+        return 1.0, {"reason": "snapshot-empty"}
+
+    expected = 0.0
+    available = 0.0
+    n_out_attackers = 0
+    for r in rows:
+        role = float(r["attack_role_score"] or 0)
+        if role <= 0:
+            continue  # Players w/ no attack contribution don't matter for α
+        expected += role
+        status = (r["lineup_status"] or "").lower()
+        mins = float(r["projected_minutes"] or 0)
+        if status == "confirmed_starting":
+            available += role * (mins / 90.0 if mins > 0 else 0.85)
+        elif status in ("confirmed_bench", "bench"):
+            available += role * 0.25
+        elif status in ("out", "sidelined", "injured", "suspended", "doubtful"):
+            available += 0.0
+            if role >= 0.6:  # losing a top attacker is significant
+                n_out_attackers += 1
+        else:
+            available += role * 0.70
+
+    if expected <= 0:
+        return 1.0, {"reason": "no-attack-roles", "team": sb_team}
+
+    raw_mult = available / expected
+    mult = max(0.75, min(1.10, raw_mult))
+    return mult, {
+        "team":               sb_team,
+        "matched_team_name":  team_name,
+        "expected_attack":    round(expected, 3),
+        "available_attack":   round(available, 3),
+        "raw_multiplier":     round(raw_mult, 4),
+        "clamped_multiplier": round(mult, 4),
+        "key_attackers_out":  n_out_attackers,
+    }
+
+
 def _ref_card_adjustment(
     referee: Optional[str], league: str, conn: sqlite3.Connection,
     before_date: Optional[str] = None,
@@ -611,11 +756,13 @@ def predict_match(
     When apply_adjustments=True and a connection is available, layers in:
       - Per-team SoT divergence adjustment on α
       - Per-ref card tendency adjustment on λ (only when referee given)
+      - Per-team lineup-availability adjustment on α (Sportmonks player
+        snapshot — confirmed_starting / bench / out × attack_role_score)
 
     `before_date` enforces no-leakage in backtests — the adjustments only
-    look at data BEFORE this date when computing per-team / per-ref stats.
-    Pass the match_date being predicted. None = use all available data
-    (correct for live prediction).
+    look at data BEFORE this date when computing per-team / per-ref stats
+    AND when reading the lineup snapshot table. Pass the match_date being
+    predicted. None = use all available data (correct for live prediction).
     """
     a_h = fit.alpha.get(home_team)
     d_h = fit.delta.get(home_team)
@@ -628,8 +775,11 @@ def predict_match(
     lam_h = a_h * d_a * fit.gamma
     lam_a = a_a * d_h
 
-    # Day 4 adjustments — only when we have a DB to look at
+    # Day 4 + M7 adjustments — only when we have a DB to look at
     sot_mult_h = sot_mult_a = ref_mult = 1.0
+    lineup_mult_h = lineup_mult_a = 1.0
+    lineup_trace_h: Dict[str, Any] = {}
+    lineup_trace_a: Dict[str, Any] = {}
     if apply_adjustments and league:
         owned_conn = conn is None
         c = conn or get_db()
@@ -641,11 +791,20 @@ def predict_match(
                                               before_date=before_date)
             ref_mult   = _ref_card_adjustment(referee, league, c,
                                               before_date=before_date)
+            # Sportmonks lineup adjustment — multiplies team α by share of
+            # expected attacking strength actually available pre-match.
+            # No-ops to 1.0 when no snapshot exists (most historical games).
+            lineup_mult_h, lineup_trace_h = _lineup_availability_adjustment(
+                home_team, c, before_date=before_date,
+            )
+            lineup_mult_a, lineup_trace_a = _lineup_availability_adjustment(
+                away_team, c, before_date=before_date,
+            )
         finally:
             if owned_conn:
                 c.close()
-        lam_h *= sot_mult_h * ref_mult
-        lam_a *= sot_mult_a * ref_mult
+        lam_h *= sot_mult_h * lineup_mult_h * ref_mult
+        lam_a *= sot_mult_a * lineup_mult_a * ref_mult
 
     M = _scoreline_matrix(lam_h, lam_a, fit.rho)
 
@@ -700,9 +859,13 @@ def predict_match(
         "btts_no":   btts_no,
         # Transparency block — raw model + adjustment trace before calibration
         "_adj":      {
-            "sot_mult_h":  round(sot_mult_h, 4),
-            "sot_mult_a":  round(sot_mult_a, 4),
-            "ref_mult":    round(ref_mult, 4),
+            "sot_mult_h":    round(sot_mult_h, 4),
+            "sot_mult_a":    round(sot_mult_a, 4),
+            "ref_mult":      round(ref_mult, 4),
+            "lineup_mult_h": round(lineup_mult_h, 4),
+            "lineup_mult_a": round(lineup_mult_a, 4),
+            "lineup_trace_h": lineup_trace_h,
+            "lineup_trace_a": lineup_trace_a,
             "shrinkage":   {
                 "applied":     apply_shrinkage,
                 "factor_1x2":  SHRINKAGE_FACTOR_1X2,
