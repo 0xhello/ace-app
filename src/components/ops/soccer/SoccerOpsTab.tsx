@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import {
-  Activity, AlertTriangle, Brain, CheckCircle2, Clock,
-  RefreshCw, Target, TrendingUp, Zap, Trophy, UserX,
+  Activity, AlertTriangle, Brain, CheckCircle2, ChevronDown, ChevronRight, Clock,
+  RefreshCw, Settings, Target, TrendingUp, Zap, Trophy, UserX,
 } from "lucide-react";
 import {
   KpiCard,
@@ -264,6 +264,306 @@ function marketLabel(market: string) {
 
 function fmtNum(v: number | null | undefined, digits = 1) {
   return typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : "—";
+}
+
+// ─── Prose rationale ──────────────────────────────────────────────────────────
+//
+// Turns the JSON _adj block (xG priors, lineup, defense vulnerability, SoT,
+// referee) into plain-English sentences a human bettor can scan.
+//
+// The full block lives inside candidate.rationale_json as:
+//   { source, lambda_h, lambda_a, adjustments: { xg_alpha_h, xg_trace_h, ... } }
+//
+// Backfill candidates created before M7/M8/M9 deployed will not have these
+// fields populated — we return a backfill-specific note so the UI shows the
+// caveat instead of pretending there's a rationale to read.
+
+interface RationaleBlock {
+  source?: string;
+  lambda_h?: number;
+  lambda_a?: number;
+  adjustments?: {
+    raw?: { p_home?: number; p_draw?: number; p_away?: number; over_25?: number; btts?: number };
+    shrinkage?: { applied?: boolean; factor_1x2?: number; factor_tot?: number; factor_btts?: number };
+    xg_alpha_h?: number; xg_alpha_a?: number;
+    xg_delta_h?: number; xg_delta_a?: number;
+    xg_trace_h?: { team?: string; matched_dc_name?: string; n_matches?: number;
+                   team_xg_for_pg?: number; team_g_for_pg?: number;
+                   team_xg_against_pg?: number; team_g_against_pg?: number;
+                   reason?: string };
+    xg_trace_a?: { team?: string; matched_dc_name?: string; n_matches?: number;
+                   team_xg_for_pg?: number; team_g_for_pg?: number;
+                   team_xg_against_pg?: number; team_g_against_pg?: number;
+                   reason?: string };
+    lineup_mult_h?: number; lineup_mult_a?: number;
+    lineup_trace_h?: { team?: string; key_attackers_out?: number; reason?: string };
+    lineup_trace_a?: { team?: string; key_attackers_out?: number; reason?: string };
+    defense_vuln_h?: number; defense_vuln_a?: number;
+    defense_trace_h?: { team?: string; key_defenders_out?: number; reason?: string };
+    defense_trace_a?: { team?: string; key_defenders_out?: number; reason?: string };
+    sot_mult_h?: number; sot_mult_a?: number;
+    ref_mult?: number;
+  };
+  note?: string;
+}
+
+function parseRationale(rationaleJson: string | null): RationaleBlock | null {
+  if (!rationaleJson) return null;
+  try {
+    const parsed = JSON.parse(rationaleJson) as RationaleBlock;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** Returns 1–4 short prose lines explaining the model's view of this pick. */
+function humanizeRationale(
+  rationaleJson: string | null,
+  home: string,
+  away: string,
+  betSide: string,
+): string[] {
+  const block = parseRationale(rationaleJson);
+  if (!block) return [];
+
+  // Backfill rows: created before signal layers existed
+  if ((rationaleJson ?? "").includes("backfill")) {
+    return ["Backfill pick — generated before the xG / lineup / defense signal layers were live. No driver-level rationale stored."];
+  }
+
+  const adj = block.adjustments;
+  if (!adj) return [];
+  const lines: string[] = [];
+
+  // xG attack signals
+  const xgAlphaH = adj.xg_alpha_h ?? 1.0;
+  const xgAlphaA = adj.xg_alpha_a ?? 1.0;
+  const traceH = adj.xg_trace_h;
+  const traceA = adj.xg_trace_a;
+
+  if (xgAlphaH > 1.04 && traceH?.team_xg_for_pg && traceH?.team_g_for_pg) {
+    lines.push(
+      `${home} is outshooting their goals — ${traceH.team_xg_for_pg.toFixed(2)} xG/match vs ${traceH.team_g_for_pg.toFixed(2)} actual over ${traceH.n_matches ?? "?"} matches. Model regresses attack upward.`,
+    );
+  } else if (xgAlphaH < 0.96 && traceH?.team_xg_for_pg && traceH?.team_g_for_pg) {
+    lines.push(
+      `${home} has been finishing above xG (${traceH.team_g_for_pg.toFixed(2)} goals/match on ${traceH.team_xg_for_pg.toFixed(2)} xG). Model regresses attack downward.`,
+    );
+  }
+
+  if (xgAlphaA > 1.04 && traceA?.team_xg_for_pg && traceA?.team_g_for_pg) {
+    lines.push(
+      `${away} is outshooting their goals — ${traceA.team_xg_for_pg.toFixed(2)} xG/match vs ${traceA.team_g_for_pg.toFixed(2)} actual over ${traceA.n_matches ?? "?"} matches. Model regresses attack upward.`,
+    );
+  } else if (xgAlphaA < 0.96 && traceA?.team_xg_for_pg && traceA?.team_g_for_pg) {
+    lines.push(
+      `${away} has been finishing above xG (${traceA.team_g_for_pg.toFixed(2)} goals/match on ${traceA.team_xg_for_pg.toFixed(2)} xG). Model regresses attack downward.`,
+    );
+  }
+
+  // xG defense signals
+  const xgDeltaH = adj.xg_delta_h ?? 1.0;
+  const xgDeltaA = adj.xg_delta_a ?? 1.0;
+  if (xgDeltaH > 1.05 && traceH?.team_xg_against_pg && traceH?.team_g_against_pg) {
+    lines.push(
+      `${home}'s defense has been overperforming xG against (${traceH.team_g_against_pg.toFixed(2)} conceded on ${traceH.team_xg_against_pg.toFixed(2)} expected). Likely to leak more.`,
+    );
+  }
+  if (xgDeltaA > 1.05 && traceA?.team_xg_against_pg && traceA?.team_g_against_pg) {
+    lines.push(
+      `${away}'s defense has been overperforming xG against (${traceA.team_g_against_pg.toFixed(2)} conceded on ${traceA.team_xg_against_pg.toFixed(2)} expected). Likely to leak more.`,
+    );
+  }
+
+  // Lineup
+  const lineupH = adj.lineup_mult_h ?? 1.0;
+  const lineupA = adj.lineup_mult_a ?? 1.0;
+  if (lineupH < 0.95 && adj.lineup_trace_h?.key_attackers_out) {
+    lines.push(`${home} missing ${adj.lineup_trace_h.key_attackers_out} key attacker${adj.lineup_trace_h.key_attackers_out > 1 ? "s" : ""} — attack downgraded.`);
+  }
+  if (lineupA < 0.95 && adj.lineup_trace_a?.key_attackers_out) {
+    lines.push(`${away} missing ${adj.lineup_trace_a.key_attackers_out} key attacker${adj.lineup_trace_a.key_attackers_out > 1 ? "s" : ""} — attack downgraded.`);
+  }
+
+  // Defensive vulnerability (opponent gets boosted lambda against this team)
+  const vulnH = adj.defense_vuln_h ?? 1.0;
+  const vulnA = adj.defense_vuln_a ?? 1.0;
+  if (vulnH > 1.06 && adj.defense_trace_h?.key_defenders_out) {
+    lines.push(`${home} missing key defenders — opponent attack boosted.`);
+  }
+  if (vulnA > 1.06 && adj.defense_trace_a?.key_defenders_out) {
+    lines.push(`${away} missing key defenders — opponent attack boosted.`);
+  }
+
+  // If nothing fired (all multipliers ≈ 1.0), say so explicitly
+  if (lines.length === 0) {
+    const allOne = [xgAlphaH, xgAlphaA, xgDeltaH, xgDeltaA, lineupH, lineupA, vulnH, vulnA]
+      .every((v) => Math.abs((v ?? 1.0) - 1.0) < 0.02);
+    if (allOne) {
+      lines.push(`Pick is driven by base Dixon-Coles ratings + shots-on-target form. No xG, lineup, or defensive-availability adjustments fired (data missing or close to baseline).`);
+    }
+  }
+
+  // Always end with the bet-side framing
+  if (betSide === "home") {
+    lines.push(`Model favors ${home} more than the market does.`);
+  } else if (betSide === "away") {
+    lines.push(`Model favors ${away} more than the market does.`);
+  } else if (betSide === "draw") {
+    lines.push(`Model sees a higher draw probability than the market does.`);
+  } else if (betSide === "over" || betSide === "under") {
+    lines.push(`Model's expected goals diverges from the market line.`);
+  }
+
+  return lines;
+}
+
+// ─── Engine internals collapsible ─────────────────────────────────────────────
+
+function EngineInternals({ children, defaultOpen = false }: { children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-[#1a1e1a] bg-[#0a0b0a]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 px-5 py-3 text-left hover:bg-[#0d100d] rounded-xl transition-colors"
+      >
+        {open ? <ChevronDown className="h-4 w-4 text-[#6b7068]" /> : <ChevronRight className="h-4 w-4 text-[#6b7068]" />}
+        <Settings className="h-3.5 w-3.5 text-[#6b7068]" />
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-[#9ca39a]">Engine internals</span>
+        <span className="text-[10px] text-[#3a4033] ml-2">raw metrics, manual job triggers, candidate queue</span>
+      </button>
+      {open && (
+        <div className="px-5 pb-5 pt-2 space-y-4 border-t border-[#1a1e1a]">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Today's plays (humanized) ────────────────────────────────────────────────
+//
+// Top-level prose panel. Card per candidate with the model's view in plain
+// English. Approve / Watch / Reject buttons inline so reviewing doesn't
+// require opening another panel.
+
+function TodayPlaysPanel({
+  candidates, onStatus,
+}: {
+  candidates: SoccerCandidate[];
+  onStatus: (id: number, status: string) => void;
+}) {
+  // Show actionable cards first: candidates with games in the future, sorted
+  // by edge. We skip already-graded backfill rows (they're for the track
+  // record, not for re-deciding).
+  const todayMs = Date.now();
+  const actionable = candidates
+    .filter((c) => c.status !== "graded" && c.status !== "rejected")
+    .filter((c) => {
+      if (!c.commence_time) return true;
+      const t = new Date(c.commence_time.replace(" ", "T")).getTime();
+      return Number.isFinite(t) && t > todayMs - 6 * 3_600_000; // include in-progress
+    })
+    .sort((a, b) => (b.edge_pp ?? 0) - (a.edge_pp ?? 0))
+    .slice(0, 8);
+
+  return (
+    <Panel>
+      <SectionHead
+        icon={Target}
+        title="Today's plays"
+        right={
+          <span className="text-[10px] text-[#6b7068]">
+            {actionable.length === 0 ? "no live plays right now" : `${actionable.length} card${actionable.length !== 1 ? "s" : ""}`}
+          </span>
+        }
+      />
+      {actionable.length === 0 ? (
+        <EmptyState>
+          No upcoming plays right now. The model scans every 30 min — new candidates show up here when the edge clears the threshold. Backfill picks (graded record) live under <span className="text-[#9ca39a]">Engine internals</span>.
+        </EmptyState>
+      ) : (
+        <div className="space-y-3">
+          {actionable.map((c) => {
+            const prose = humanizeRationale(c.rationale_json, c.home_team, c.away_team, c.bet_side);
+            const headlineBet =
+              c.market === "h2h" && c.bet_side === "draw" ? `Draw — ${c.home_team} vs ${c.away_team}`
+              : c.market === "h2h" && c.bet_side === "home" ? `${c.home_team} to win`
+              : c.market === "h2h" && c.bet_side === "away" ? `${c.away_team} to win`
+              : c.market === "totals" ? `${c.bet_side === "over" ? "Over" : "Under"} ${c.total_line ?? "?"} goals`
+              : `${betLabel(c.market, c.bet_side, c.total_line)}`;
+            return (
+              <div key={c.id} className="rounded-xl border border-[#1e2a20] bg-[#0a0d0a] p-5">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Tag label={c.confidence_tier} color={tierColor(c.confidence_tier)} />
+                      <span className="text-[9px] uppercase tracking-widest text-[#4a524a]">{c.tournament}</span>
+                      <span className="text-[9px] text-[#4a524a]">·</span>
+                      <span className="text-[9px] text-[#6b7068]">{c.game_date}</span>
+                    </div>
+                    <p className="text-[15px] font-black text-white">{headlineBet}</p>
+                    <p className="text-[10px] text-[#6b7068]">{c.away_team} @ {c.home_team}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-[10px] text-[#4a524a] uppercase tracking-wider">Edge</p>
+                    <p className="text-[18px] font-mono font-black text-[#3ee68a]">{fmtEdge(c.edge_pp)}</p>
+                  </div>
+                </div>
+
+                {prose.length > 0 && (
+                  <div className="space-y-1.5 mb-3 rounded-lg bg-[#080a08] border border-[#151a15] px-4 py-3">
+                    {prose.map((line, idx) => (
+                      <p key={idx} className="text-[12px] leading-relaxed text-[#aeb5aa]">
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-3 text-[10px]">
+                  <div className="flex items-center gap-4">
+                    <span><span className="text-[#4a524a]">Model</span> <span className="text-[#d4d7d0] font-mono">{fmtPct(c.model_prob)}</span></span>
+                    <span><span className="text-[#4a524a]">Market</span> <span className="text-[#9ca39a] font-mono">{fmtPct(c.book_prob)}</span></span>
+                    <span><span className="text-[#4a524a]">Best price</span> <span className="text-[#f5c062] font-mono">{c.book} {fmtOdds(c.book_odds)}</span></span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => onStatus(c.id, "watching")}
+                      disabled={c.status === "watching"}
+                      className="rounded border border-[#1e2220] px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-[#6b7068] hover:text-[#c4c7c0] disabled:opacity-35"
+                    >
+                      Watch
+                    </button>
+                    <button
+                      onClick={() => onStatus(c.id, "approved")}
+                      disabled={c.status === "approved"}
+                      className="rounded border border-[#3ee68a]/20 bg-[#3ee68a]/5 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-[#3ee68a] hover:bg-[#3ee68a]/10 disabled:opacity-35"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => onStatus(c.id, "rejected")}
+                      disabled={c.status === "rejected"}
+                      className="rounded border border-[#ef4444]/15 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-[#ef4444] hover:bg-[#ef4444]/5 disabled:opacity-35"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="text-[10px] text-[#3a4033] mt-3 leading-relaxed">
+        These are picks the model wants to make. The rationale is generated from the live signal stack (xG priors, lineup availability, defensive vulnerability, shots-on-target). Approve to promote into the subscriber-facing feed.
+      </p>
+    </Panel>
+  );
 }
 
 function FootballAnalysisPanel({ cards }: { cards: FootballAnalysisCard[] }) {
@@ -642,141 +942,51 @@ export default function SoccerOpsTab() {
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
       <div className="max-w-[1200px] mx-auto px-6 py-7 space-y-5">
 
-        {/* Header — shared shape with NBA / MLB / Overview */}
+        {/* Header — slim. Only the safe non-destructive action (Refresh) is
+            up front. Manual job triggers (scan, grade, prop cards, etc.) live
+            inside Engine internals — the worker already runs them on schedule
+            so they're rarely needed by hand. */}
         <OpsPageHeader
           icon={Trophy}
-          title="FIFA World Cup 2026"
-          tag={preEvent ? `in ${daysOut}d` : "live"}
+          title="Soccer"
+          tag={preEvent ? `WC in ${daysOut}d` : "live"}
           tagColor={preEvent ? "#6b7068" : "#3ee68a"}
           actions={
-            <>
-              <ActionButton
-                icon={CheckCircle2}
-                label={running === "grade" ? "Grading…" : "Grade"}
-                busy={running === "grade"}
-                disabled={running !== null}
-                onClick={() => runJob("grade")}
-              />
-              <ActionButton
-                icon={CheckCircle2}
-                label={running === "gradeCandidates" ? "Grading Model…" : "Grade Model"}
-                busy={running === "gradeCandidates"}
-                disabled={running !== null}
-                onClick={() => runJob("gradeCandidates")}
-              />
-              <ActionButton
-                icon={CheckCircle2}
-                label={running === "gradeProps" ? "Grading Props…" : "Grade Props"}
-                busy={running === "gradeProps"}
-                disabled={running !== null}
-                onClick={() => runJob("gradeProps")}
-              />
-              <ActionButton
-                icon={Brain}
-                label={running === "candidates" ? "Model…" : "Model Scan"}
-                busy={running === "candidates"}
-                disabled={running !== null}
-                onClick={() => runJob("candidates")}
-              />
-              <ActionButton
-                icon={Activity}
-                label={running === "livePipeline" ? "Live…" : "Live Pipeline"}
-                busy={running === "livePipeline"}
-                disabled={running !== null}
-                onClick={() => runJob("livePipeline")}
-              />
-              <ActionButton
-                icon={AlertTriangle}
-                label={running === "inventory" ? "Inventory…" : "Data Inv"}
-                busy={running === "inventory"}
-                disabled={running !== null}
-                onClick={() => runJob("inventory")}
-              />
-              <ActionButton
-                icon={Trophy}
-                label={running === "propCards" ? "Props…" : "Prop Cards"}
-                busy={running === "propCards"}
-                disabled={running !== null}
-                onClick={() => runJob("propCards")}
-              />
-              <ActionButton
-                icon={Target}
-                label={running === "propMarket" ? "Pricing…" : "Prop Prices"}
-                busy={running === "propMarket"}
-                disabled={running !== null}
-                onClick={() => runJob("propMarket")}
-              />
-              <ActionButton
-                icon={Zap}
-                label={running === "fetch" ? "Scanning…" : "Scan"}
-                variant="primary"
-                busy={running === "fetch"}
-                disabled={running !== null}
-                onClick={() => runJob("fetch")}
-              />
-              <ActionButton
-                icon={RefreshCw}
-                variant="subtle"
-                onClick={loadAll}
-              />
-            </>
+            <ActionButton
+              icon={RefreshCw}
+              variant="subtle"
+              onClick={loadAll}
+            />
           }
         />
 
-        {/* Worker / scan / grade status strip — shared shape across tabs */}
-        <WorkerStatusStrip
-          worker={data?.worker}
-          fetch={fetchMeta}
-          grade={gradeMeta}
-        />
-
-        {/* Errors */}
+        {/* Errors — kept visible at top so problems aren't hidden */}
         <ErrorBanner messages={errorMessages} />
 
-        {/* ══ STATS ═══════════════════════════════════════════════════════════ */}
+        {/* ══ HEADLINE METRICS ═══════════════════════════════════════════════
+            Just the two numbers a human cares about most: track record and
+            ROI. Everything else (broken-down by market, by book, by pipeline
+            step) lives inside Engine internals. */}
         {stats && (
           <div className="flex gap-3 flex-wrap">
-            <KpiCard label="Signals"  value={String(stats.total)} />
-            <KpiCard label="Open"     value={String(stats.open)}  color="#f5c062" />
-            <KpiCard label="Graded"   value={String(stats.graded)} />
             <KpiCard
-              label="Record"
+              label="Track record"
               value={stats.graded > 0 ? `${stats.wins}–${stats.losses}` : "—"}
+              sub={stats.graded > 0 ? `${stats.graded} graded · ${fmtPct(stats.winRate)} win rate` : "no graded picks yet"}
               color={stats.winRate !== null && stats.winRate >= 0.524 ? "#3ee68a" : "#d4d7d0"}
-            />
-            <KpiCard
-              label="Win Rate"
-              value={fmtPct(stats.winRate)}
-              sub="52.4% break-even"
-              color={winRateColor(stats.winRate)}
             />
             <KpiCard
               label="ROI"
               value={fmtRoi(stats.roi)}
+              sub="vs market closing prices"
               color={stats.roi !== null ? (stats.roi >= 0 ? "#3ee68a" : "#ef4444") : "#6b7068"}
             />
-            {stats.h2h.graded > 0 && (
-              <KpiCard
-                label="1X2"
-                value={`${stats.h2h.wins}/${stats.h2h.graded}`}
-                sub={fmtPct(stats.h2h.wins / stats.h2h.graded)}
-              />
-            )}
-            {stats.totals.graded > 0 && (
-              <KpiCard
-                label="Totals"
-                value={`${stats.totals.wins}/${stats.totals.graded}`}
-                sub={fmtPct(stats.totals.wins / stats.totals.graded)}
-              />
-            )}
-            {livePipelineMeta && (
-              <KpiCard
-                label="Live Pipe"
-                value={`${livePipelineMeta.mapped ?? 0}/${livePipelineMeta.synced ?? 0}`}
-                sub={`${livePipelineMeta.cards ?? 0} cards · ${livePipelineMeta.priced ?? 0} priced`}
-                color="#3ee68a"
-              />
-            )}
+            <KpiCard
+              label="Open plays"
+              value={String(stats.open)}
+              sub="awaiting kickoff"
+              color={stats.open > 0 ? "#f5c062" : "#6b7068"}
+            />
           </div>
         )}
 
@@ -861,50 +1071,145 @@ export default function SoccerOpsTab() {
           </div>
         )}
 
-        {/* Real-football handicap layer: form, shots, goal pace, xG-style model reads. */}
-        <FootballAnalysisPanel cards={data?.footballAnalysis ?? []} />
+        {/* ══ TODAY'S PLAYS — humanized, top of the page ════════════════════
+            Card per candidate with prose rationale from the live signal
+            stack. Approve / Watch / Reject inline. This is what we look at
+            to decide what to bet — everything below is supporting context
+            or debugging. */}
+        <TodayPlaysPanel
+          candidates={data?.candidates ?? []}
+          onStatus={updateCandidateStatus}
+        />
 
-        {/* Price-routed internal picks — kept separate from the football analysis. */}
+        {/* Approved picks — what's actually on the ticket */}
         <ActualPicksPanel picks={data?.actualPicks ?? []} />
 
         {/* Fixture-driven player prop context cards. */}
         <PropCardsPanel cards={data?.propCards ?? []} stats={data?.propCardStats} meta={data?.jobs.propCards} />
 
-        {/* Model-found opportunities — internal review queue, not user-facing picks. */}
-        <SoccerCandidatesPanel
-          candidates={data?.candidates ?? []}
-          stats={data?.candidateStats}
-          onStatus={updateCandidateStatus}
-        />
+        {/* ══ ENGINE INTERNALS — collapsed by default ═══════════════════════
+            Everything below is for me debugging the model: raw KPI strip,
+            worker status, manual job triggers, the dense candidate table,
+            historical signals, market probe, player priors browser.
+            Out of the way unless I'm troubleshooting. */}
+        <EngineInternals>
+          {/* Worker / scan / grade status strip */}
+          <WorkerStatusStrip
+            worker={data?.worker}
+            fetch={fetchMeta}
+            grade={gradeMeta}
+          />
 
-        {/* WC market probe — pre-launch tool. Click "Probe" to see which
-            Odds API markets are actually posted right now. Player props
-            typically open 1-2 weeks pre-kickoff so we want to know the
-            day they appear. ~10 credits per probe (manual trigger). */}
-        <MarketProbePanel />
+          {/* Manual job triggers — worker runs all these on schedule, so
+              these are only useful when I want to force a refresh. */}
+          <div className="flex flex-wrap gap-2">
+            <ActionButton
+              icon={Zap}
+              label={running === "fetch" ? "Scanning…" : "Scan odds"}
+              variant="primary"
+              busy={running === "fetch"}
+              disabled={running !== null}
+              onClick={() => runJob("fetch")}
+            />
+            <ActionButton
+              icon={Brain}
+              label={running === "candidates" ? "Modelling…" : "Run model"}
+              busy={running === "candidates"}
+              disabled={running !== null}
+              onClick={() => runJob("candidates")}
+            />
+            <ActionButton
+              icon={CheckCircle2}
+              label={running === "grade" ? "Grading signals…" : "Grade signals"}
+              busy={running === "grade"}
+              disabled={running !== null}
+              onClick={() => runJob("grade")}
+            />
+            <ActionButton
+              icon={CheckCircle2}
+              label={running === "gradeCandidates" ? "Grading model…" : "Grade model picks"}
+              busy={running === "gradeCandidates"}
+              disabled={running !== null}
+              onClick={() => runJob("gradeCandidates")}
+            />
+            <ActionButton
+              icon={CheckCircle2}
+              label={running === "gradeProps" ? "Grading props…" : "Grade props"}
+              busy={running === "gradeProps"}
+              disabled={running !== null}
+              onClick={() => runJob("gradeProps")}
+            />
+            <ActionButton
+              icon={Activity}
+              label={running === "livePipeline" ? "Live…" : "Live pipeline"}
+              busy={running === "livePipeline"}
+              disabled={running !== null}
+              onClick={() => runJob("livePipeline")}
+            />
+            <ActionButton
+              icon={Trophy}
+              label={running === "propCards" ? "Props…" : "Build prop cards"}
+              busy={running === "propCards"}
+              disabled={running !== null}
+              onClick={() => runJob("propCards")}
+            />
+            <ActionButton
+              icon={Target}
+              label={running === "propMarket" ? "Pricing…" : "Price props"}
+              busy={running === "propMarket"}
+              disabled={running !== null}
+              onClick={() => runJob("propMarket")}
+            />
+            <ActionButton
+              icon={AlertTriangle}
+              label={running === "inventory" ? "Inventory…" : "Sportmonks inventory"}
+              busy={running === "inventory"}
+              disabled={running !== null}
+              onClick={() => runJob("inventory")}
+            />
+          </div>
 
-        {/* Player intelligence — surfaces the StatsBomb historical layer +
-            squad joins + computed priors. The most-data-dense panel on this
-            tab; lives near the top so it's visible at a glance. */}
-        <PlayerPriorsPanel />
+          {/* Detailed KPIs (per-market, by-book, live pipeline) */}
+          {stats && (
+            <div className="flex gap-3 flex-wrap">
+              <KpiCard label="Signals total" value={String(stats.total)} />
+              <KpiCard label="Win rate" value={fmtPct(stats.winRate)} sub="52.4% break-even" color={winRateColor(stats.winRate)} />
+              {stats.h2h.graded > 0 && (
+                <KpiCard label="1X2 record" value={`${stats.h2h.wins}/${stats.h2h.graded}`} sub={fmtPct(stats.h2h.wins / stats.h2h.graded)} />
+              )}
+              {stats.totals.graded > 0 && (
+                <KpiCard label="Totals record" value={`${stats.totals.wins}/${stats.totals.graded}`} sub={fmtPct(stats.totals.wins / stats.totals.graded)} />
+              )}
+              {livePipelineMeta && (
+                <KpiCard label="Live pipe" value={`${livePipelineMeta.mapped ?? 0}/${livePipelineMeta.synced ?? 0}`} sub={`${livePipelineMeta.cards ?? 0} cards · ${livePipelineMeta.priced ?? 0} priced`} color="#3ee68a" />
+              )}
+            </div>
+          )}
 
-        {/* Today's slate — distinct games we have open signals on now */}
-        <TodaySlatePanel signals={signals} today={today} />
+          {/* Football-variable handicap layer */}
+          <FootballAnalysisPanel cards={data?.footballAnalysis ?? []} />
 
-        {/* Open signals — actionable today/future vs awaiting grade */}
-        <OpenSignalsPanel signals={signals} today={today} />
+          {/* Dense candidate table — full queue including graded backfill */}
+          <SoccerCandidatesPanel
+            candidates={data?.candidates ?? []}
+            stats={data?.candidateStats}
+            onStatus={updateCandidateStatus}
+          />
 
-        {/* Edge validation — CLV / P&L / % positive */}
-        <CLVStatsPanel signals={signals} />
+          {/* WC market probe — pre-launch tool. ~10 credits per probe. */}
+          <MarketProbePanel />
 
-        {/* By book — soft books diverging most against Pinnacle */}
-        <ByBookPanel signals={signals} />
+          {/* Player priors browser */}
+          <PlayerPriorsPanel />
 
-        {/* Stale signals — open and old, eligible for void */}
-        <StaleSignalsPanel signals={signals} today={today} />
-
-        {/* Activity stream — last 30 signals across all statuses */}
-        <ActivityStreamPanel signals={signals} />
+          {/* Historical signal panels */}
+          <TodaySlatePanel signals={signals} today={today} />
+          <OpenSignalsPanel signals={signals} today={today} />
+          <CLVStatsPanel signals={signals} />
+          <ByBookPanel signals={signals} />
+          <StaleSignalsPanel signals={signals} today={today} />
+          <ActivityStreamPanel signals={signals} />
+        </EngineInternals>
 
       </div>
     </div>
