@@ -203,9 +203,14 @@ try:
 except Exception as e:
     print(json.dumps({"signals": [], "meta": {}, "injuries": [], "candidates": [], "actualPicks": [], "footballAnalysis": [], "propCards": [], "propCardStats": {"by_decision": {}, "priced": 0, "top_edge_pp": None}, "candidateStats": {"total": 0, "by_status": {}, "top_edge_pp": None}, "error": str(e)}))
 `;
+  // 60s timeout — analyze_slate hits the Odds API for ~5 leagues which can
+  // take 15-30s under load. Previously 20s, which silently truncated JSON
+  // output and made candidates/stats return empty in the UI with no error.
+  // If we ever need this faster, move analyze_slate to a worker-driven
+  // cache instead of fetching synchronously inside the request path.
   const result = spawnSync("python3", ["-c", script], {
     encoding: "utf-8",
-    timeout: 20_000,
+    timeout: 60_000,
     cwd: appRoot,
   });
   try {
