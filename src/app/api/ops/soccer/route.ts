@@ -167,7 +167,6 @@ try:
     from ml.world_cup.signal_logger import init_db, get_db
     from ml.world_cup.context import init_context_tables
     from ml.soccer.candidates import init_db as init_candidate_db, list_candidates, list_actual_picks, stats as candidate_stats
-    from ml.soccer.analysis import analyze_slate
     from ml.soccer.prop_cards import init_db as init_prop_cards_db, list_cards as list_prop_cards, stats as prop_card_stats
     from ml.soccer.live_state import init_db as init_live_state_db
     db_path = Path(${JSON.stringify(dbPath)})
@@ -195,7 +194,7 @@ try:
         "injuries": [dict(r) for r in inj_rows],
         "candidates": list_candidates(db_path, limit=40),
         "actualPicks": list_actual_picks(db_path, limit=8),
-        "footballAnalysis": analyze_slate(limit=8),
+        "footballAnalysis": [],
         "propCards": list_prop_cards(db_path, limit=24),
         "propCardStats": prop_card_stats(db_path),
         "candidateStats": candidate_stats(db_path),
