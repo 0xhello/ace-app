@@ -5,3 +5,7 @@ numpy>=1.26,<2.0
 pandas>=2.1
 scikit-learn>=1.6
 python-dotenv>=1.0
+# soccerdata: optional but needed for the boot-time Understat xG ingest that
+# powers the M9 xG-prior adjustment in predict_match. Without it, the worker
+# bootstrap silently no-ops and xG priors stay at 1.0 on prod.
+soccerdata>=1.6
