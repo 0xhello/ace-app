@@ -685,18 +685,27 @@ def run_loop(once: bool = False) -> None:
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
                     "AND name='soccer_model_candidates'"
                 ).fetchone()
-                cand_rows = 0
+                # Count rows that the ops UI will ACTUALLY surface (excludes
+                # the legacy book='pinnacle' rows that list_candidates filters
+                # out because US subscribers can't bet there). If 0 visible
+                # rows, re-run the backfill — it self-cleans legacy pinnacle
+                # rows + reinserts under book='market_close'.
+                visible_rows = 0
                 if row and row[0] > 0:
-                    cand_rows = int(conn2.execute(
+                    visible_rows = int(conn2.execute(
                         "SELECT COUNT(*) FROM soccer_model_candidates "
-                        "WHERE rationale_json LIKE '%backfill%'"
+                        "WHERE rationale_json LIKE '%backfill%' "
+                        "AND book = 'market_close'"
                     ).fetchone()[0])
             finally:
                 conn2.close()
-            if cand_rows == 0:
-                print("  [worker] No backfilled model candidates — running 45-day backfill (out-of-sample)…", flush=True)
+            if visible_rows == 0:
+                print("  [worker] No visible backfilled candidates — running 45-day backfill…", flush=True)
                 bf = _soccer_backfill_candidates(days_back=45)
                 print(f"  [worker] Backfill complete: {bf}", flush=True)
+            else:
+                print(f"  [worker] {visible_rows} backfilled candidates already in DB — skipping backfill",
+                      flush=True)
         except Exception as e:
             print(f"  [worker] Soccer candidate backfill error (non-fatal): {e}",
                   file=sys.stderr, flush=True)

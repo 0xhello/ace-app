@@ -464,6 +464,17 @@ def backfill_from_form(
     target_path = db_path or DEFAULT_DB_PATH
     conn = get_db(target_path)
 
+    # One-time cleanup: earlier backfill iterations stored book='pinnacle',
+    # which list_candidates explicitly excludes (US subscribers can't bet
+    # Pinnacle). Clear those legacy rows so the new run re-inserts under
+    # book='market_close'. Safe — these are deterministic and reproducible
+    # from the same form data + model fit.
+    conn.execute(
+        "DELETE FROM soccer_model_candidates "
+        "WHERE book = 'pinnacle' AND rationale_json LIKE '%backfill%'"
+    )
+    conn.commit()
+
     cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days_back))).strftime("%Y-%m-%d")
 
     # Fit a backfill-specific model: training set ENDS at the cutoff date
@@ -560,7 +571,7 @@ def backfill_from_form(
                     (game_id, sport_keys.get(league, "soccer"), league, m["match_date"],
                      m["home"], m["away"], m["home"], m["away"], None,
                      "h2h", side, None,
-                     model_p, book_p, _dec_to_amer(book_o), "pinnacle", edge,
+                     model_p, book_p, _dec_to_amer(book_o), "market_close", edge,
                      tier, "graded",
                      json.dumps({"backfill": True, "source": "soccer_model_v1+shrinkage",
                                 "lambda_h": pred["lambda_h"], "lambda_a": pred["lambda_a"]}),
@@ -603,7 +614,7 @@ def backfill_from_form(
                     (game_id, sport_keys.get(league, "soccer"), league, m["match_date"],
                      m["home"], m["away"], m["home"], m["away"], None,
                      "totals", side, 2.5,
-                     model_p, book_p, _dec_to_amer(book_o), "pinnacle", edge,
+                     model_p, book_p, _dec_to_amer(book_o), "market_close", edge,
                      tier, "graded",
                      json.dumps({"backfill": True, "source": "soccer_model_v1+shrinkage",
                                 "lambda_h": pred["lambda_h"], "lambda_a": pred["lambda_a"],
