@@ -75,6 +75,19 @@ try:
 except Exception:
     _SPORTMONKS_INVENTORY_AVAILABLE = False
 
+# Understat / soccerdata xG ingest — feeds the M9 xG-prior adjustment.
+# soccerdata package is optional; if not installed, the ingest will fail
+# gracefully and xG priors will no-op until somebody runs the ingest.
+try:
+    from ml.soccer.understat_cache import (
+        ingest as _understat_ingest,
+        BIG_FIVE_UNDERSTAT as _UNDERSTAT_LEAGUES,
+        DEFAULT_SEASON as _UNDERSTAT_SEASON,
+    )
+    _UNDERSTAT_INGEST_AVAILABLE = True
+except Exception:
+    _UNDERSTAT_INGEST_AVAILABLE = False
+
 # Soccer grading — settles game-level model candidates + player-prop cards
 # once matches complete. Daily 9am ET tick so all weekend games settle by
 # Monday morning.
@@ -708,6 +721,53 @@ def run_loop(once: bool = False) -> None:
                       flush=True)
         except Exception as e:
             print(f"  [worker] Soccer candidate backfill error (non-fatal): {e}",
+                  file=sys.stderr, flush=True)
+
+    # Boot-time Understat xG ingest — fills soccer_source_team_match_stats so
+    # M9 xG priors actually fire on prod predictions. Runs in a daemon thread
+    # because soccerdata pulls 5 leagues × per-team HTTP fetches (~30-60s); we
+    # don't want to block the worker tick startup or the scheduled jobs.
+    # Idempotent: skips if the table already has rows.
+    if _UNDERSTAT_INGEST_AVAILABLE:
+        try:
+            from ml.world_cup.signal_logger import DB_PATH as _WC_DB3
+            conn3 = sqlite3.connect(str(_WC_DB3))
+            try:
+                row = conn3.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+                    "AND name='soccer_source_team_match_stats'"
+                ).fetchone()
+                xg_rows = 0
+                if row and row[0] > 0:
+                    xg_rows = int(conn3.execute(
+                        "SELECT COUNT(*) FROM soccer_source_team_match_stats"
+                    ).fetchone()[0])
+            finally:
+                conn3.close()
+            if xg_rows == 0:
+                print("  [worker] Understat xG table empty — bootstrapping in background…",
+                      flush=True)
+                import threading
+
+                def _understat_bootstrap_thread():
+                    try:
+                        n = _understat_ingest(_UNDERSTAT_LEAGUES, season=_UNDERSTAT_SEASON)
+                        print(f"  [worker] Understat bootstrap complete: {n} rows ingested",
+                              flush=True)
+                    except Exception as e:
+                        print(f"  [worker] Understat bootstrap thread error (non-fatal): {e}",
+                              file=sys.stderr, flush=True)
+
+                threading.Thread(
+                    target=_understat_bootstrap_thread,
+                    name="understat-bootstrap",
+                    daemon=True,
+                ).start()
+            else:
+                print(f"  [worker] Understat xG table has {xg_rows} rows — skipping bootstrap",
+                      flush=True)
+        except Exception as e:
+            print(f"  [worker] Understat bootstrap error (non-fatal): {e}",
                   file=sys.stderr, flush=True)
 
     while _RUNNING:
