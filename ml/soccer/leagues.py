@@ -124,7 +124,7 @@ def fetch_league_odds(sport_key: str) -> List[Dict[str, Any]]:
     remaining = resp.headers.get("x-requests-remaining")
     used      = resp.headers.get("x-requests-used")
     if remaining:
-        print(f"  [quota] ({sport_key}) {used} used / {remaining} remaining")
+        print(f"  [quota] ({sport_key}) {used} used / {remaining} remaining", file=sys.stderr)
     try:
         from ml.common.odds_cache import write_quota
         write_quota(remaining, used, resp.headers.get("x-requests-last"),

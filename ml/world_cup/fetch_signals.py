@@ -114,7 +114,7 @@ def fetch_wc_odds() -> List[Dict[str, Any]]:
     remaining = resp.headers.get("x-requests-remaining")
     used      = resp.headers.get("x-requests-used")
     if remaining:
-        print(f"  [quota] {used} used / {remaining} remaining")
+        print(f"  [quota] {used} used / {remaining} remaining", file=sys.stderr)
     try:
         from ml.common.odds_cache import write_quota
         write_quota(remaining, used, resp.headers.get("x-requests-last"),
@@ -159,7 +159,7 @@ def fetch_wc_player_props() -> List[Dict[str, Any]]:
     remaining = resp.headers.get("x-requests-remaining")
     used      = resp.headers.get("x-requests-used")
     if remaining:
-        print(f"  [quota] {used} used / {remaining} remaining (player props)")
+        print(f"  [quota] {used} used / {remaining} remaining (player props)", file=sys.stderr)
     try:
         from ml.common.odds_cache import write_quota
         write_quota(remaining, used, resp.headers.get("x-requests-last"),
@@ -194,7 +194,7 @@ def fetch_scores_for_sport(sport_key: str, days_back: int = 3) -> List[Dict[str,
     remaining = resp.headers.get("x-requests-remaining")
     used      = resp.headers.get("x-requests-used")
     if remaining:
-        print(f"  [quota] ({sport_key}/scores) {used} used / {remaining} remaining")
+        print(f"  [quota] ({sport_key}/scores) {used} used / {remaining} remaining", file=sys.stderr)
     if resp.status_code in (401, 422):
         return []
     if resp.status_code == 429:
@@ -214,7 +214,7 @@ def fetch_wc_scores(days_back: int = 3) -> List[Dict[str, Any]]:
     remaining = resp.headers.get("x-requests-remaining")
     used      = resp.headers.get("x-requests-used")
     if remaining:
-        print(f"  [quota] {used} used / {remaining} remaining")
+        print(f"  [quota] {used} used / {remaining} remaining", file=sys.stderr)
 
     if resp.status_code in (401, 422):
         return []

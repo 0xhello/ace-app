@@ -51,7 +51,7 @@ def fetch_scores(days_back: int = 3) -> List[Dict[str, Any]]:
     remaining = resp.headers.get("x-requests-remaining")
     used = resp.headers.get("x-requests-used")
     if remaining:
-        print(f"  [quota] {used} used / {remaining} remaining")
+        print(f"  [quota] {used} used / {remaining} remaining", file=sys.stderr)
 
     if resp.status_code == 401:
         raise EnvironmentError("ODDS_API_KEY is invalid or expired.")
