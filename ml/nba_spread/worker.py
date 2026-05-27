@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
@@ -80,12 +81,15 @@ except Exception:
 try:
     from ml.soccer.candidates import grade_candidates as _soccer_grade_candidates
     from ml.soccer.candidates import scan as _soccer_candidates_scan
+    from ml.soccer.candidates import backfill_from_form as _soccer_backfill_candidates
     from ml.soccer.live_state import grade_prop_cards as _soccer_grade_prop_cards
     _SOCCER_GRADING_AVAILABLE = True
     _SOCCER_CANDIDATES_AVAILABLE = True
+    _SOCCER_BACKFILL_AVAILABLE = True
 except Exception:
     _SOCCER_GRADING_AVAILABLE = False
     _SOCCER_CANDIDATES_AVAILABLE = False
+    _SOCCER_BACKFILL_AVAILABLE = False
 
 # FBref team-form ingestor — daily HTML scrape of Big 5 + UCL schedules.
 # Free, no API key. Feeds the pick explainer with real recent-form data
@@ -664,6 +668,37 @@ def run_loop(once: bool = False) -> None:
                 _soccer_form_sync()
         except Exception as e:
             print(f"  [worker] Form bootstrap error (non-fatal): {e}",
+                  file=sys.stderr, flush=True)
+
+    # Boot-time soccer pick backfill — populates the ops dashboard with a
+    # 45-day track record on first deploy. Idempotent: skips if any
+    # backfilled rows already exist. Refits the model out-of-sample so the
+    # ROI numbers shown are honest (no leakage).
+    # The user sees real picks + real graded results immediately instead
+    # of staring at an empty table during the between-seasons gap.
+    if _SOCCER_BACKFILL_AVAILABLE:
+        try:
+            from ml.world_cup.signal_logger import DB_PATH as _WC_DB2
+            conn2 = sqlite3.connect(str(_WC_DB2))
+            try:
+                row = conn2.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+                    "AND name='soccer_model_candidates'"
+                ).fetchone()
+                cand_rows = 0
+                if row and row[0] > 0:
+                    cand_rows = int(conn2.execute(
+                        "SELECT COUNT(*) FROM soccer_model_candidates "
+                        "WHERE rationale_json LIKE '%backfill%'"
+                    ).fetchone()[0])
+            finally:
+                conn2.close()
+            if cand_rows == 0:
+                print("  [worker] No backfilled model candidates — running 45-day backfill (out-of-sample)…", flush=True)
+                bf = _soccer_backfill_candidates(days_back=45)
+                print(f"  [worker] Backfill complete: {bf}", flush=True)
+        except Exception as e:
+            print(f"  [worker] Soccer candidate backfill error (non-fatal): {e}",
                   file=sys.stderr, flush=True)
 
     while _RUNNING:

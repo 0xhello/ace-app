@@ -430,6 +430,225 @@ def scan(db_path: Optional[Path] = None, horizon_hours: int = 72) -> Dict[str, A
     return summary
 
 
+def backfill_from_form(
+    days_back: int = 45,
+    db_path: Optional[Path] = None,
+    *,
+    min_edge_pp: float = 0.03,
+    max_edge_pp: float = 0.20,
+) -> Dict[str, Any]:
+    """One-shot backfill that mints model candidates retrospectively for
+    recently-completed Big 5 matches we already have in `soccer_team_form`.
+    Picks are graded immediately using the real result.
+
+    Refits the model on training data PRIOR to the backfill window so all
+    backfilled picks are genuine out-of-sample predictions — same protocol
+    as the held-out backtest. The persisted model artifact (used for live
+    predictions) stays untouched; we only build a temporary fit in memory.
+
+    Idempotent: skips matches that already have a candidate on game_id.
+
+    Args:
+      days_back   how far back to scan
+      min_edge_pp lower edge bound for emitting a candidate
+      max_edge_pp upper bound (anything above is treated as model
+                  over-extension, suppressed — same ceiling the
+                  subscriber loader uses)
+    """
+    import hashlib
+    from datetime import timedelta
+    from ml.soccer.model import fit_dixon_coles, predict_match
+
+    init_db(db_path)
+
+    target_path = db_path or DEFAULT_DB_PATH
+    conn = get_db(target_path)
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days_back))).strftime("%Y-%m-%d")
+
+    # Fit a backfill-specific model: training set ENDS at the cutoff date
+    # so every backfilled match is strictly out-of-sample. This is the same
+    # split protocol the held-out backtest uses (no leakage).
+    print(f"  [backfill] Fitting out-of-sample model with train_before={cutoff}…", flush=True)
+    fits: Dict[str, Any] = {}
+    for sport_key, league, _active_until in LEAGUES:
+        if league not in SUPPORTED_LEAGUES:
+            continue
+        f = fit_dixon_coles(league, conn, reference_date=cutoff, train_before=cutoff)
+        if f is not None:
+            fits[league] = f
+    if not fits:
+        return {"ok": False, "reason": "model-refit-failed", "candidates": 0}
+
+    matches = conn.execute(
+        """SELECT match_date, team_name AS home, opponent AS away, league,
+                  goals_for AS gh, goals_against AS ga,
+                  close_home_odds, close_draw_odds, close_away_odds,
+                  close_ou_line, close_over_odds, close_under_odds
+           FROM soccer_team_form
+           WHERE venue = 'home'
+             AND match_date >= ?
+             AND goals_for IS NOT NULL AND goals_against IS NOT NULL
+             AND league IN ('Premier League', 'La Liga', 'Bundesliga', 'Serie A', 'Ligue 1')
+           ORDER BY match_date ASC""",
+        (cutoff,),
+    ).fetchall()
+
+    inserted = graded = skipped_existing = skipped_noedge = skipped_unmatched = 0
+    sport_keys = {label: key for key, label, _u in LEAGUES}
+    now = datetime.now(timezone.utc).isoformat()
+
+    for m in matches:
+        league = m["league"]
+        if league not in fits:
+            skipped_unmatched += 1
+            continue
+        fit = fits[league]
+        # Use team names as-is — football-data names align with our fitted team list
+        if m["home"] not in fit.alpha or m["away"] not in fit.alpha:
+            skipped_unmatched += 1
+            continue
+
+        # Deterministic game_id so re-runs dedupe naturally
+        game_id = hashlib.md5(
+            f"backfill|{m['match_date']}|{m['home']}|{m['away']}".encode("utf-8")
+        ).hexdigest()
+
+        # Skip if we already backfilled this match
+        already = conn.execute(
+            "SELECT 1 FROM soccer_model_candidates WHERE game_id = ? LIMIT 1",
+            (game_id,),
+        ).fetchone()
+        if already:
+            skipped_existing += 1
+            continue
+
+        pred = predict_match(
+            fit, m["home"], m["away"], league=league,
+            apply_adjustments=True, conn=conn,
+            before_date=m["match_date"],  # no leakage — only data BEFORE the match
+        )
+        if not pred:
+            skipped_unmatched += 1
+            continue
+
+        # ── h2h ──
+        if all([m["close_home_odds"], m["close_draw_odds"], m["close_away_odds"]]):
+            book_devig = _devig([m["close_home_odds"], m["close_draw_odds"], m["close_away_odds"]])
+            actual_h = 1 if m["gh"] > m["ga"] else 0
+            actual_d = 1 if m["gh"] == m["ga"] else 0
+            actual_a = 1 if m["gh"] < m["ga"] else 0
+            for side, model_p, book_p, book_o, actual in [
+                ("home", pred["p_home"], book_devig[0], m["close_home_odds"], actual_h),
+                ("draw", pred["p_draw"], book_devig[1], m["close_draw_odds"], actual_d),
+                ("away", pred["p_away"], book_devig[2], m["close_away_odds"], actual_a),
+            ]:
+                edge = model_p - book_p
+                if edge < min_edge_pp or edge > max_edge_pp:
+                    continue
+                tier = "A" if edge >= 0.10 else "B" if edge >= 0.07 else "C"
+                conn.execute(
+                    """INSERT INTO soccer_model_candidates
+                       (game_id, sport_key, tournament, game_date, home_team, away_team,
+                        model_home_team, model_away_team, commence_time,
+                        market, bet_side, total_line,
+                        model_prob, book_prob, book_odds, book, edge_pp,
+                        confidence_tier, status, rationale_json,
+                        home_score, away_score, result, correct, graded_at,
+                        detected_at, updated_at)
+                       VALUES (?,?,?,?,?,?, ?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?)""",
+                    (game_id, sport_keys.get(league, "soccer"), league, m["match_date"],
+                     m["home"], m["away"], m["home"], m["away"], None,
+                     "h2h", side, None,
+                     model_p, book_p, _dec_to_amer(book_o), "pinnacle", edge,
+                     tier, "graded",
+                     json.dumps({"backfill": True, "source": "soccer_model_v1+shrinkage",
+                                "lambda_h": pred["lambda_h"], "lambda_a": pred["lambda_a"]}),
+                     int(m["gh"]), int(m["ga"]),
+                     ("home" if m["gh"] > m["ga"] else "draw" if m["gh"] == m["ga"] else "away"),
+                     actual, now,
+                     now, now),
+                )
+                inserted += 1
+                graded += 1
+
+        # ── totals over/under (only the 2.5 line that football-data carries) ──
+        line = m["close_ou_line"]
+        if (
+            m["close_over_odds"] and m["close_under_odds"]
+            and line is not None and abs(float(line) - 2.5) < 0.01
+        ):
+            book_tot = _devig([m["close_over_odds"], m["close_under_odds"]])
+            total = m["gh"] + m["ga"]
+            actual_over = 1 if total > 2.5 else 0
+            actual_under = 1 if total < 2.5 else 0
+            for side, model_p, book_p, book_o, actual in [
+                ("over",  pred["over_2.5"],  book_tot[0], m["close_over_odds"],  actual_over),
+                ("under", pred["under_2.5"], book_tot[1], m["close_under_odds"], actual_under),
+            ]:
+                edge = model_p - book_p
+                if edge < min_edge_pp or edge > max_edge_pp:
+                    continue
+                tier = "A" if edge >= 0.10 else "B" if edge >= 0.07 else "C"
+                conn.execute(
+                    """INSERT INTO soccer_model_candidates
+                       (game_id, sport_key, tournament, game_date, home_team, away_team,
+                        model_home_team, model_away_team, commence_time,
+                        market, bet_side, total_line,
+                        model_prob, book_prob, book_odds, book, edge_pp,
+                        confidence_tier, status, rationale_json,
+                        home_score, away_score, result, correct, graded_at,
+                        detected_at, updated_at)
+                       VALUES (?,?,?,?,?,?, ?,?,?, ?,?,?, ?,?,?,?,?, ?,?,?, ?,?,?,?,?, ?,?)""",
+                    (game_id, sport_keys.get(league, "soccer"), league, m["match_date"],
+                     m["home"], m["away"], m["home"], m["away"], None,
+                     "totals", side, 2.5,
+                     model_p, book_p, _dec_to_amer(book_o), "pinnacle", edge,
+                     tier, "graded",
+                     json.dumps({"backfill": True, "source": "soccer_model_v1+shrinkage",
+                                "lambda_h": pred["lambda_h"], "lambda_a": pred["lambda_a"],
+                                "actual_total": int(total)}),
+                     int(m["gh"]), int(m["ga"]),
+                     ("over" if total > 2.5 else "under"),
+                     actual, now,
+                     now, now),
+                )
+                inserted += 1
+                graded += 1
+        else:
+            skipped_noedge += 1
+
+    conn.commit()
+    conn.close()
+    summary = {
+        "ok": True,
+        "ran_at": now,
+        "days_back": days_back,
+        "matches_examined": len(matches),
+        "candidates_inserted": inserted,
+        "candidates_graded": graded,
+        "skipped_existing": skipped_existing,
+        "skipped_unmatched_team": skipped_unmatched,
+        "skipped_no_edge": skipped_noedge,
+    }
+    try:
+        update_meta("job:soccer_backfill:last_run_at", now, path=target_path)
+        update_meta("job:soccer_backfill:last_summary", json.dumps(summary), path=target_path)
+    except Exception:
+        pass
+    return summary
+
+
+def _dec_to_amer(decimal_odds: float) -> float:
+    """football-data carries DECIMAL odds; our candidate schema stores
+    American. Convert: 1.50 dec = -200 amer, 3.00 dec = +200 amer."""
+    if decimal_odds <= 1.0:
+        return -10000.0
+    if decimal_odds >= 2.0:
+        return round((decimal_odds - 1.0) * 100.0, 1)
+    return round(-100.0 / (decimal_odds - 1.0), 1)
+
+
 def list_candidates(db_path: Optional[Path] = None, limit: int = 50) -> List[Dict[str, Any]]:
     init_db(db_path)
     conn = get_db(db_path)
