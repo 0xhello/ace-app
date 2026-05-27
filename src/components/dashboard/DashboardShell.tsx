@@ -5,9 +5,7 @@ import { Game } from "@/types/game";
 import GameRow from "@/components/GameRow";
 import TopAIPicks from "@/components/TopAIPicks";
 import WCBanner from "@/components/dashboard/WCBanner";
-// SoccerPicksPanel intentionally not imported on the main dashboard.
-// Available as a component for the Soccer-filter view when picks earn it.
-// import SoccerPicksPanel from "@/components/dashboard/SoccerPicksPanel";
+import SoccerPicksPanel from "@/components/dashboard/SoccerPicksPanel";
 import BetSlip from "@/components/BetSlip";
 import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
@@ -353,11 +351,12 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
         <div className="flex-1 overflow-y-auto scrollbar-hide">
           <WCBanner />
-          {/* SoccerPicksPanel removed from main dashboard. Picks aren't
-              "real" enough yet to surface prominently — they'll come back
-              when the soccer sport filter is selected, once the underlying
-              picks pass the bar. Backend infra (API endpoints, panel
-              component, AI explainer) stays in place. */}
+          {/* Soccer picks panel only when the SOCCER sport filter is selected.
+              Now driven by the model layer (soccer_model_candidates +
+              soccer_prop_cards) — not the CLV-divergence engine. The
+              divergence engine continues running silently in the background
+              for data collection / training purposes (per user direction). */}
+          {sport === "SOCCER" && <SoccerPicksPanel />}
           <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
 
           <div
