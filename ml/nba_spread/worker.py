@@ -74,6 +74,19 @@ try:
 except Exception:
     _SPORTMONKS_INVENTORY_AVAILABLE = False
 
+# Soccer grading — settles game-level model candidates + player-prop cards
+# once matches complete. Daily 9am ET tick so all weekend games settle by
+# Monday morning.
+try:
+    from ml.soccer.candidates import grade_candidates as _soccer_grade_candidates
+    from ml.soccer.candidates import scan as _soccer_candidates_scan
+    from ml.soccer.live_state import grade_prop_cards as _soccer_grade_prop_cards
+    _SOCCER_GRADING_AVAILABLE = True
+    _SOCCER_CANDIDATES_AVAILABLE = True
+except Exception:
+    _SOCCER_GRADING_AVAILABLE = False
+    _SOCCER_CANDIDATES_AVAILABLE = False
+
 # FBref team-form ingestor — daily HTML scrape of Big 5 + UCL schedules.
 # Free, no API key. Feeds the pick explainer with real recent-form data
 # instead of statistical filler.
@@ -717,6 +730,46 @@ def run_loop(once: bool = False) -> None:
                     _wc_update_meta("job:soccer_leagues:last_error", str(e)[:200])
                 except Exception:
                     pass
+
+        # Soccer model-pick grading. Daily 9am ET — weekend games settle in
+        # by Monday morning. Both game-level model candidates AND player-prop
+        # cards get graded; either failure stays isolated.
+        if _SOCCER_GRADING_AVAILABLE and _daily_due("soccer_grade_picks", hour=9, minute=15):
+            started_at = datetime.now(timezone.utc).isoformat()
+            try:
+                cand_res = _soccer_grade_candidates(days_back=5)
+                print(f"  [worker] soccer grade candidates: {cand_res}", flush=True)
+                _wc_update_meta("job:soccer_grade_candidates:last_run_at", started_at)
+                _wc_update_meta("job:soccer_grade_candidates:last_error", "")
+            except Exception as e:
+                print(f"  [worker] soccer grade candidates error: {e}", file=sys.stderr, flush=True)
+                try: _wc_update_meta("job:soccer_grade_candidates:last_error", str(e)[:200])
+                except Exception: pass
+            try:
+                prop_res = _soccer_grade_prop_cards()
+                print(f"  [worker] soccer grade prop cards: {prop_res}", flush=True)
+                _wc_update_meta("job:soccer_grade_prop_cards:last_run_at", started_at)
+                _wc_update_meta("job:soccer_grade_prop_cards:last_error", "")
+            except Exception as e:
+                print(f"  [worker] soccer grade prop cards error: {e}", file=sys.stderr, flush=True)
+                try: _wc_update_meta("job:soccer_grade_prop_cards:last_error", str(e)[:200])
+                except Exception: pass
+
+        # Game-level model candidate scan — produces soccer_model_candidates
+        # rows when our DC+shrunk model probability diverges from de-vigged
+        # book by enough. Same 30-min cadence as live_pipeline so the two
+        # stay in lockstep. Failure here doesn't block prop cards.
+        if _SOCCER_CANDIDATES_AVAILABLE and _interval_due("soccer_candidates", minutes=30):
+            started_at = datetime.now(timezone.utc).isoformat()
+            try:
+                cs = _soccer_candidates_scan(horizon_hours=72)
+                print(f"  [worker] soccer candidates scan: {cs}", flush=True)
+                _wc_update_meta("job:soccer_candidates:last_run_at", started_at)
+                _wc_update_meta("job:soccer_candidates:last_error", "")
+            except Exception as e:
+                print(f"  [worker] soccer candidates scan error: {e}", file=sys.stderr, flush=True)
+                try: _wc_update_meta("job:soccer_candidates:last_error", str(e)[:200])
+                except Exception: pass
 
         # Soccer live prop-pick bridge. Server-side interval, not OpenClaw cron.
         # Bounded to 4 per-event prop-price fetches/run to control Odds API spend.
