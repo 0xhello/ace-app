@@ -317,6 +317,159 @@ def _format_summary(s: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def run_1x2_shrinkage_sweep(
+    *,
+    leagues: List[str],
+    n_per_league: int = 100,
+    edge_threshold_pp: float = 0.05,
+    shrinkage_values: Optional[List[float]] = None,
+    db_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """M32 — sweep 1X2 shrinkage factors on a SHARED random sample.
+
+    The single-shot run_calibration draws a fresh random sample on every
+    invocation, so comparing across shrinkage values gets dominated by
+    sample variance. This sweep samples ONCE, captures raw model
+    probabilities (pre-shrinkage), then applies each shrinkage value in
+    post-processing — apples-to-apples comparison.
+
+    Returns a dict keyed by shrinkage factor; each entry has the same
+    shape as the standard run_calibration bucket output but only for
+    1X2_home/draw/away.
+    """
+    import math as _math
+    from ml.soccer.model import _logit_shrink
+
+    if shrinkage_values is None:
+        shrinkage_values = [0.50, 0.55, 0.60, 0.65, 0.72, 0.80, 0.90, 1.00]
+
+    from ml.world_cup.signal_logger import DB_PATH as DEFAULT_DB_PATH
+    path = db_path or DEFAULT_DB_PATH
+    conn = sqlite3.connect(str(path))
+    conn.row_factory = sqlite3.Row
+
+    # Pass 1: gather a single fixed sample with raw probabilities.
+    sample: List[Dict[str, Any]] = []
+    try:
+        for lg in leagues:
+            for m in _sample_matches(conn, league=lg, n=n_per_league):
+                try:
+                    intel = intelligence_for_match(
+                        home_team=m["home"],
+                        away_team=m["away"],
+                        tournament=m["league"],
+                        home_league=m["league"],
+                        away_league=m["league"],
+                        commence_time=None,
+                        game_id=None,
+                        neutral_venue=False,
+                        competition_stage="league",
+                        before_date=str(m["match_date"]),
+                    )
+                except Exception:
+                    continue
+                if not intel or intel.get("error") or not intel.get("model"):
+                    continue
+                model = intel["model"]
+                sample.append({
+                    "match": m,
+                    "p_home_raw": model["p_home_win_raw"],
+                    "p_draw_raw": model["p_draw_raw"],
+                    "p_away_raw": model["p_away_win_raw"],
+                })
+    finally:
+        conn.close()
+
+    if not sample:
+        return {"error": "no sample collected"}
+
+    # Pass 2: apply each shrinkage factor to the same sample.
+    results: Dict[str, Any] = {
+        "sample_size": len(sample),
+        "edge_threshold_pp": edge_threshold_pp,
+        "by_shrinkage": {},
+    }
+    for s_factor in shrinkage_values:
+        bets = {"home": [], "draw": [], "away": []}
+        residuals = {"home": [], "draw": [], "away": []}
+        for entry in sample:
+            m = entry["match"]
+            # Apply log-odds shrinkage like _shrink_1x2 does internally.
+            ph_s = _logit_shrink(entry["p_home_raw"], s_factor)
+            pd_s = _logit_shrink(entry["p_draw_raw"], s_factor)
+            pa_s = _logit_shrink(entry["p_away_raw"], s_factor)
+            # Renormalize so probabilities sum to 1
+            tot = ph_s + pd_s + pa_s
+            if tot > 0:
+                ph_s, pd_s, pa_s = ph_s/tot, pd_s/tot, pa_s/tot
+
+            imp_home = _decimal_to_implied(float(m["close_home_odds"]))
+            imp_draw = _decimal_to_implied(float(m["close_draw_odds"]))
+            imp_away = _decimal_to_implied(float(m["close_away_odds"]))
+
+            hs = int(m["home_score"])
+            as_ = int(m["away_score"])
+
+            for side_key, model_prob, implied, dec_odds in [
+                ("home", ph_s, imp_home, float(m["close_home_odds"])),
+                ("draw", pd_s, imp_draw, float(m["close_draw_odds"])),
+                ("away", pa_s, imp_away, float(m["close_away_odds"])),
+            ]:
+                residuals[side_key].append(model_prob - implied)
+                if (model_prob - implied) >= edge_threshold_pp:
+                    outcome = _grade_outcome("1x2", side_key, hs, as_)
+                    if outcome is None:
+                        continue
+                    if outcome == "won":
+                        pnl = _decimal_to_units_won(dec_odds)
+                    elif outcome == "lost":
+                        pnl = -1.0
+                    else:
+                        pnl = 0.0
+                    bets[side_key].append({"outcome": outcome, "pnl": pnl})
+
+        per_side = {}
+        for side_key in ("home", "draw", "away"):
+            bs = bets[side_key]
+            wins   = sum(1 for b in bs if b["outcome"] == "won")
+            losses = sum(1 for b in bs if b["outcome"] == "lost")
+            pnl    = sum(b["pnl"] for b in bs)
+            n_bets = len(bs)
+            roi = (pnl / n_bets) if n_bets else None
+            mean_res = sum(residuals[side_key]) / len(residuals[side_key])
+            per_side[side_key] = {
+                "n_bets": n_bets,
+                "wins":   wins,
+                "losses": losses,
+                "pnl_units": round(pnl, 2),
+                "roi_per_bet": round(roi, 4) if roi is not None else None,
+                "mean_residual_pp": round(mean_res * 100, 2),
+            }
+        results["by_shrinkage"][str(s_factor)] = per_side
+
+    return results
+
+
+def _format_sweep(s: Dict[str, Any]) -> str:
+    lines = [f"1X2 shrinkage sweep — {s['sample_size']} matches, edge≥{s['edge_threshold_pp']*100:.1f}pp"]
+    lines.append("")
+    lines.append(f"{'shrink':>8} | {'home n':>6} {'home ROI':>10} | {'draw n':>6} {'draw ROI':>10} | {'away n':>6} {'away ROI':>10}")
+    lines.append("─" * 100)
+    for factor, per_side in s["by_shrinkage"].items():
+        h = per_side["home"]
+        d = per_side["draw"]
+        a = per_side["away"]
+        def fmt(roi):
+            return f"{roi*100:+.1f}%" if roi is not None else "  —  "
+        lines.append(
+            f"{factor:>8} | "
+            f"{h['n_bets']:>6} {fmt(h['roi_per_bet']):>10} | "
+            f"{d['n_bets']:>6} {fmt(d['roi_per_bet']):>10} | "
+            f"{a['n_bets']:>6} {fmt(a['roi_per_bet']):>10}"
+        )
+    return "\n".join(lines)
+
+
 def main() -> None:
     import argparse
     import json
@@ -329,8 +482,27 @@ def main() -> None:
     parser.add_argument("--edge-threshold-pp", type=float, default=0.05,
                         help="Decimal — 0.05 = 5pp edge threshold for 'bet'")
     parser.add_argument("--format", choices=["table", "json"], default="table")
+    parser.add_argument(
+        "--sweep-1x2", action="store_true",
+        help="Run the M32 1X2 shrinkage sweep — sample once, apply each "
+             "shrinkage value, compare ROI. Tells us the calibration sweet "
+             "spot for 1X2 markets without fresh-sample variance.",
+    )
     args = parser.parse_args()
     leagues = [l.strip() for l in args.leagues.split(",") if l.strip()]
+
+    if args.sweep_1x2:
+        sweep = run_1x2_shrinkage_sweep(
+            leagues=leagues,
+            n_per_league=args.n_per_league,
+            edge_threshold_pp=args.edge_threshold_pp,
+        )
+        if args.format == "json":
+            print(json.dumps(sweep, indent=2))
+        else:
+            print(_format_sweep(sweep))
+        return
+
     summary = run_calibration(
         leagues=leagues,
         n_per_league=args.n_per_league,
