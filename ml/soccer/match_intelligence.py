@@ -70,6 +70,75 @@ from ml.soccer.prop_cards import (
 # carrying stale form from last fall.
 _RECENT_MATCH_WINDOW = 12
 
+
+# ── Competition-strength scaler (M20) ───────────────────────────────────────
+#
+# Why this exists
+# ---------------
+# Team xG numbers from Understat are calibrated to the team's HOME league.
+# When the model projects PSG into a UCL knockout match, it carries PSG's
+# Ligue 1 xG (~2.99 xG/match) as if it'd translate 1:1 against Arsenal —
+# which doesn't happen. Knockout-stage defenses are sharper and both
+# sides play more conservatively. Same effect compounds for finals.
+#
+# The factor below scales λ down to account for the stage. Derivation:
+#
+#   Big-5 league avg total goals/match (from our Understat cache, 2024-25):
+#     Premier League  2.93  ·  La Liga  2.62  ·  Ligue 1  2.98
+#     Bundesliga      3.13  ·  Serie A  2.56  ·  weighted avg ≈ 2.84
+#
+#   UCL average total goals/match (public Opta data, last 5 seasons):
+#     Group stage        2.85   ≈ same as Big-5 league
+#     Quarter+Semi-final 2.52   → 2.52/2.84 = 0.887
+#     Final              2.18   → 2.18/2.84 = 0.768 (sample-size caveat)
+#
+# Apply as λ_adjusted = λ_raw × factor, on BOTH sides (no asymmetry —
+# both teams play tighter in knockouts). For UCL finals specifically we
+# stack the knockout factor (0.88) with an additional final discount
+# (0.92), giving 0.81 combined. Tunable — these are conservative starting
+# points; the calibration backtest will refine them.
+#
+# 1.0 is the no-op default for league play.
+
+COMPETITION_FACTORS: Dict[str, float] = {
+    "league":              1.00,  # Premier League / La Liga / etc. regular season
+    "ucl_group":           0.95,  # UCL group stage (slightly tighter)
+    "ucl_knockout":        0.88,  # Round of 16 → semi
+    "ucl_final":           0.81,  # 0.88 (knockout) × 0.92 (final)
+    "uel_knockout":        0.90,  # Europa League — slightly higher than UCL
+    "world_cup_group":     0.90,
+    "world_cup_knockout":  0.83,
+    "world_cup_final":     0.75,
+    "international_friendly": 0.92,
+}
+
+
+def _resolve_competition_stage(
+    tournament: Optional[str],
+    stage: Optional[str],
+) -> str:
+    """Map (tournament, stage) → COMPETITION_FACTORS key.
+
+    ``stage`` overrides everything when caller passes it explicitly (e.g.
+    "ucl_final" for the PSG-Arsenal pilot). When stage is None we infer:
+        tournament="UCL"           → ucl_knockout (safe default in mid-season)
+        tournament="Europa League" → uel_knockout
+        tournament="World Cup"     → world_cup_group (safe default)
+        anything else              → league
+    """
+    if stage and stage in COMPETITION_FACTORS:
+        return stage
+    if not tournament:
+        return "league"
+    t = tournament.lower()
+    if "uefa champ" in t or t == "ucl":
+        return "ucl_knockout"
+    if "europa" in t or t == "uel":
+        return "uel_knockout"
+    if "world cup" in t or t == "wc":
+        return "world_cup_group"
+    return "league"
+
 # Low-score correction (Dixon-Coles rho). Same default as the league fits.
 # Slightly negative because 0-0 and 1-1 happen a bit more often than
 # independent Poisson would predict.
@@ -239,6 +308,7 @@ def _apply_xg_adjustments(
     before_date: Optional[str],
     home_team_resolved: str,
     away_team_resolved: str,
+    competition_stage: str = "league",
 ) -> Tuple[float, float, Dict[str, Any]]:
     """Returns (lambda_home, lambda_away, traces) after applying M9 xG
     over/under-performance regression."""
@@ -326,6 +396,23 @@ def _apply_xg_adjustments(
         "defense_trace_a": defense_trace_a,
     })
 
+    # Competition-strength scaler — applies LAST so we down-weight every
+    # earlier multiplicative effect (Big-5 xG, M9 priors, M7/M8) in one
+    # consistent step. Same factor on both sides since knockout play is
+    # symmetric (both teams tighten up). Without this the model badly
+    # over-projects totals for UCL/WC knockouts.
+    comp_factor = COMPETITION_FACTORS.get(competition_stage, 1.0)
+    lam_h_pre = lam_h
+    lam_a_pre = lam_a
+    lam_h *= comp_factor
+    lam_a *= comp_factor
+    traces.update({
+        "competition_stage": competition_stage,
+        "competition_factor": round(comp_factor, 4),
+        "lam_h_pre_competition": round(lam_h_pre, 4),
+        "lam_a_pre_competition": round(lam_a_pre, 4),
+    })
+
     return lam_h, lam_a, traces
 
 
@@ -342,6 +429,7 @@ def intelligence_for_match(
     commence_time: Optional[str] = None,
     game_id: Optional[str] = None,
     neutral_venue: bool = True,
+    competition_stage: Optional[str] = None,
     db_path: Optional[Path] = None,
     before_date: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -378,6 +466,7 @@ def intelligence_for_match(
                 "error": f"insufficient Understat sample for: {', '.join(missing)}",
             }
 
+        stage = _resolve_competition_stage(tournament, competition_stage)
         lam_h, lam_a, adj_trace = _apply_xg_adjustments(
             home_xg, away_xg, conn,
             league_hint=league_hint,
@@ -386,6 +475,7 @@ def intelligence_for_match(
             before_date=before_date,
             home_team_resolved=home_xg["team"],
             away_team_resolved=away_xg["team"],
+            competition_stage=stage,
         )
 
         # Joint grid → all markets

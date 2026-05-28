@@ -43,6 +43,9 @@ export async function GET(req: NextRequest) {
   const gameId = req.nextUrl.searchParams.get("game_id")?.trim() || null;
   const commenceTime = req.nextUrl.searchParams.get("commence_time")?.trim() || null;
   const neutralVenue = (req.nextUrl.searchParams.get("neutral_venue") ?? "1") !== "0";
+  // Competition-stage scaler (M20). Caller can override; otherwise we
+  // derive from tournament name in Python.
+  const competitionStage = req.nextUrl.searchParams.get("competition_stage")?.trim() || null;
 
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
 
@@ -65,6 +68,7 @@ try:
         commence_time=${commenceTime ? JSON.stringify(commenceTime) : "None"},
         game_id=${gameId ? JSON.stringify(gameId) : "None"},
         neutral_venue=${neutralVenue ? "True" : "False"},
+        competition_stage=${competitionStage ? JSON.stringify(competitionStage) : "None"},
     )
     if out is None:
         print(json.dumps({"error": "intelligence_for_match returned None"})); sys.exit(0)

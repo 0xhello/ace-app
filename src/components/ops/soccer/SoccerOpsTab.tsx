@@ -630,6 +630,9 @@ function MatchIntelligencePanel() {
       commence_time: "2026-05-30T16:00:00Z",
       game_id: _UCL_FINAL_GAME_ID,
       neutral_venue: "1",
+      // M20 — explicit UCL final scaler so the model down-weights
+      // Big-5 regular-season xG into the much tighter knockout/final pace.
+      competition_stage: "ucl_final",
     });
     void fetch(`/api/ops/match-intelligence?${u.toString()}`)
       .then((r) => r.json())
