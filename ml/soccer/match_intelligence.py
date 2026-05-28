@@ -70,6 +70,22 @@ from ml.soccer.prop_cards import (
 # carrying stale form from last fall.
 _RECENT_MATCH_WINDOW = 12
 
+# Home-advantage gamma factor (M21). DC fits typically learn γ ≈ 1.30 on
+# Big-5 league play — i.e. the home team's λ is multiplied by 1.30 vs
+# what they'd score at a neutral venue. The cross-league math doesn't have
+# a learnt γ so we use this default. Applied as a SPLIT factor so total
+# expected goals stays roughly constant when toggling neutral_venue:
+#   home_factor = sqrt(γ),  away_factor = 1/sqrt(γ)
+# For γ=1.30 this gives home × 1.14, away × 0.877 — a reasonable boost
+# to the home team without doubling its λ.
+HOME_ADVANTAGE_GAMMA = 1.30
+
+# M9 xG-delta tuning (M21). The original ±15% clamp on delta multiplier
+# was too aggressive — calibration backtest showed +5pp overs bias on
+# Big-5 league play. Dropping defense-delta cap to 1.08 (8% boost) while
+# keeping attack-alpha at 1.15 closes most of that. Tunable.
+M9_DELTA_DAMP = 0.50  # multiply (delta_raw - 1) by this before clamping
+
 
 # ── Competition-strength scaler (M20) ───────────────────────────────────────
 #
@@ -309,6 +325,7 @@ def _apply_xg_adjustments(
     home_team_resolved: str,
     away_team_resolved: str,
     competition_stage: str = "league",
+    neutral_venue: bool = False,
 ) -> Tuple[float, float, Dict[str, Any]]:
     """Returns (lambda_home, lambda_away, traces) after applying M9 xG
     over/under-performance regression."""
@@ -343,13 +360,23 @@ def _apply_xg_adjustments(
         alpha_h = delta_h = alpha_a = delta_a = 1.0
         trace_h = trace_a = {}
 
-    lam_h *= alpha_h * delta_a
-    lam_a *= alpha_a * delta_h
+    # M21 — Damp the delta multiplier toward 1.0 because the calibration
+    # backtest showed M9 delta was stacking with M8 vuln to create a +5pp
+    # overs bias. Apply (1 + (delta - 1) * M9_DELTA_DAMP) — preserves the
+    # direction of the regression but halves its magnitude.
+    delta_h_damped = 1.0 + (delta_h - 1.0) * M9_DELTA_DAMP
+    delta_a_damped = 1.0 + (delta_a - 1.0) * M9_DELTA_DAMP
+
+    lam_h *= alpha_h * delta_a_damped
+    lam_a *= alpha_a * delta_h_damped
     traces.update({
         "xg_alpha_h": round(alpha_h, 4),
         "xg_alpha_a": round(alpha_a, 4),
-        "xg_delta_h": round(delta_h, 4),
-        "xg_delta_a": round(delta_a, 4),
+        "xg_delta_h_raw": round(delta_h, 4),
+        "xg_delta_a_raw": round(delta_a, 4),
+        "xg_delta_h_damped": round(delta_h_damped, 4),
+        "xg_delta_a_damped": round(delta_a_damped, 4),
+        "xg_delta_damp_factor": M9_DELTA_DAMP,
         "xg_trace_h": trace_h,
         "xg_trace_a": trace_a,
     })
@@ -396,11 +423,10 @@ def _apply_xg_adjustments(
         "defense_trace_a": defense_trace_a,
     })
 
-    # Competition-strength scaler — applies LAST so we down-weight every
-    # earlier multiplicative effect (Big-5 xG, M9 priors, M7/M8) in one
-    # consistent step. Same factor on both sides since knockout play is
-    # symmetric (both teams tighten up). Without this the model badly
-    # over-projects totals for UCL/WC knockouts.
+    # Competition-strength scaler — applies BEFORE home advantage so we
+    # down-weight every earlier multiplicative effect (Big-5 xG, M9 priors,
+    # M7/M8) in one consistent step. Same factor on both sides since
+    # knockout play is symmetric.
     comp_factor = COMPETITION_FACTORS.get(competition_stage, 1.0)
     lam_h_pre = lam_h
     lam_a_pre = lam_a
@@ -411,6 +437,28 @@ def _apply_xg_adjustments(
         "competition_factor": round(comp_factor, 4),
         "lam_h_pre_competition": round(lam_h_pre, 4),
         "lam_a_pre_competition": round(lam_a_pre, 4),
+    })
+
+    # M21 — Home advantage. The calibration backtest showed the cross-league
+    # math was systematically under-predicting home wins by 8.8pp because
+    # it doesn't account for the home team's venue boost. Split gamma so
+    # total goals stays approximately constant; only λ_h vs λ_a shifts.
+    if neutral_venue:
+        home_factor = 1.0
+        away_factor = 1.0
+    else:
+        home_factor = math.sqrt(HOME_ADVANTAGE_GAMMA)        # ~1.140 for γ=1.30
+        away_factor = 1.0 / math.sqrt(HOME_ADVANTAGE_GAMMA)  # ~0.877
+    lam_h_pre_venue = lam_h
+    lam_a_pre_venue = lam_a
+    lam_h *= home_factor
+    lam_a *= away_factor
+    traces.update({
+        "neutral_venue":   neutral_venue,
+        "home_factor":     round(home_factor, 4),
+        "away_factor":     round(away_factor, 4),
+        "lam_h_pre_venue": round(lam_h_pre_venue, 4),
+        "lam_a_pre_venue": round(lam_a_pre_venue, 4),
     })
 
     return lam_h, lam_a, traces
@@ -476,6 +524,7 @@ def intelligence_for_match(
             home_team_resolved=home_xg["team"],
             away_team_resolved=away_xg["team"],
             competition_stage=stage,
+            neutral_venue=neutral_venue,
         )
 
         # Joint grid → all markets
