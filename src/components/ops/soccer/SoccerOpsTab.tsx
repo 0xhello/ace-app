@@ -243,6 +243,42 @@ function fmtOdds(v: number | null) {
   return v >= 0 ? `+${v}` : `${v}`;
 }
 
+function stakeSizeLabel(units: number | null | undefined): string {
+  if (typeof units !== "number" || !Number.isFinite(units) || units <= 0) return "No bet";
+  if (units < 0.5) return "Small bet";
+  if (units < 1.25) return "Standard bet";
+  if (units < 2.5) return "Strong bet";
+  return "Max bet";
+}
+
+function stakeSizeExplain(units: number | null | undefined): string {
+  if (typeof units !== "number" || !Number.isFinite(units) || units <= 0) return "Do not risk money on this yet.";
+  if (units < 0.5) return "Risk about a quarter to half of your normal bet size.";
+  if (units < 1.25) return "Risk your normal bet size.";
+  if (units < 2.5) return "Risk about 1.5-2x your normal bet size.";
+  return "Rare high-conviction size; keep it within your bankroll limits.";
+}
+
+function stakeSizeDetail(units: number | null | undefined): string {
+  if (typeof units !== "number" || !Number.isFinite(units) || units <= 0) return "No stake";
+  return `${stakeSizeLabel(units)} — ${stakeSizeExplain(units)}`;
+}
+
+function confidenceText(tier: "A" | "B" | "C" | null | undefined): string {
+  if (tier === "A") return "High confidence";
+  if (tier === "B") return "Medium-high confidence";
+  if (tier === "C") return "Low confidence";
+  return "Unrated confidence";
+}
+
+function confidenceFromEdge(edge: number | null | undefined): string {
+  if (typeof edge !== "number" || !Number.isFinite(edge)) return "Unrated confidence";
+  if (edge >= 0.07) return "High confidence";
+  if (edge >= 0.05) return "Medium-high confidence";
+  if (edge >= 0.03) return "Medium confidence";
+  return "Low confidence";
+}
+
 function betLabel(market: string, side: string, line: number | null) {
   if (market === "totals") return `${side.toUpperCase()} ${line ?? ""}`;
   if (market === "asian_handicap") return `AH ${side === "home" ? "Home" : "Away"} ${line != null ? (line >= 0 ? `+${line}` : line) : ""}`;
@@ -649,9 +685,9 @@ function ApprovedPicksDashboard() {
           {overExposedFixtures.map((e) => (
             <p key={e.fixture_label} className="text-[11px] text-[#c4c7c0]">
               <span className="font-semibold">{e.fixture_label}</span>:
-              {" "}{e.n_picks} picks · total stake <span className="font-mono text-[#f5c062]">{e.total_stake.toFixed(2)}u</span>
-              {" "}· max loss if all fail <span className="font-mono text-[#ef4444]">-{e.max_loss.toFixed(2)}u</span>
-              {" "}· max win if all hit <span className="font-mono text-[#3ee68a]">+{e.max_win.toFixed(2)}u</span>
+              {" "}{e.n_picks} picks · total stake <span className="font-mono text-[#f5c062]">{e.total_stake.toFixed(2)} units</span>
+              {" "}· max loss if all fail <span className="font-mono text-[#ef4444]">-{e.max_loss.toFixed(2)} units</span>
+              {" "}· max win if all hit <span className="font-mono text-[#3ee68a]">+{e.max_win.toFixed(2)} units</span>
             </p>
           ))}
           <p className="text-[9px] text-[#6b7068] mt-1.5 leading-relaxed">
@@ -671,8 +707,8 @@ function ApprovedPicksDashboard() {
           />
           <KpiCard
             label="P&L"
-            value={summary.graded > 0 ? `${summary.pnl_units >= 0 ? "+" : ""}${summary.pnl_units.toFixed(2)}u` : "—"}
-            sub={summary.graded > 0 ? `on ${summary.staked_units.toFixed(1)}u staked` : "—"}
+            value={summary.graded > 0 ? `${summary.pnl_units >= 0 ? "+" : ""}${summary.pnl_units.toFixed(2)} units` : "—"}
+            sub={summary.graded > 0 ? `on ${summary.staked_units.toFixed(1)} units staked` : "—"}
             color={summary.pnl_units >= 0 ? "#3ee68a" : "#ef4444"}
           />
           <KpiCard
@@ -717,7 +753,7 @@ function ApprovedPicksDashboard() {
                   edge {r.edge_pp_at_pick >= 0 ? "+" : ""}{(r.edge_pp_at_pick * 100).toFixed(1)}pp
                 </p>
               </div>
-              <span className="text-right font-mono text-[#3ee68a] font-black">{r.stake_units.toFixed(2)}u</span>
+              <span className="text-right font-bold text-[#3ee68a]">{stakeSizeLabel(r.stake_units)}</span>
               <span className="text-right font-mono text-[#9ca39a]">
                 {r.opening_book} {r.opening_price >= 0 ? "+" : ""}{r.opening_price}
               </span>
@@ -738,7 +774,7 @@ function ApprovedPicksDashboard() {
               <span className="text-right font-mono font-bold" style={{ color: statusColor }}>
                 {r.graded_status === "open" ? "open" :
                  r.pnl_units !== null
-                  ? `${r.pnl_units >= 0 ? "+" : ""}${r.pnl_units.toFixed(2)}u`
+                  ? `${r.pnl_units >= 0 ? "+" : ""}${r.pnl_units.toFixed(2)} units`
                   : r.graded_status}
               </span>
             </div>
@@ -1027,9 +1063,9 @@ function FeaturedPickPanel() {
               {featured.best_book} {featured.best_price !== null && (featured.best_price >= 0 ? `+${featured.best_price}` : featured.best_price)}
               {" · "}
               <span className="text-[#3ee68a] font-bold">
-                {kellyPreview(featured.model_prob, featured.best_price ?? 0).toFixed(2)}u stake
+                {stakeSizeLabel(kellyPreview(featured.model_prob, featured.best_price ?? 0))}
               </span>
-              <span className="text-[#4a524a]"> (quarter-Kelly, 5u cap)</span>
+              <span className="text-[#4a524a]"> — {stakeSizeExplain(kellyPreview(featured.model_prob, featured.best_price ?? 0))}</span>
             </p>
           </div>
 
@@ -1044,7 +1080,7 @@ function FeaturedPickPanel() {
               {" "}at the best available price ({featured.best_book} {featured.best_price !== null && featured.best_price >= 0 ? "+" : ""}{featured.best_price}).
             </p>
             <p>
-              That's a <span className="font-mono font-bold text-[#3ee68a]">+{(featured.edge_pp * 100).toFixed(1)}pp</span> edge for our side.
+              That's a <span className="font-mono font-bold text-[#3ee68a]">+{(featured.edge_pp * 100).toFixed(1)}pp</span> edge for our side, which ACE translates to <span className="font-bold text-white">{confidenceFromEdge(featured.edge_pp)}</span>.
             </p>
           </div>
 
@@ -1077,10 +1113,10 @@ function FeaturedPickPanel() {
                    featuredApproved.graded_status === "push" ? "Push" : "On your ticket"}
                 </p>
                 <p className="text-[15px] font-mono font-black text-[#3ee68a]">
-                  {featuredApproved.stake_units.toFixed(2)}u
+                  {stakeSizeLabel(featuredApproved.stake_units)}
                   {featuredApproved.pnl_units !== null && (
                     <span className="ml-1 text-[11px]">
-                      ({featuredApproved.pnl_units >= 0 ? "+" : ""}{featuredApproved.pnl_units.toFixed(2)}u P&L)
+                      ({featuredApproved.pnl_units >= 0 ? "+" : ""}{featuredApproved.pnl_units.toFixed(2)} units P&L)
                     </span>
                   )}
                 </p>
@@ -1101,7 +1137,7 @@ function FeaturedPickPanel() {
               disabled={approving === featuredKey}
               className="w-full rounded-lg border border-[#3ee68a]/40 bg-[#3ee68a]/[0.08] px-4 py-3 text-[13px] font-bold uppercase tracking-wider text-[#3ee68a] hover:bg-[#3ee68a]/[0.15] disabled:opacity-40 transition-colors"
             >
-              {approving === featuredKey ? "Approving…" : `Approve · ${kellyPreview(featured.model_prob, featured.best_price ?? 0).toFixed(2)}u`}
+              {approving === featuredKey ? "Approving…" : `Approve · ${stakeSizeLabel(kellyPreview(featured.model_prob, featured.best_price ?? 0))}`}
             </button>
           )}
 
@@ -1676,10 +1712,10 @@ function MatchIntelligencePanel() {
                                   : approvedRow.graded_status === "lost" ? "#ef4444"
                                   : "#3ee68a",
                            }}>
-                          {approvedRow.stake_units.toFixed(2)}u
+                          {stakeSizeLabel(approvedRow.stake_units)}
                           {approvedRow.pnl_units !== null && (
                             <span className="ml-1 text-[10px] font-bold">
-                              ({approvedRow.pnl_units >= 0 ? "+" : ""}{approvedRow.pnl_units.toFixed(2)}u P&L)
+                              ({approvedRow.pnl_units >= 0 ? "+" : ""}{approvedRow.pnl_units.toFixed(2)} units P&L)
                             </span>
                           )}
                         </p>
@@ -1740,7 +1776,7 @@ function MatchIntelligencePanel() {
             {Object.values(approved).map((p) => (
               <div key={`${p.market}|${p.side}`} className="flex items-center gap-1.5">
                 <span className="text-[#c4c7c0] font-semibold">{p.bet_label}</span>
-                <span className="text-[#3ee68a] font-mono font-black">{p.stake_units.toFixed(2)}u</span>
+                <span className="text-[#3ee68a] font-bold">{stakeSizeLabel(p.stake_units)}</span>
                 <span className="text-[#6b7068] font-mono text-[10px]">
                   ({p.opening_book} {p.opening_price >= 0 ? "+" : ""}{p.opening_price})
                 </span>
@@ -1748,7 +1784,7 @@ function MatchIntelligencePanel() {
             ))}
           </div>
           <p className="text-[9px] text-[#3a4033] mt-2">
-            Stakes are quarter-Kelly · 1 unit = 1% of bankroll · capped at 5u per pick.
+            Stake labels are plain English: Small = less than normal, Standard = your normal bet, Strong = bigger than normal. The math still uses quarter-Kelly under the hood.
           </p>
         </div>
       )}
@@ -1761,7 +1797,7 @@ function MatchIntelligencePanel() {
       <p className="text-[10px] text-[#3a4033] mt-3 leading-relaxed">
         Pre-odds model probabilities from Understat xG + M9 prior regression + M7/M8 lineup adjustments (when fresh).
         Confidence tiers: A ≥5pp · B ≥3pp · C ≥1.5pp · below = no bet.
-        Stake recommendation is quarter-Kelly capped at 5u/pick.
+        Stake recommendation is shown in plain English; quarter-Kelly sizing still runs under the hood.
       </p>
     </Panel>
   );
@@ -2120,10 +2156,11 @@ function ActualPicksPanel({ picks }: { picks: ActualPick[] }) {
                 </div>
                 <div>
                   <p className="text-[8px] text-[#4a524a] uppercase tracking-wider">Stake</p>
-                  <p className="text-[11px] font-mono text-[#f5c062]">{p.stake_units}u</p>
+                  <p className="text-[11px] font-bold text-[#f5c062]" title={stakeSizeExplain(p.stake_units)}>{stakeSizeLabel(p.stake_units)}</p>
                 </div>
               </div>
               <p className="text-[11px] text-[#9ca39a] leading-relaxed">{p.reason}</p>
+              <p className="mt-1 text-[10px] text-[#6b7068]">{confidenceText(p.confidence_tier)} · {stakeSizeExplain(p.stake_units)}</p>
             </div>
           ))}
         </div>
