@@ -498,6 +498,199 @@ function humanizeRationale(
   return lines;
 }
 
+// ─── Approved Picks dashboard (M24) ─────────────────────────────────────────
+//
+// All approved picks across all fixtures, with running CLV / W-L / ROI.
+// Pulled from /api/ops/approved-picks (no game_id filter so we see every-
+// thing). Sits between Match Intelligence and Today's plays as the
+// trader's "what's on the ticket right now" view.
+
+interface ApprovedPicksDashboardRow {
+  id: number;
+  fixture_label: string;
+  tournament: string;
+  commence_time: string | null;
+  market: string;
+  side: string;
+  bet_label: string;
+  stake_units: number;
+  opening_price: number;
+  opening_book: string;
+  edge_pp_at_pick: number;
+  closing_price: number | null;
+  closing_book: string | null;
+  clv_pp: number | null;
+  graded_status: string;
+  pnl_units: number | null;
+}
+
+interface ApprovedPicksDashboardSummary {
+  total: number;
+  open: number;
+  graded: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  win_rate: number | null;
+  pnl_units: number;
+  staked_units: number;
+  roi: number | null;
+  avg_clv_pp: number | null;
+  clv_sample: number;
+}
+
+function ApprovedPicksDashboard() {
+  const [rows, setRows] = useState<ApprovedPicksDashboardRow[]>([]);
+  const [summary, setSummary] = useState<ApprovedPicksDashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void fetch("/api/ops/approved-picks?limit=50")
+      .then((r) => r.json())
+      .then((json: { picks?: ApprovedPicksDashboardRow[]; summary?: ApprovedPicksDashboardSummary }) => {
+        setRows(json.picks ?? []);
+        setSummary(json.summary ?? null);
+      })
+      .catch(() => { /* silent */ })
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <Panel>
+        <SectionHead icon={Target} title="Approved picks (all fixtures)" />
+        <p className="text-[11px] text-[#4a524a] py-4">Loading…</p>
+      </Panel>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <Panel>
+        <SectionHead icon={Target} title="Approved picks (all fixtures)" />
+        <EmptyState>
+          No approved picks yet. Use the Approve button on a Match Intelligence edge above to log one — that's what shows up here.
+        </EmptyState>
+      </Panel>
+    );
+  }
+
+  return (
+    <Panel>
+      <SectionHead
+        icon={Target}
+        title="Approved picks (all fixtures)"
+        right={
+          summary && (
+            <div className="flex items-center gap-4 text-[10px] text-[#6b7068]">
+              <span>{summary.total} total</span>
+              <span>{summary.open} open</span>
+              <span>{summary.graded} graded</span>
+            </div>
+          )
+        }
+      />
+
+      {/* Summary strip */}
+      {summary && (
+        <div className="flex gap-3 flex-wrap mb-4">
+          <KpiCard
+            label="Record"
+            value={summary.graded > 0 ? `${summary.wins}–${summary.losses}${summary.pushes ? `–${summary.pushes}P` : ""}` : "—"}
+            sub={summary.graded > 0 ? `${fmtPct(summary.win_rate)} win rate` : "no graded yet"}
+            color={summary.win_rate !== null && summary.win_rate >= 0.524 ? "#3ee68a" : "#d4d7d0"}
+          />
+          <KpiCard
+            label="P&L"
+            value={summary.graded > 0 ? `${summary.pnl_units >= 0 ? "+" : ""}${summary.pnl_units.toFixed(2)}u` : "—"}
+            sub={summary.graded > 0 ? `on ${summary.staked_units.toFixed(1)}u staked` : "—"}
+            color={summary.pnl_units >= 0 ? "#3ee68a" : "#ef4444"}
+          />
+          <KpiCard
+            label="ROI"
+            value={summary.roi !== null ? `${summary.roi >= 0 ? "+" : ""}${(summary.roi * 100).toFixed(1)}%` : "—"}
+            color={summary.roi !== null && summary.roi >= 0 ? "#3ee68a" : "#ef4444"}
+          />
+          <KpiCard
+            label="Avg CLV"
+            value={summary.avg_clv_pp !== null ? `${summary.avg_clv_pp >= 0 ? "+" : ""}${(summary.avg_clv_pp * 100).toFixed(1)}pp` : "—"}
+            sub={summary.avg_clv_pp !== null ? `on ${summary.clv_sample} closed` : "no closes yet"}
+            color={summary.avg_clv_pp !== null && summary.avg_clv_pp >= 0 ? "#3ee68a" : "#9ca39a"}
+          />
+        </div>
+      )}
+
+      {/* Pick rows */}
+      <div className="rounded-lg border border-[#1a211c] bg-[#0a0d0a] overflow-hidden">
+        <div className="grid grid-cols-[1.4fr_1.2fr_64px_88px_84px_84px_80px] gap-2 px-4 py-2.5 border-b border-[#181c18] text-[8px] font-bold uppercase tracking-[0.14em] text-[#2e3328]">
+          <span>Fixture</span>
+          <span>Pick</span>
+          <span className="text-right">Stake</span>
+          <span className="text-right">Opening</span>
+          <span className="text-right">Close</span>
+          <span className="text-right">CLV</span>
+          <span className="text-right">P&L</span>
+        </div>
+        {rows.slice(0, 12).map((r) => {
+          const statusColor =
+            r.graded_status === "won" ? "#3ee68a" :
+            r.graded_status === "lost" ? "#ef4444" :
+            r.graded_status === "push" ? "#9ca39a" : "#f5c062";
+          return (
+            <div key={r.id} className="grid grid-cols-[1.4fr_1.2fr_64px_88px_84px_84px_80px] gap-2 items-center px-4 py-2 border-b border-[#0d100d] last:border-0 hover:bg-[#0f1310] transition-colors text-[10px]">
+              <div className="min-w-0">
+                <p className="text-[#c4c7c0] truncate">{r.fixture_label}</p>
+                <p className="text-[9px] text-[#4a524a]">{r.tournament} · {formatGameTime(r.commence_time) ?? r.commence_time?.slice(0, 10)}</p>
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-white truncate">{r.bet_label}</p>
+                <p className="text-[9px] text-[#6b7068] font-mono">
+                  edge {r.edge_pp_at_pick >= 0 ? "+" : ""}{(r.edge_pp_at_pick * 100).toFixed(1)}pp
+                </p>
+              </div>
+              <span className="text-right font-mono text-[#3ee68a] font-black">{r.stake_units.toFixed(2)}u</span>
+              <span className="text-right font-mono text-[#9ca39a]">
+                {r.opening_book} {r.opening_price >= 0 ? "+" : ""}{r.opening_price}
+              </span>
+              <span className="text-right font-mono">
+                {r.closing_price !== null ? (
+                  <span className="text-[#9ca39a]">
+                    {r.closing_book} {r.closing_price >= 0 ? "+" : ""}{r.closing_price}
+                  </span>
+                ) : <span className="text-[#3a4033]">—</span>}
+              </span>
+              <span className="text-right font-mono font-bold">
+                {r.clv_pp !== null ? (
+                  <span style={{ color: r.clv_pp >= 0 ? "#3ee68a" : "#ef4444" }}>
+                    {r.clv_pp >= 0 ? "+" : ""}{(r.clv_pp * 100).toFixed(1)}pp
+                  </span>
+                ) : <span className="text-[#3a4033]">—</span>}
+              </span>
+              <span className="text-right font-mono font-bold" style={{ color: statusColor }}>
+                {r.graded_status === "open" ? "open" :
+                 r.pnl_units !== null
+                  ? `${r.pnl_units >= 0 ? "+" : ""}${r.pnl_units.toFixed(2)}u`
+                  : r.graded_status}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {rows.length > 12 && (
+        <p className="text-[9px] text-[#3a4033] mt-2 text-center">
+          Showing 12 of {rows.length} approved picks
+        </p>
+      )}
+
+      <p className="text-[10px] text-[#3a4033] mt-3 leading-relaxed">
+        CLV is the closing-line value — positive means the market moved TOWARD your pick after you took it (you beat the close).
+        That's the strongest signal of long-term edge regardless of short-term variance.
+      </p>
+    </Panel>
+  );
+}
+
+
 // ─── Match Intelligence (per-fixture trading-desk view) ─────────────────────
 //
 // Bob's direction (M17): treat soccer picks as a football intelligence +
@@ -1726,6 +1919,12 @@ export default function SoccerOpsTab() {
             our pre-odds opinion on every market we have signal on, the best
             book prices, and per-market edge with confidence tier. */}
         <MatchIntelligencePanel />
+
+        {/* ══ APPROVED PICKS DASHBOARD (M24) ═══════════════════════════════
+            What's currently on the ticket across all fixtures. Track CLV
+            per pick, P&L for graded ones, ROI in aggregate. The actual
+            "trading desk" view of your active positions. */}
+        <ApprovedPicksDashboard />
 
         {/* ══ TODAY'S PLAYS — humanized, top of the page ════════════════════
             Card per candidate with prose rationale from the live signal
