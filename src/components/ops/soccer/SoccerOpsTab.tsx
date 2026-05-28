@@ -761,6 +761,373 @@ function ApprovedPicksDashboard() {
 }
 
 
+// ─── Featured Pick (M33) — the single thing worth your attention ────────────
+//
+// The Match Intelligence panel below shows EVERY market the model has an
+// opinion on, including markets the backtest says lose money. That's useful
+// for engine debugging but confusing for "what should I bet right now?"
+//
+// FeaturedPick is the clean version. It does ONE thing:
+//   1. Loads the featured fixture (UCL final today; rolls forward later).
+//   2. Walks the model's edges.
+//   3. Keeps ONLY edges where MARKET_VERDICTS says the bucket is backtest-
+//      validated as a bet.
+//   4. Shows the single highest-edge candidate in plain English, with the
+//      stake, the model-vs-market math, the backtest receipt, and an
+//      Approve button.
+//   5. If nothing's validated, says so honestly — no fake "lean" cards
+//      from markets we haven't proven.
+
+function FeaturedPickPanel() {
+  const [fixture, setFixture] = useState<FeaturedFixture | null>(null);
+  const [data, setData] = useState<MatchIntelResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [approved, setApproved] = useState<Record<string, ApprovedPick>>({});
+  const [approving, setApproving] = useState<string | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
+
+  const _FALLBACK_FIXTURE: FeaturedFixture = {
+    home: "Paris Saint Germain",
+    away: "Arsenal",
+    commence_time: "2026-05-30T16:00:00Z",
+    game_id: _UCL_FINAL_GAME_ID,
+    sport_key: "soccer_uefa_champs_league",
+    tournament: "UCL",
+    home_league: "Ligue 1",
+    away_league: "Premier League",
+    neutral_venue: true,
+    competition_stage: "ucl_final",
+  };
+
+  const activeGameId = fixture?.game_id ?? _UCL_FINAL_GAME_ID;
+
+  // 1. Fixture
+  useEffect(() => {
+    void fetch("/api/ops/featured-fixture")
+      .then((r) => r.json())
+      .then((json: { ok?: boolean; fixture?: FeaturedFixture }) => {
+        setFixture(json.ok && json.fixture ? json.fixture : _FALLBACK_FIXTURE);
+      })
+      .catch(() => setFixture(_FALLBACK_FIXTURE));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 2. Match intelligence
+  useEffect(() => {
+    if (!fixture) return;
+    const u = new URLSearchParams({
+      home: fixture.home,
+      away: fixture.away,
+      home_league: fixture.home_league,
+      away_league: fixture.away_league,
+      tournament: fixture.tournament,
+      neutral_venue: fixture.neutral_venue ? "1" : "0",
+      competition_stage: fixture.competition_stage,
+    });
+    if (fixture.commence_time) u.set("commence_time", fixture.commence_time);
+    if (fixture.game_id) u.set("game_id", fixture.game_id);
+    setLoading(true);
+    void fetch(`/api/ops/match-intelligence?${u.toString()}`)
+      .then((r) => r.json())
+      .then((json: MatchIntelResponse) => setData(json))
+      .catch(() => setData({ error: "fetch failed" }))
+      .finally(() => setLoading(false));
+    void fetch(`/api/ops/approved-picks?game_id=${activeGameId}&limit=20`)
+      .then((r) => r.json())
+      .then((json: { picks?: Array<Record<string, unknown>> }) => {
+        const idx: Record<string, ApprovedPick> = {};
+        for (const p of json.picks ?? []) {
+          const key = `${p.market}|${p.side}`;
+          idx[key] = {
+            market: String(p.market),
+            side: String(p.side),
+            bet_label: String(p.bet_label),
+            stake_units: Number(p.stake_units),
+            opening_price: Number(p.opening_price),
+            opening_book: String(p.opening_book),
+            edge_pp_at_pick: Number(p.edge_pp_at_pick),
+            closing_price: p.closing_price === null || p.closing_price === undefined ? null : Number(p.closing_price),
+            closing_book:  p.closing_book === null || p.closing_book === undefined ? null : String(p.closing_book),
+            clv_pp:        p.clv_pp === null || p.clv_pp === undefined ? null : Number(p.clv_pp),
+            graded_status: String(p.graded_status ?? "open"),
+            pnl_units:     p.pnl_units === null || p.pnl_units === undefined ? null : Number(p.pnl_units),
+          };
+        }
+        setApproved(idx);
+      })
+      .catch(() => { /* silent */ });
+  }, [fixture, activeGameId]);
+
+  async function approve(edge: MatchIntelEdge, betLabel: string) {
+    if (!data?.fixture || !fixture) return;
+    const key = `${edge.market}|${edge.side}`;
+    setApproving(key);
+    setApproveError(null);
+    try {
+      const res = await fetch("/api/ops/approved-picks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          game_id: activeGameId,
+          market: edge.market,
+          side: edge.side,
+          bet_label: betLabel,
+          model_prob: edge.model_prob,
+          best_price: edge.best_price,
+          best_book: edge.best_book,
+          fixture_label: `${data.fixture.home} vs ${data.fixture.away} · ${data.fixture.tournament}`,
+          tournament: data.fixture.tournament,
+          commence_time: data.fixture.commence_time,
+          lineup_status: "projected",
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        setApproveError(json.error ?? "approval failed");
+      } else {
+        // Refresh approved picks
+        void fetch(`/api/ops/approved-picks?game_id=${activeGameId}&limit=20`)
+          .then((r) => r.json())
+          .then((json2: { picks?: Array<Record<string, unknown>> }) => {
+            const idx: Record<string, ApprovedPick> = {};
+            for (const p of json2.picks ?? []) {
+              const k = `${p.market}|${p.side}`;
+              idx[k] = {
+                market: String(p.market), side: String(p.side),
+                bet_label: String(p.bet_label),
+                stake_units: Number(p.stake_units),
+                opening_price: Number(p.opening_price),
+                opening_book: String(p.opening_book),
+                edge_pp_at_pick: Number(p.edge_pp_at_pick),
+                closing_price: null, closing_book: null, clv_pp: null,
+                graded_status: "open", pnl_units: null,
+              };
+            }
+            setApproved(idx);
+          });
+      }
+    } catch (e) {
+      setApproveError(e instanceof Error ? e.message : "approval failed");
+    } finally {
+      setApproving(null);
+    }
+  }
+
+  if (loading || !data || !data.fixture || !data.model) {
+    return (
+      <Panel>
+        <SectionHead icon={Brain} title="Featured pick" />
+        <p className="text-[11px] text-[#4a524a] py-4">Computing…</p>
+      </Panel>
+    );
+  }
+
+  const home = data.fixture.home;
+  const away = data.fixture.away;
+  const allEdges = data.edges?.edges ?? [];
+
+  // Filter to backtest-validated bets only (the honest cut).
+  const isNeutralFixture = data.fixture.neutral_venue === true;
+  const validatedEdges = allEdges.filter((e) => {
+    const verdict = getVerdict(e.market, e.side);
+    if (!verdict || verdict.status !== "bet") return false;
+    // Downgrade non-neutral-only verdicts when fixture is neutral
+    if (
+      isNeutralFixture &&
+      (verdict.note ?? "").toLowerCase().includes("non-neutral")
+    ) {
+      return false;
+    }
+    // Must be positive edge
+    return e.edge_pp > 0;
+  });
+
+  // Sort by edge desc, take the top one
+  validatedEdges.sort((a, b) => b.edge_pp - a.edge_pp);
+  const featured = validatedEdges[0] ?? null;
+
+  // What betLabel to display + approve under?
+  const featuredLabel = featured ? (
+    featured.market === "1X2" && featured.side === "draw" ? "Draw"
+    : featured.market === "1X2" && featured.side === "home" ? `${home} to win`
+    : featured.market === "1X2" && featured.side === "away" ? `${away} to win`
+    : featured.market === "Totals 2.5" ? `${featured.side === "over" ? "Over" : "Under"} 2.5 goals`
+    : featured.market === "BTTS" ? `BTTS ${featured.side}`
+    : `${featured.side} ${featured.market}`
+  ) : "";
+
+  const featuredVerdict = featured ? getVerdict(featured.market, featured.side) : null;
+  const featuredKey = featured ? `${featured.market}|${featured.side}` : "";
+  const featuredApproved = featured ? approved[featuredKey] : null;
+
+  // Kelly preview (illustrative — backend recomputes when you approve)
+  function kellyPreview(modelProb: number, american: number): number {
+    const dec = american >= 0 ? american / 100 + 1 : 100 / -american + 1;
+    const edge = modelProb * dec - 1;
+    if (edge <= 0) return 0;
+    const kellyFull = edge / (dec - 1);
+    return Math.min(5.0, kellyFull * 0.25 * 100);
+  }
+
+  // Lineup-freshness chip data
+  const lf = data.lineup_freshness;
+  const lfColor =
+    lf?.tier === "green" ? "#3ee68a" :
+    lf?.tier === "amber" ? "#f5c062" : "#ef4444";
+  const lfLabel =
+    lf?.tier === "green" ? "Confirmed XI" :
+    lf?.tier === "amber" ? "Projected XI" : "No lineup";
+
+  return (
+    <Panel>
+      <SectionHead
+        icon={Brain}
+        title="Featured pick"
+        right={
+          <div className="flex items-center gap-3 text-[10px]">
+            {lf && (
+              <span
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border"
+                style={{ borderColor: lfColor + "33", background: lfColor + "0c", color: lfColor }}
+                title={lf.reason}
+              >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: lfColor }} />
+                <span className="font-bold tracking-wider">{lfLabel}</span>
+              </span>
+            )}
+            {data.odds_meta?.refreshed_at && (() => {
+              const ageMin = Math.max(0, Math.round((Date.now() - new Date(data.odds_meta.refreshed_at).getTime()) / 60_000));
+              const c = ageMin < 5 ? "#3ee68a" : ageMin < 30 ? "#f5c062" : "#ef4444";
+              return <span className="font-mono" style={{ color: c }}>odds {ageMin}m old</span>;
+            })()}
+          </div>
+        }
+      />
+
+      {/* Fixture line */}
+      <p className="text-[10px] text-[#6b7068] mb-1">
+        {data.fixture.tournament} · {formatGameTime(data.fixture.commence_time) ?? "TBD"}
+        {data.fixture.neutral_venue ? " · neutral venue" : ""}
+      </p>
+      <p className="text-[16px] font-black text-white mb-5">
+        {home} <span className="text-[#6b7068] font-normal">vs</span> {away}
+      </p>
+
+      {featured ? (
+        <>
+          {/* The bet */}
+          <div className="rounded-xl border border-[#3ee68a]/25 bg-[#3ee68a]/[0.04] p-5 mb-4">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[#3ee68a] mb-1.5 font-bold">
+              Bet
+            </p>
+            <p className="text-[24px] font-black text-white leading-none mb-1.5">
+              {featuredLabel}
+            </p>
+            <p className="text-[12px] text-[#9ca39a] font-mono">
+              {featured.best_book} {featured.best_price !== null && (featured.best_price >= 0 ? `+${featured.best_price}` : featured.best_price)}
+              {" · "}
+              <span className="text-[#3ee68a] font-bold">
+                {kellyPreview(featured.model_prob, featured.best_price ?? 0).toFixed(2)}u stake
+              </span>
+              <span className="text-[#4a524a]"> (quarter-Kelly, 5u cap)</span>
+            </p>
+          </div>
+
+          {/* Plain-English read */}
+          <div className="space-y-2 mb-4 text-[12px] leading-relaxed text-[#c4c7c0]">
+            <p>
+              Our model gives <span className="font-mono text-white">{(featured.model_prob * 100).toFixed(1)}%</span>
+              {" "}probability for {featuredLabel.toLowerCase()}.
+            </p>
+            <p>
+              The market implies <span className="font-mono text-[#9ca39a]">{(featured.implied_prob * 100).toFixed(1)}%</span>
+              {" "}at the best available price ({featured.best_book} {featured.best_price !== null && featured.best_price >= 0 ? "+" : ""}{featured.best_price}).
+            </p>
+            <p>
+              That's a <span className="font-mono font-bold text-[#3ee68a]">+{(featured.edge_pp * 100).toFixed(1)}pp</span> edge for our side.
+            </p>
+          </div>
+
+          {/* Backtest receipt — the honesty layer */}
+          {featuredVerdict && featuredVerdict.status === "bet" && (
+            <div className="rounded-lg border border-[#181c18] bg-[#0a0d0a] p-3 mb-4 text-[11px] leading-relaxed">
+              <p className="text-[9px] uppercase tracking-wider text-[#4a524a] mb-1.5 font-bold">
+                Backtest receipt
+              </p>
+              <p className="text-[#9ca39a]">
+                We tested this market on{" "}
+                <span className="text-white font-mono">{featuredVerdict.n}</span> historical Big-5 matches.
+                {" "}Flat-betting every tier-A edge returned{" "}
+                <span className="text-[#3ee68a] font-bold font-mono">+{((featuredVerdict.roi ?? 0) * 100).toFixed(1)}% ROI</span>
+                {" "}vs Pinnacle closing line.
+              </p>
+              {featuredVerdict.note && (
+                <p className="text-[#6b7068] text-[10px] mt-1.5">{featuredVerdict.note}</p>
+              )}
+            </div>
+          )}
+
+          {/* Action */}
+          {featuredApproved ? (
+            <div className="rounded-lg border border-[#3ee68a]/30 bg-[#3ee68a]/[0.06] px-4 py-3 flex items-center justify-between">
+              <div>
+                <p className="text-[9px] uppercase tracking-wider text-[#4a524a]">
+                  {featuredApproved.graded_status === "won" ? "Won" :
+                   featuredApproved.graded_status === "lost" ? "Lost" :
+                   featuredApproved.graded_status === "push" ? "Push" : "On your ticket"}
+                </p>
+                <p className="text-[15px] font-mono font-black text-[#3ee68a]">
+                  {featuredApproved.stake_units.toFixed(2)}u
+                  {featuredApproved.pnl_units !== null && (
+                    <span className="ml-1 text-[11px]">
+                      ({featuredApproved.pnl_units >= 0 ? "+" : ""}{featuredApproved.pnl_units.toFixed(2)}u P&L)
+                    </span>
+                  )}
+                </p>
+              </div>
+              {featuredApproved.clv_pp !== null && (
+                <div className="text-right">
+                  <p className="text-[9px] uppercase tracking-wider text-[#4a524a]">CLV</p>
+                  <p className="text-[13px] font-mono font-bold"
+                     style={{ color: featuredApproved.clv_pp >= 0 ? "#3ee68a" : "#ef4444" }}>
+                    {featuredApproved.clv_pp >= 0 ? "+" : ""}{(featuredApproved.clv_pp * 100).toFixed(1)}pp
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={() => approve(featured, featuredLabel)}
+              disabled={approving === featuredKey}
+              className="w-full rounded-lg border border-[#3ee68a]/40 bg-[#3ee68a]/[0.08] px-4 py-3 text-[13px] font-bold uppercase tracking-wider text-[#3ee68a] hover:bg-[#3ee68a]/[0.15] disabled:opacity-40 transition-colors"
+            >
+              {approving === featuredKey ? "Approving…" : `Approve · ${kellyPreview(featured.model_prob, featured.best_price ?? 0).toFixed(2)}u`}
+            </button>
+          )}
+
+          {approveError && (
+            <p className="mt-2 text-[10px] text-[#ef4444]">Approval error: {approveError}</p>
+          )}
+        </>
+      ) : (
+        // No validated bet right now — honest about it.
+        <div className="rounded-xl border border-[#1a211c] bg-[#0a0d0a] p-6">
+          <p className="text-[14px] font-bold text-[#c4c7c0] mb-2">
+            No validated picks right now.
+          </p>
+          <p className="text-[11px] text-[#9ca39a] leading-relaxed">
+            The model has opinions on every market for {home} vs {away}, but none of them currently sit at a backtest-validated edge. The only markets we've proven against Pinnacle close are 1X2 away (non-neutral) and Totals 2.5 — neither is showing a positive edge here.
+          </p>
+          <p className="text-[10px] text-[#6b7068] leading-relaxed mt-3">
+            To see the model's full opinion (including unvalidated markets like BTTS / corners / 1X2 home / draw / shots), open <span className="text-[#9ca39a]">Engine internals</span> below.
+          </p>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+
 // ─── Match Intelligence (per-fixture trading-desk view) ─────────────────────
 //
 // Bob's direction (M17): treat soccer picks as a football intelligence +
@@ -1604,7 +1971,7 @@ function PropCardsPanel({ cards, stats, meta }: { cards: PropCard[]; stats?: WCP
     <Panel>
       <SectionHead
         icon={Trophy}
-        title="Player prop context queue"
+        title="Player prop research (untested)"
         right={
           <div className="flex items-center gap-3 text-[10px] text-[#6b7068]">
             <span>{byDecision.pick ?? 0} pick</span>
@@ -1614,6 +1981,11 @@ function PropCardsPanel({ cards, stats, meta }: { cards: PropCard[]; stats?: WCP
           </div>
         }
       />
+      <div className="rounded-lg border border-[#f5c062]/15 bg-[#f5c062]/[0.03] px-3 py-2 mb-3">
+        <p className="text-[10px] text-[#f5c062]">
+          ⚠ <span className="font-bold">Research only.</span> These cards surface positive-edge tiers from the Poisson search across player-shot / scorer / assist markets, but the underlying rates haven't been backtested against closing lines. Treat as data exploration, not picks.
+        </p>
+      </div>
       {top.length === 0 ? (
         <EmptyState>No fixture-driven prop cards yet. Run Prop Cards after upcoming soccer odds are cached/posting.</EmptyState>
       ) : (
@@ -2080,40 +2452,47 @@ export default function SoccerOpsTab() {
           </div>
         )}
 
-        {/* ══ MATCH INTELLIGENCE — featured fixture trading desk view ═══════
-            Currently pinned to UCL final (PSG vs Arsenal, Sat May 30). Shows
-            our pre-odds opinion on every market we have signal on, the best
-            book prices, and per-market edge with confidence tier. */}
-        <MatchIntelligencePanel />
+        {/* ══ FEATURED PICK (M33) ════════════════════════════════════════════
+            The single thing worth your attention right now: one validated
+            bet (or an honest "nothing right now"). Backtest receipt
+            included. Replaces the previous wall of overlapping panels. */}
+        <FeaturedPickPanel />
 
-        {/* ══ APPROVED PICKS DASHBOARD (M24) ═══════════════════════════════
-            What's currently on the ticket across all fixtures. Track CLV
-            per pick, P&L for graded ones, ROI in aggregate. The actual
-            "trading desk" view of your active positions. */}
+        {/* ══ YOUR TICKET (M24) ══════════════════════════════════════════════
+            Every approved pick across all fixtures with running CLV, W-L,
+            ROI summary. The trading-desk view of your active positions. */}
         <ApprovedPicksDashboard />
 
-        {/* ══ TODAY'S PLAYS — humanized, top of the page ════════════════════
-            Card per candidate with prose rationale from the live signal
-            stack. Approve / Watch / Reject inline. This is what we look at
-            to decide what to bet — everything below is supporting context
-            or debugging. */}
-        <TodayPlaysPanel
-          candidates={data?.candidates ?? []}
-          onStatus={updateCandidateStatus}
-        />
-
-        {/* Approved picks — what's actually on the ticket */}
-        <ActualPicksPanel picks={data?.actualPicks ?? []} />
-
-        {/* Fixture-driven player prop context cards. */}
-        <PropCardsPanel cards={data?.propCards ?? []} stats={data?.propCardStats} meta={data?.jobs.propCards} />
-
         {/* ══ ENGINE INTERNALS — collapsed by default ═══════════════════════
-            Everything below is for me debugging the model: raw KPI strip,
-            worker status, manual job triggers, the dense candidate table,
-            historical signals, market probe, player priors browser.
-            Out of the way unless I'm troubleshooting. */}
-        <EngineInternals subtitle="raw metrics, manual job triggers, candidate queue">
+            Everything below is the model's full opinion + raw debugging:
+            the unfiltered per-market grid (including markets the backtest
+            says don't bet), candidate queues, prop cards, raw signal data.
+            Out of the way unless you want to dig in. */}
+        <EngineInternals subtitle="full market view, prop research, raw signals, manual triggers">
+          {/* Match Intelligence — the full per-market grid (was top of page).
+              Useful when you want to see model's opinion on every market,
+              including the ones the backtest says lose money. */}
+          <MatchIntelligencePanel />
+
+          {/* Today's plays — humanized candidate queue across all upcoming
+              fixtures. Useful for scanning the slate beyond the featured pick. */}
+          <TodayPlaysPanel
+            candidates={data?.candidates ?? []}
+            onStatus={updateCandidateStatus}
+          />
+
+          {/* Approved picks — older alias for "ActualPicks" that pre-dated
+              the ApprovedPicksDashboard. Kept as a secondary view since the
+              data shape is slightly different (approval workflow flags). */}
+          <ActualPicksPanel picks={data?.actualPicks ?? []} />
+
+          {/* Player-prop research cards (shots / scorer / assist etc.).
+              NOTE: these are NOT backtested. They surface positive math edges
+              from the Poisson tier search but we haven't proven the
+              underlying rates predict future shots accurately. Treat as
+              research, not picks. */}
+          <PropCardsPanel cards={data?.propCards ?? []} stats={data?.propCardStats} meta={data?.jobs.propCards} />
+
           {/* Worker / scan / grade status strip */}
           <WorkerStatusStrip
             worker={data?.worker}
