@@ -30,6 +30,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import sqlite3
@@ -37,7 +38,7 @@ import subprocess
 import sys
 import time
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from .fetch_and_predict import run as _snapshot_run
@@ -113,6 +114,119 @@ except Exception:
     _SOCCER_GRADING_AVAILABLE = False
     _SOCCER_CANDIDATES_AVAILABLE = False
     _SOCCER_BACKFILL_AVAILABLE = False
+
+# M19 — Approved-pick CLV capture + post-match grading. Runs every tick:
+# captures closing line at ±30 min from kickoff and grades approved picks
+# whose games have settled. Both helpers are no-ops when there's nothing
+# to do (no open picks, no quotes available) so the tick cost is bounded.
+try:
+    from ml.soccer.approved_picks import (
+        capture_closing_prices as _ap_capture_closing,
+        grade_approved_picks as _ap_grade,
+    )
+    from ml.soccer.leagues import LEAGUES as _SOCCER_LEAGUES_CONST
+    from ml.soccer.leagues import fetch_league_odds as _fetch_league_odds
+    _APPROVED_PICKS_AVAILABLE = True
+except Exception:
+    _APPROVED_PICKS_AVAILABLE = False
+
+
+def _approved_picks_close_lookup(game_id: str, market: str, side: str) -> Optional[Dict[str, Any]]:
+    """Callback for capture_closing_prices: find the best current quote
+    for (game_id, market, side) across all our cached league feeds.
+
+    Walks every cached sport_key (Big-5 + UCL) looking for the matching
+    game_id, then scans the bookmakers' h2h/totals/btts markets. Returns
+    the side's highest American price + book, or None if not findable.
+    """
+    market_lower = market.lower()
+    side_lower = side.lower()
+    for sport_key, _league, _active_until in _SOCCER_LEAGUES_CONST:
+        try:
+            games = _fetch_league_odds(sport_key) or []
+        except Exception:
+            continue
+        game = next((g for g in games if g.get("id") == game_id), None)
+        if not game:
+            continue
+        best_price: Optional[float] = None
+        best_book: Optional[str] = None
+        for bm in game.get("bookmakers") or []:
+            book = bm.get("key")
+            for mkt in bm.get("markets") or []:
+                mk = mkt.get("key") or ""
+                if market_lower == "1x2" and mk != "h2h":
+                    continue
+                if market_lower.startswith("totals") and mk != "totals":
+                    continue
+                if market_lower == "btts" and mk != "btts":
+                    continue
+                for o in (mkt.get("outcomes") or []):
+                    name = (o.get("name") or "").lower()
+                    matches = False
+                    if market_lower == "1x2":
+                        # name is the team name or "Draw"
+                        if side_lower == "draw" and name == "draw":
+                            matches = True
+                        elif side_lower in ("home", "away"):
+                            # need to know home/away to match — derive from game
+                            home = (game.get("home_team") or "").lower()
+                            away = (game.get("away_team") or "").lower()
+                            if side_lower == "home" and name == home:
+                                matches = True
+                            elif side_lower == "away" and name == away:
+                                matches = True
+                    elif market_lower.startswith("totals"):
+                        if name == side_lower and o.get("point") in (2.5, 2):
+                            matches = True
+                    elif market_lower == "btts":
+                        if name == side_lower:
+                            matches = True
+                    if not matches:
+                        continue
+                    price = o.get("price")
+                    if price is None:
+                        continue
+                    if best_price is None or float(price) > best_price:
+                        best_price = float(price)
+                        best_book = book
+        if best_price is not None:
+            return {"price": best_price, "book": best_book}
+    return None
+
+
+def _approved_picks_result_lookup(game_id: str) -> Optional[Dict[str, Any]]:
+    """Callback for grade_approved_picks: return final score + status.
+
+    Reads from soccer_team_form (final scores written by the form ingestor)
+    AND from the live Odds API game data when available. None if no result.
+    """
+    try:
+        from ml.world_cup.signal_logger import DB_PATH as _WC_DB
+        conn = sqlite3.connect(str(_WC_DB))
+        try:
+            # soccer_team_form is keyed by team + match_date, not game_id, so
+            # we can't look up directly. Instead use the soccer_model_candidates
+            # graded rows which have correct + home_score + away_score linked
+            # to game_id.
+            row = conn.execute(
+                "SELECT home_score, away_score, status, result "
+                "FROM soccer_model_candidates "
+                "WHERE game_id = ? AND home_score IS NOT NULL "
+                "LIMIT 1",
+                (game_id,),
+            ).fetchone()
+            if row and row[0] is not None and row[1] is not None:
+                return {
+                    "home_score": int(row[0]),
+                    "away_score": int(row[1]),
+                    "status": "final",
+                }
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return None
 
 # FBref team-form ingestor — daily HTML scrape of Big 5 + UCL schedules.
 # Free, no API key. Feeds the pick explainer with real recent-form data
@@ -1047,6 +1161,36 @@ def run_loop(once: bool = False) -> None:
                     _wc_update_meta("job:soccer_live_pipeline:last_error", str(e)[:200])
                 except Exception:
                     pass
+
+        # M19 — Approved-pick closing-line capture + grading. Every 10 min.
+        # Cheap: only acts on picks within ±30min of kickoff. Closing capture
+        # walks our cached league odds (read-through Redis — no API spend).
+        if _APPROVED_PICKS_AVAILABLE and _interval_due("approved_picks_clv", minutes=10):
+            try:
+                clv = _ap_capture_closing(open_odds_lookup=_approved_picks_close_lookup)
+                if clv.get("captured", 0) > 0:
+                    print(
+                        f"  [worker] approved-picks CLV capture: {clv['captured']} closed, "
+                        f"{clv['skipped_no_quote']} no-quote, "
+                        f"{clv['skipped_not_in_window']} not-in-window",
+                        flush=True,
+                    )
+                graded = _ap_grade(result_lookup=_approved_picks_result_lookup)
+                if graded.get("graded", 0) > 0:
+                    print(f"  [worker] approved-picks graded: {graded['graded']}", flush=True)
+                try:
+                    _wc_update_meta(
+                        "job:approved_picks:last_run_at",
+                        datetime.now(timezone.utc).isoformat(),
+                    )
+                    _wc_update_meta(
+                        "job:approved_picks:last_summary",
+                        json.dumps({"clv": clv, "graded": graded}),
+                    )
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"  [worker] approved-picks error: {e}", file=sys.stderr, flush=True)
 
         # MLB signal scan (when active window)
         if _MLB_AVAILABLE and _MLB_START <= datetime.now(_TZ_ET).date() <= _MLB_END:

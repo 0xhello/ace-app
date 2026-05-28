@@ -549,6 +549,16 @@ interface MatchIntelResponse {
     adjustments?: Record<string, unknown>;
   };
   edges?: { edges: MatchIntelEdge[] };
+  lineup_freshness?: {
+    tier: "green" | "amber" | "red";
+    reason: string;
+    n_players?: number;
+    latest_updated?: string | null;
+    age_minutes?: number | null;
+    minutes_to_kickoff?: number | null;
+    has_confirmed?: boolean;
+    has_projected?: boolean;
+  };
   error?: string;
 }
 
@@ -565,6 +575,11 @@ interface ApprovedPick {
   opening_price: number;
   opening_book: string;
   edge_pp_at_pick: number;
+  closing_price: number | null;
+  closing_book: string | null;
+  clv_pp: number | null;
+  graded_status: string;
+  pnl_units: number | null;
 }
 
 function MatchIntelligencePanel() {
@@ -593,6 +608,11 @@ function MatchIntelligencePanel() {
             opening_price: Number(p.opening_price),
             opening_book: String(p.opening_book),
             edge_pp_at_pick: Number(p.edge_pp_at_pick),
+            closing_price: p.closing_price === null || p.closing_price === undefined ? null : Number(p.closing_price),
+            closing_book:  p.closing_book === null || p.closing_book === undefined ? null : String(p.closing_book),
+            clv_pp:        p.clv_pp === null || p.clv_pp === undefined ? null : Number(p.clv_pp),
+            graded_status: String(p.graded_status ?? "open"),
+            pnl_units:     p.pnl_units === null || p.pnl_units === undefined ? null : Number(p.pnl_units),
           };
         }
         setApproved(idx);
@@ -708,16 +728,46 @@ function MatchIntelligencePanel() {
     },
   ];
 
+  // Lineup-freshness traffic light. Green = fresh confirmed XI, amber =
+  // projected or stale-ish confirmed, red = nothing trustworthy. Drives
+  // how much the bettor should weight M7/M8 in the model output.
+  const lf = data.lineup_freshness;
+  const lfColor =
+    lf?.tier === "green" ? "#3ee68a" :
+    lf?.tier === "amber" ? "#f5c062" : "#ef4444";
+  const lfLabel =
+    lf?.tier === "green" ? "Confirmed XI" :
+    lf?.tier === "amber" ? "Projected XI" : "No lineup";
+
   return (
     <Panel>
       <SectionHead
         icon={Brain}
         title="Match Intelligence"
         right={
-          <span className="text-[10px] text-[#6b7068]">
-            {data.fixture.tournament} · {formatGameTime(data.fixture.commence_time) ?? "TBD"}
-            {data.fixture.neutral_venue ? " · neutral" : ""}
-          </span>
+          <div className="flex items-center gap-3 text-[10px]">
+            {lf && (
+              <span
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border"
+                style={{
+                  borderColor: lfColor + "33",
+                  background: lfColor + "0c",
+                  color: lfColor,
+                }}
+                title={lf.reason}
+              >
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: lfColor }} />
+                <span className="font-bold tracking-wider">{lfLabel}</span>
+                {lf.age_minutes != null && (
+                  <span className="text-[#6b7068]">· {lf.age_minutes < 60 ? `${lf.age_minutes}m` : `${Math.round(lf.age_minutes / 60)}h`} ago</span>
+                )}
+              </span>
+            )}
+            <span className="text-[#6b7068]">
+              {data.fixture.tournament} · {formatGameTime(data.fixture.commence_time) ?? "TBD"}
+              {data.fixture.neutral_venue ? " · neutral" : ""}
+            </span>
+          </div>
         }
       />
 
@@ -793,14 +843,39 @@ function MatchIntelligencePanel() {
                       </button>
                     )}
                     {isApproved && approvedRow && (
-                      <div className="mt-2 rounded border border-[#3ee68a]/25 bg-[#3ee68a]/[0.04] px-2 py-1.5">
-                        <p className="text-[8px] uppercase tracking-wider text-[#4a524a]">Approved</p>
-                        <p className="text-[12px] font-mono font-black text-[#3ee68a]">
+                      <div className="mt-2 rounded border border-[#3ee68a]/25 bg-[#3ee68a]/[0.04] px-2 py-1.5 space-y-0.5">
+                        <p className="text-[8px] uppercase tracking-wider text-[#4a524a]">
+                          {approvedRow.graded_status === "won" ? "Won" :
+                           approvedRow.graded_status === "lost" ? "Lost" :
+                           approvedRow.graded_status === "push" ? "Push" : "Approved"}
+                        </p>
+                        <p className="text-[12px] font-mono font-black"
+                           style={{
+                             color: approvedRow.graded_status === "won" ? "#3ee68a"
+                                  : approvedRow.graded_status === "lost" ? "#ef4444"
+                                  : "#3ee68a",
+                           }}>
                           {approvedRow.stake_units.toFixed(2)}u
+                          {approvedRow.pnl_units !== null && (
+                            <span className="ml-1 text-[10px] font-bold">
+                              ({approvedRow.pnl_units >= 0 ? "+" : ""}{approvedRow.pnl_units.toFixed(2)}u P&L)
+                            </span>
+                          )}
                         </p>
                         <p className="text-[8px] text-[#6b7068] font-mono">
-                          {approvedRow.opening_book} {approvedRow.opening_price >= 0 ? "+" : ""}{approvedRow.opening_price}
+                          opened {approvedRow.opening_book} {approvedRow.opening_price >= 0 ? "+" : ""}{approvedRow.opening_price}
                         </p>
+                        {approvedRow.closing_price !== null && (
+                          <p className="text-[8px] font-mono"
+                             style={{ color: (approvedRow.clv_pp ?? 0) >= 0 ? "#3ee68a" : "#ef4444" }}>
+                            close {approvedRow.closing_book} {approvedRow.closing_price >= 0 ? "+" : ""}{approvedRow.closing_price}
+                            {approvedRow.clv_pp !== null && (
+                              <span className="ml-1 font-bold">
+                                CLV {approvedRow.clv_pp >= 0 ? "+" : ""}{(approvedRow.clv_pp * 100).toFixed(1)}pp
+                              </span>
+                            )}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>

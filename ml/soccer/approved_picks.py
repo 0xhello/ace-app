@@ -274,6 +274,308 @@ def list_approved_picks(
         conn.close()
 
 
+# ── Lineup freshness ────────────────────────────────────────────────────────
+
+def lineup_freshness(
+    game_id: str,
+    *,
+    home_team: Optional[str] = None,
+    away_team: Optional[str] = None,
+    commence_time: Optional[str] = None,
+    path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """How recent / confident is our lineup snapshot for this fixture?
+
+    Returns a dict with a traffic-light tier the UI can color:
+      green  — confirmed XI snapshot exists, refreshed < 90 min ago
+      amber  — projected XI snapshot, refreshed < 24 h ago
+      red    — no snapshot OR snapshot > 24 h old (stale; M7/M8 won't fire)
+
+    We look up by game_id in soccer_player_feature_snapshot. When the row
+    set is empty, we fall back to looking up by team_name (the snapshot
+    table is sometimes populated team-keyed rather than game-keyed for
+    fixtures the Sportmonks live pipeline hasn't yet mapped).
+    """
+    init_table(path)
+    conn = _get_db(path)
+    try:
+        # Does the snapshot table even exist on this DB?
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='soccer_player_feature_snapshot'"
+        ).fetchone()
+        if not row:
+            return {"tier": "red", "reason": "no-snapshot-table"}
+
+        # Try game_id first
+        snaps = conn.execute(
+            """SELECT lineup_status, MAX(updated_at) AS updated_at, COUNT(*) AS n_players
+                 FROM soccer_player_feature_snapshot
+                WHERE game_id = ?
+             GROUP BY lineup_status""",
+            (game_id,),
+        ).fetchall()
+        # Fall back to team_name when no game-keyed rows
+        if not snaps and (home_team or away_team):
+            params = []
+            wheres = []
+            if home_team:
+                wheres.append("team = ?")
+                params.append(home_team)
+            if away_team:
+                wheres.append("team = ?")
+                params.append(away_team)
+            sql = (
+                "SELECT lineup_status, MAX(updated_at) AS updated_at, "
+                "       COUNT(*) AS n_players "
+                "  FROM soccer_player_feature_snapshot "
+                f"WHERE ({' OR '.join(wheres)}) "
+                "GROUP BY lineup_status"
+            )
+            snaps = conn.execute(sql, params).fetchall()
+
+        if not snaps:
+            return {"tier": "red", "reason": "no-snapshot-for-fixture"}
+
+        # Aggregate: did we get confirmed_starting status? When was the
+        # snapshot last refreshed?
+        statuses = {r["lineup_status"]: dict(r) for r in snaps}
+        confirmed = statuses.get("confirmed_starting")
+        projected = statuses.get("projected_starting") or statuses.get("projected_unknown")
+
+        latest_updated: Optional[str] = None
+        n_players = 0
+        for r in snaps:
+            n_players += r["n_players"] or 0
+            if r["updated_at"] and (latest_updated is None or r["updated_at"] > latest_updated):
+                latest_updated = r["updated_at"]
+
+        # Compute age in minutes
+        age_min: Optional[int] = None
+        if latest_updated:
+            try:
+                t = datetime.fromisoformat(latest_updated.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                age_min = max(0, int((now - t).total_seconds() / 60))
+            except Exception:
+                age_min = None
+
+        # Distance to kickoff
+        mins_to_kickoff: Optional[int] = None
+        if commence_time:
+            try:
+                t = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                mins_to_kickoff = int((t - now).total_seconds() / 60)
+            except Exception:
+                mins_to_kickoff = None
+
+        tier = "red"
+        reason = ""
+        if confirmed and age_min is not None and age_min <= 90:
+            tier, reason = "green", f"confirmed XI refreshed {age_min}m ago"
+        elif confirmed and age_min is not None and age_min <= 24 * 60:
+            tier, reason = "amber", f"confirmed XI but {age_min}m old"
+        elif projected and age_min is not None and age_min <= 24 * 60:
+            tier, reason = "amber", f"projected XI {age_min}m ago"
+        elif statuses:
+            tier, reason = "red", "snapshot too stale (>24h)"
+
+        return {
+            "tier": tier,
+            "reason": reason,
+            "n_players": n_players,
+            "latest_updated": latest_updated,
+            "age_minutes": age_min,
+            "minutes_to_kickoff": mins_to_kickoff,
+            "has_confirmed": confirmed is not None,
+            "has_projected": projected is not None,
+        }
+    finally:
+        conn.close()
+
+
+# ── Closing-price capture ───────────────────────────────────────────────────
+
+def capture_closing_prices(
+    *,
+    open_odds_lookup: Any,  # Callable[(game_id, market, side) -> {price, book} | None]
+    path: Optional[Path] = None,
+    near_kickoff_minutes: int = 30,
+) -> Dict[str, Any]:
+    """For every open approved pick whose commence_time is within ±30 min
+    of now, snapshot the current best price as closing_price and compute
+    CLV pp.
+
+    CLV math: positive when the market moved TOWARD our side (we got a
+    price better than the close).
+      clv_pp = implied_at_close − implied_at_open
+
+    ``open_odds_lookup`` is dependency-injected so this module doesn't
+    depend on the Odds API plumbing — the caller (worker tick) wires
+    it to the cached odds. Signature:
+        f(game_id: str, market: str, side: str) -> Dict | None
+        returning {"price": int, "book": str} or None if unavailable.
+
+    Idempotent: skips picks where closing_price is already set.
+    """
+    init_table(path)
+    conn = _get_db(path)
+    captured = 0
+    skipped_no_quote = 0
+    skipped_not_in_window = 0
+    now = datetime.now(timezone.utc)
+    try:
+        rows = conn.execute(
+            "SELECT * FROM soccer_approved_picks "
+            " WHERE closing_price IS NULL AND graded_status = 'open'"
+        ).fetchall()
+        for r in rows:
+            commence_time = r["commence_time"]
+            if not commence_time:
+                continue
+            try:
+                kickoff = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            delta_min = (kickoff - now).total_seconds() / 60
+            # Window: within near_kickoff_minutes of kickoff time (before or after)
+            if delta_min > near_kickoff_minutes:
+                skipped_not_in_window += 1
+                continue
+            if delta_min < -near_kickoff_minutes * 2:
+                # match started > 60 min ago → too late, skip
+                skipped_not_in_window += 1
+                continue
+            try:
+                quote = open_odds_lookup(r["game_id"], r["market"], r["side"])
+            except Exception:
+                quote = None
+            if not quote or quote.get("price") is None:
+                skipped_no_quote += 1
+                continue
+
+            close_price = float(quote["price"])
+            close_book = quote.get("book") or "unknown"
+            close_implied = 1.0 / american_to_decimal(close_price)
+            open_implied = float(r["implied_prob_at_pick"] or 0.0)
+            clv_pp = close_implied - open_implied
+            conn.execute(
+                """UPDATE soccer_approved_picks
+                      SET closing_price = ?,
+                          closing_book = ?,
+                          clv_pp = ?,
+                          updated_at = ?
+                    WHERE id = ?""",
+                (close_price, close_book, round(clv_pp, 4),
+                 now.isoformat(), r["id"]),
+            )
+            captured += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "captured": captured,
+        "skipped_no_quote": skipped_no_quote,
+        "skipped_not_in_window": skipped_not_in_window,
+    }
+
+
+# ── Post-match grading ──────────────────────────────────────────────────────
+
+def grade_approved_picks(
+    *,
+    result_lookup: Any,  # Callable[(game_id) -> {home_score, away_score, status}] | None
+    path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Walk open approved picks. For any whose game has a final result,
+    determine win/loss/push and set graded_status + pnl_units.
+
+    ``result_lookup`` returns {"home_score": int, "away_score": int,
+    "status": "final"|"in_progress"|None} or None if no result is known.
+
+    pnl_units math (in 1u stake units):
+        won  → stake_units × (decimal_odds − 1)
+        lost → -stake_units
+        push → 0
+        void → 0
+    """
+    init_table(path)
+    conn = _get_db(path)
+    graded = 0
+    skipped_no_result = 0
+    try:
+        rows = conn.execute(
+            "SELECT * FROM soccer_approved_picks WHERE graded_status = 'open'"
+        ).fetchall()
+        for r in rows:
+            try:
+                res = result_lookup(r["game_id"]) if result_lookup else None
+            except Exception:
+                res = None
+            if not res or res.get("status") != "final":
+                skipped_no_result += 1
+                continue
+            hs = int(res.get("home_score") or 0)
+            as_ = int(res.get("away_score") or 0)
+            outcome = _resolve_outcome(r["market"], r["side"], hs, as_)
+            if outcome is None:
+                # Market we don't know how to grade yet — leave open, surface
+                # so a follow-up can extend.
+                continue
+            decimal = american_to_decimal(float(r["opening_price"]))
+            stake = float(r["stake_units"] or 0.0)
+            if outcome == "won":
+                pnl = stake * (decimal - 1.0)
+            elif outcome == "lost":
+                pnl = -stake
+            else:
+                pnl = 0.0
+            conn.execute(
+                """UPDATE soccer_approved_picks
+                      SET graded_status = ?,
+                          graded_at = ?,
+                          pnl_units = ?,
+                          updated_at = ?
+                    WHERE id = ?""",
+                (outcome,
+                 datetime.now(timezone.utc).isoformat(),
+                 round(pnl, 4),
+                 datetime.now(timezone.utc).isoformat(),
+                 r["id"]),
+            )
+            graded += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return {"graded": graded, "skipped_no_result": skipped_no_result}
+
+
+def _resolve_outcome(market: str, side: str, hs: int, as_: int) -> Optional[str]:
+    """Return 'won' / 'lost' / 'push' for a given market+side and final score.
+    None means we don't know how to grade this market yet."""
+    s = side.lower()
+    m = market.lower()
+    total = hs + as_
+    if m in ("1x2", "h2h"):
+        winner = "home" if hs > as_ else "away" if as_ > hs else "draw"
+        return "won" if s == winner else "lost"
+    if m in ("totals 2.5", "totals_2.5", "totals_25", "totals"):
+        if total == 2 and s in ("over", "under"):
+            return "push" if False else ("won" if s == "over" and total > 2.5 else
+                                          "won" if s == "under" and total < 2.5 else "lost")
+        if total > 2.5:
+            return "won" if s == "over" else "lost"
+        if total < 2.5:
+            return "won" if s == "under" else "lost"
+        return "push"
+    if m == "btts":
+        both_scored = hs >= 1 and as_ >= 1
+        if s == "yes":  return "won" if both_scored else "lost"
+        if s == "no":   return "won" if not both_scored else "lost"
+        return None
+    return None
+
+
 def summary_stats(path: Optional[Path] = None) -> Dict[str, Any]:
     """Aggregate stats across all approved picks — graded + open."""
     init_table(path)

@@ -53,6 +53,7 @@ export async function GET(req: NextRequest) {
   const script = `
 import json, sys
 from ml.soccer.match_intelligence import intelligence_for_match, edge_against_book
+from ml.soccer.approved_picks import lineup_freshness
 
 try:
     out = intelligence_for_match(
@@ -67,6 +68,18 @@ try:
     )
     if out is None:
         print(json.dumps({"error": "intelligence_for_match returned None"})); sys.exit(0)
+
+    # Lineup freshness traffic light — tells the trader how much to trust
+    # the M7/M8 lineup adjustments in the model output.
+    try:
+        out["lineup_freshness"] = lineup_freshness(
+            ${gameId ? JSON.stringify(gameId) : "''"},
+            home_team=${JSON.stringify(home)},
+            away_team=${JSON.stringify(away)},
+            commence_time=${commenceTime ? JSON.stringify(commenceTime) : "None"},
+        )
+    except Exception as _lf_e:
+        out["lineup_freshness"] = {"tier": "red", "reason": f"lookup error: {str(_lf_e)[:120]}"}
 
     # Try to pull cached odds + compute edges. Best-effort; failures don't
     # break the model output (the UI shows fair probs even if odds aren't
