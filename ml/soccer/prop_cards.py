@@ -29,7 +29,14 @@ from ml.soccer.player_props import (
 from ml.world_cup.signal_logger import DB_PATH as DEFAULT_DB_PATH, update_meta
 
 SUPPORTED_LEAGUES = {"Premier League", "La Liga", "Bundesliga", "Serie A", "Ligue 1", "UCL"}
-PROP_MARKETS = ("anytime_scorer", "shots", "shots_on_target")
+PROP_MARKETS = (
+    "anytime_scorer", "shots", "shots_on_target",
+    # M26 — Wave 3 additions. The model surface is thinner for these because
+    # we don't yet have Bayesian-shrunk assist or first-scorer rates. The
+    # extractor still pulls the book odds so a future modeling layer can
+    # turn them into picks; for now they appear as "watch" cards only.
+    "anytime_assist", "first_scorer", "to_score_2_or_more",
+)
 
 
 def get_db(path: Optional[Path] = None) -> sqlite3.Connection:
@@ -184,11 +191,15 @@ def _norm(s: str) -> str:
 
 
 def _market_for_prop(prop_market: str) -> str:
-    if prop_market == "anytime_scorer":
-        return "player_goal_scorer_anytime"
-    if prop_market == "shots":
-        return "player_shots"
-    return "player_shots_on_target"
+    """Map our internal market key → Odds API market key."""
+    return {
+        "anytime_scorer":     "player_goal_scorer_anytime",
+        "shots":              "player_shots",
+        "shots_on_target":    "player_shots_on_target",
+        "anytime_assist":     "player_to_record_assist",
+        "first_scorer":       "player_goal_scorer_first",
+        "to_score_2_or_more": "player_to_score_2_or_more",
+    }.get(prop_market, "player_shots_on_target")
 
 
 def _find_player_odds(odds: Dict[str, Dict[str, Any]], player_name: str, prop_market: str) -> Optional[Dict[str, Any]]:
@@ -467,6 +478,40 @@ def cards_for_game(
             edge_pp = None
             model_prob = prop.get("model_prob") if market == "anytime_scorer" else None
             model_mean = prop.get("model_mean") if market != "anytime_scorer" else card.get("expected_goals")
+
+            # M26 — derived probabilities for the new prop markets.
+            # All three live in goal-event space, so we can express them
+            # as Poisson functions of the player's expected_goals (λ).
+            #
+            #   anytime_assist:     P(>=1 assist) ≈ 1 − exp(−λ_assist)
+            #     where λ_assist ≈ 0.65 × λ_goal as a first-order baseline.
+            #     This is rough but consistent with the actual ~0.6–0.7
+            #     assist-to-goal ratio observed across Big-5 attacking
+            #     midfielders/forwards. Tunable when we add a per-player
+            #     assist rate to the baseline table.
+            #
+            #   first_scorer:       anytime / (team_total_goals + 1)
+            #     Approximation: among matches where the player scores,
+            #     they're roughly evenly distributed across the team's
+            #     goals, so P(first) ≈ P(anytime) / (team_λ + 1). The +1
+            #     accounts for own-goals / non-listed scorers.
+            #
+            #   to_score_2_or_more: 1 − P(X<=1) when X ~ Poisson(λ_goal)
+            xg_player = card.get("expected_goals")
+            team_goal_lambda = ((card.get("context") or {}).get("team_environment") or {}).get("projected_team_goals")
+            if market == "anytime_assist" and xg_player is not None:
+                lam_assist = float(xg_player) * 0.65
+                model_prob = round(1.0 - math.exp(-lam_assist), 4)
+                model_mean = None
+            elif market == "first_scorer" and xg_player is not None and team_goal_lambda is not None:
+                anytime = 1.0 - math.exp(-float(xg_player))
+                model_prob = round(anytime / (float(team_goal_lambda) + 1.0), 4)
+                model_mean = None
+            elif market == "to_score_2_or_more" and xg_player is not None:
+                lam = float(xg_player)
+                # P(X >= 2) = 1 − P(X=0) − P(X=1) = 1 − e^(-λ)(1 + λ)
+                model_prob = round(max(0.0, 1.0 - math.exp(-lam) * (1.0 + lam)), 4)
+                model_mean = None
 
             # For count-based markets (shots, shots_on_target) we used to
             # leave model_prob = None, which meant edge_pp stayed None and

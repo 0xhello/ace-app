@@ -323,6 +323,16 @@ function formatPropPick(card: PropCard): { headline: string; side: "yes" | "—"
   if (market === "first_scorer" || market === "first_goalscorer") {
     return { headline: "First goal", side: "yes" };
   }
+  // M26 — additional yes/no markets
+  if (market === "anytime_assist") {
+    return { headline: "Anytime assist", side: "yes" };
+  }
+  if (market === "to_score_2_or_more") {
+    return { headline: "2+ goals", side: "yes" };
+  }
+  if (market === "to_score_3_or_more") {
+    return { headline: "3+ goals", side: "yes" };
+  }
 
   // Count-ladder markets (shots, shots_on_target, etc.). FanDuel et al. sell
   // these as a series of "X+ events YES" props — NOT traditional O/U at

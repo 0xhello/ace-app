@@ -29,7 +29,20 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 load_dotenv(_REPO_ROOT / ".env.local")
 DB_PATH = _REPO_ROOT / "ml" / "nba_spread" / "data" / "wc_signal_log.db"
 ODDS_BASE = "https://api.the-odds-api.com/v4"
-PLAYER_PROP_MARKETS = "player_goal_scorer_anytime,player_shots,player_shots_on_target"
+# Expanded in M26 to widen the coverage of bettable player markets US books
+# actually price. Caveats:
+#   • player_to_record_assist — supported on FanDuel + DraftKings most weeks
+#   • player_goal_scorer_first — niche, often only the bigger marquee games
+#   • player_to_score_2_or_more — same caveat; ~+800 to +2500 typical
+# Each adds ~1 Odds API credit per league per tick when scanned.
+PLAYER_PROP_MARKETS = (
+    "player_goal_scorer_anytime,"
+    "player_shots,"
+    "player_shots_on_target,"
+    "player_to_record_assist,"
+    "player_goal_scorer_first,"
+    "player_to_score_2_or_more"
+)
 PLAYER_PROP_BOOKS = "fanduel,draftkings,betmgm,williamhill_us,betrivers,bet365"
 
 
@@ -478,7 +491,14 @@ def extract_prop_market_odds(game: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         book = bm.get("key") or bm.get("title")
         for mkt in bm.get("markets") or []:
             mk = mkt.get("key")
-            if mk not in {"player_goal_scorer_anytime", "player_shots", "player_shots_on_target"}:
+            if mk not in {
+                "player_goal_scorer_anytime",
+                "player_shots",
+                "player_shots_on_target",
+                "player_to_record_assist",
+                "player_goal_scorer_first",
+                "player_to_score_2_or_more",
+            }:
                 continue
             for outcome in mkt.get("outcomes") or []:
                 player = outcome.get("description") or (outcome.get("name") if outcome.get("name") not in ("Yes", "No", "Over", "Under") else None)
