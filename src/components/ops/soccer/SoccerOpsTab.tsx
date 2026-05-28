@@ -312,12 +312,11 @@ function formatGameTime(commenceTime: string | null | undefined): string | null 
 //                    probability)
 //   first_scorer → "First goal" (same shape)
 //   any unknown market → readable fallback ("Player Goals", etc.)
-function formatPropPick(card: PropCard): { headline: string; side: "over" | "under" | "yes" | "—" } {
+function formatPropPick(card: PropCard): { headline: string; side: "yes" | "—" } {
   const market = (card.market || "").toLowerCase();
   const line = card.book_point;
-  const mean = card.model_mean;
 
-  // Yes/No markets — no line, just probability
+  // Yes/No / single-shot markets
   if (market === "anytime_scorer") {
     return { headline: "Anytime goal", side: "yes" };
   }
@@ -325,25 +324,23 @@ function formatPropPick(card: PropCard): { headline: string; side: "over" | "und
     return { headline: "First goal", side: "yes" };
   }
 
-  // Over/under markets — derive side from model_mean vs book_point
+  // Count-ladder markets (shots, shots_on_target, etc.). FanDuel et al. sell
+  // these as a series of "X+ events YES" props — NOT traditional O/U at
+  // 0.5/1.5/2.5 like NBA player points. The backend's _best_tier selector
+  // surfaces the tier with the largest model edge; the UI just labels what
+  // bet to actually make:  "Saka 2+ shots @ -200"  or  "Ramos 4+ shots @ +250".
   const niceUnit =
     market === "shots" ? "shots" :
     market === "shots_on_target" || market === "sot" ? "shots on target" :
     market === "passes" ? "passes" :
     market === "tackles" ? "tackles" :
     market === "fouls_committed" || market === "fouls" ? "fouls" :
+    market === "corners_taken" || market === "corners" ? "corners" :
     market.replace(/_/g, " ");
 
-  if (line != null && mean != null) {
-    const side = mean > line ? "over" : "under";
-    return {
-      headline: `${side === "over" ? "OVER" : "UNDER"} ${line} ${niceUnit}`,
-      side,
-    };
-  }
-  // No book line yet — can only describe the model's projection
-  if (mean != null) {
-    return { headline: `${niceUnit.charAt(0).toUpperCase() + niceUnit.slice(1)} (no line yet)`, side: "—" };
+  if (line != null) {
+    // "5+ shots" — the threshold is the book_point; bet is YES at that line
+    return { headline: `${line}+ ${niceUnit}`, side: "yes" };
   }
   return { headline: niceUnit.charAt(0).toUpperCase() + niceUnit.slice(1), side: "—" };
 }

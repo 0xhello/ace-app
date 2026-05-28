@@ -104,6 +104,81 @@ def _american_to_implied_prob(american: float) -> float:
     return -american / (-american + 100.0)
 
 
+def _poisson_at_least(k: float, lam: float) -> float:
+    """P(X >= k) when X ~ Poisson(lam).
+
+    Used to convert the model's expected shot count into a probability the
+    player clears the book's threshold. FanDuel offers shots props as a
+    ladder of "X+ shots YES" markets — for each, the bet wins if the player
+    takes at least X shots, so the relevant model probability is
+    P(shots >= X) given lambda = model_mean.
+
+    For traditional over/under at e.g. 2.5, point=2.5 → we want P(shots >= 3)
+    so we apply ceil(k) before summing.
+
+    Numerically stable for the small lambdas (1–6) we see in football props.
+    """
+    import math
+    k_int = int(math.ceil(k))
+    if k_int <= 0:
+        # X >= 0 is always certain — even when lambda is 0 (P(X=0) = 1).
+        # This matters because the selector loop may probe point=0 and we
+        # don't want it to return P(>=0) = 0 just because no goals/shots
+        # are expected; the bet would always win.
+        return 1.0
+    if lam <= 0:
+        return 0.0
+    # P(X >= k) = 1 - P(X <= k-1) = 1 - sum_{i=0}^{k-1} e^{-lam} lam^i / i!
+    cdf = 0.0
+    term = math.exp(-lam)  # i=0 term
+    cdf += term
+    for i in range(1, k_int):
+        term *= lam / i
+        cdf += term
+    return max(0.0, min(1.0, 1.0 - cdf))
+
+
+def _best_tier_for_count_market(
+    tiers: List[Dict[str, Any]],
+    model_mean: float,
+) -> Optional[Dict[str, Any]]:
+    """Search every offered shots/SoT threshold; return the one with the
+    largest model-vs-market edge.
+
+    Each tier is {book, price, point}. The model gives us lambda = model_mean;
+    for each tier we compute Poisson P(X >= point) and compare to the book's
+    implied probability. The tier with max(model - implied) wins — that's
+    the actual best bet across the ladder.
+
+    Returns None if no tier produces a positive edge or no tiers exist.
+    """
+    if not tiers or model_mean is None:
+        return None
+    best = None
+    # Only return tiers with strictly POSITIVE edge — there's no point
+    # surfacing the "least bad" loser. If every tier is negative-EV the
+    # selector returns None and the card falls through to decision='pass'.
+    best_edge = 0.0
+    for t in tiers:
+        point = t.get("point")
+        price = t.get("price")
+        if point is None or price is None:
+            continue
+        try:
+            model_prob = _poisson_at_least(float(point), float(model_mean))
+            implied = _american_to_implied_prob(float(price))
+            edge = model_prob - implied
+        except (TypeError, ValueError):
+            continue
+        if edge > best_edge:
+            best_edge = edge
+            best = dict(t)
+            best["model_prob"] = round(model_prob, 4)
+            best["implied_prob"] = round(implied, 4)
+            best["edge_pp"] = round(edge, 4)
+    return best
+
+
 def _norm(s: str) -> str:
     return "".join(ch.lower() for ch in (s or "") if ch.isalnum())
 
@@ -392,7 +467,27 @@ def cards_for_game(
             edge_pp = None
             model_prob = prop.get("model_prob") if market == "anytime_scorer" else None
             model_mean = prop.get("model_mean") if market != "anytime_scorer" else card.get("expected_goals")
-            if odds and odds.get("price") is not None:
+
+            # For count-based markets (shots, shots_on_target) we used to
+            # leave model_prob = None, which meant edge_pp stayed None and
+            # the decision tier could never reach 'pick'. Bug fixed here:
+            # convert model_mean → Poisson P(X >= point) at every tier the
+            # book offers, pick the tier with the largest model-vs-market
+            # edge, and surface THAT line as the bet. The tier search
+            # surfaces the actual best bet across FanDuel's "X+ shots"
+            # ladder instead of whichever line happened to have the longest
+            # American price.
+            if market in {"shots", "shots_on_target"} and model_mean is not None and odds:
+                tiers = odds.get("_all_tiers") or [odds]  # back-compat: single tier wrapped
+                best = _best_tier_for_count_market(tiers, float(model_mean))
+                if best is not None:
+                    odds = best  # promote best-edge tier to be the surfaced offering
+                    model_prob = best["model_prob"]
+                    implied = best["implied_prob"]
+                    edge_pp = best["edge_pp"]
+
+            if odds and odds.get("price") is not None and edge_pp is None:
+                # Anytime-scorer path: model_prob is already set above
                 implied = _american_to_implied_prob(float(odds["price"]))
                 if model_prob is not None:
                     edge_pp = float(model_prob) - implied

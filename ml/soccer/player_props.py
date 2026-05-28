@@ -455,8 +455,25 @@ def matchup_prop_context_cards(
 
 
 def extract_prop_market_odds(game: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    """Best available Odds API player-prop price by player and market."""
-    best: Dict[str, Dict[str, Any]] = {}
+    """All Odds API player-prop offerings indexed by player + market.
+
+    Previous implementation kept ONLY the highest-priced outcome per
+    (player, market), which silently picked FanDuel's longshot lines
+    (e.g. "6+ shots @ +470" instead of "2+ shots @ -200") because higher
+    American price = longer odds. That broke the picks layer: shots
+    cards showed nonsense lines that aren't really bettable.
+
+    New shape: for each (player, market) we keep the list of ALL price
+    tiers — every (point, book, price) combo offered. Downstream callers
+    (compute_prop_edge in prop_cards.py) iterate the tiers, compute the
+    Poisson edge at each line, and pick the threshold where the model's
+    edge is largest. That surfaces the actual best bet, not the longshot.
+
+    Yes/No markets (anytime_scorer) have no 'point' — they always come
+    back as a single tier with point=None. The downstream code treats
+    point=None as the binary YES case.
+    """
+    out: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
     for bm in game.get("bookmakers") or []:
         book = bm.get("key") or bm.get("title")
         for mkt in bm.get("markets") or []:
@@ -465,15 +482,62 @@ def extract_prop_market_odds(game: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
                 continue
             for outcome in mkt.get("outcomes") or []:
                 player = outcome.get("description") or (outcome.get("name") if outcome.get("name") not in ("Yes", "No", "Over", "Under") else None)
+                # Drop the NO side — for anytime_scorer we only price YES;
+                # for X+ ladder markets there's no NO outcome per tier.
                 if not player or outcome.get("name") == "No":
                     continue
                 price = outcome.get("price")
                 if price is None:
                     continue
-                cur = best.setdefault(player, {}).get(mk)
-                if cur is None or float(price) > float(cur.get("price", -99999)):
-                    best.setdefault(player, {})[mk] = {"book": book, "price": price, "point": outcome.get("point")}
-    return best
+                player_markets = out.setdefault(player, {})
+                tiers = player_markets.setdefault(mk, [])
+                tiers.append({
+                    "book": book,
+                    "price": price,
+                    "point": outcome.get("point"),
+                })
+
+    # Back-compat shim: the existing scorer_candidates / club_prop_context_cards
+    # code path expects a flat {player: {market: {book, price, point}}} dict.
+    # Different selection policy per market type:
+    #
+    #   • anytime_scorer (no `point` — single YES outcome per book) → pick
+    #     the HIGHEST American price, which gives the bettor the best
+    #     payout on the same probabilistic bet. This is the original
+    #     pre-M16 behavior; preserved for compatibility with downstream
+    #     code that uses the surfaced odds for edge computation.
+    #
+    #   • shots, shots_on_target (count-ladder markets — multiple `point`
+    #     tiers per book) → the surfaced default is the LOWEST threshold
+    #     (most-bettable line, used by code paths that don't yet know how
+    #     to search the ladder). prop_cards.py uses `_all_tiers` to do the
+    #     real Poisson-edge search across every tier.
+    #
+    # Both cases expose the full ladder under `_all_tiers` so callers can
+    # opt into the multi-line edge search.
+    flat: Dict[str, Dict[str, Any]] = {}
+    for player, markets in out.items():
+        flat[player] = {}
+        for mk, tiers in markets.items():
+            if not tiers:
+                continue
+            has_points = any(t.get("point") is not None for t in tiers)
+            if has_points:
+                # Count-ladder: default to lowest threshold tier
+                default = sorted(
+                    tiers,
+                    key=lambda t: (
+                        float(t.get("point") or 0),
+                        -float(t.get("price") or 0),  # secondary: higher price wins ties
+                    ),
+                )[0]
+            else:
+                # Single-tier (anytime_scorer style): pick highest American price
+                default = max(tiers, key=lambda t: float(t.get("price") or -99999))
+            entry = dict(default)
+            entry["_all_tiers"] = tiers  # full ladder for downstream edge search
+            flat[player][mk] = entry
+    return flat
 
 
 def fetch_event_player_prop_odds(sport_key: str, event_id: str, markets: str = PLAYER_PROP_MARKETS) -> Dict[str, Any]:
