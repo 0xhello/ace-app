@@ -89,6 +89,7 @@ try:
     # break the model output (the UI shows fair probs even if odds aren't
     # available yet).
     edges = None
+    odds_meta = {"source": "no-cache-hit", "refreshed_at": None, "n_books": 0}
     try:
         from ml.soccer.leagues import fetch_league_odds
         sport_key_by_tournament = {
@@ -103,6 +104,19 @@ try:
         if sport_key and ${gameId ? JSON.stringify(gameId) : "None"}:
             games = fetch_league_odds(sport_key) or []
             game = next((g for g in games if g.get("id") == ${gameId ? JSON.stringify(gameId) : "None"}), None)
+            if game:
+                # Surface the bookmakers' last_update for this fixture so
+                # the UI can show "odds X min old". Books refresh prices
+                # at different cadences but we use the freshest stamp.
+                last_updates = [
+                    bm.get("last_update")
+                    for bm in (game.get("bookmakers") or [])
+                    if bm.get("last_update")
+                ]
+                if last_updates:
+                    odds_meta["refreshed_at"] = max(last_updates)
+                    odds_meta["source"] = "cache"
+                odds_meta["n_books"] = len(game.get("bookmakers") or [])
             if game:
                 # Extract best price per market+side across all books.
                 # Corners 9.5 is the standard line for marquee fixtures; books
@@ -169,6 +183,7 @@ try:
 
     if edges is not None:
         out["edges"] = edges
+    out["odds_meta"] = odds_meta
     print(json.dumps(out, ensure_ascii=False))
 except Exception as e:
     print(json.dumps({"error": str(e)[:300]})); sys.exit(1)

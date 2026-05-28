@@ -761,6 +761,11 @@ interface MatchIntelResponse {
     adjustments?: Record<string, unknown>;
   };
   edges?: { edges: MatchIntelEdge[] };
+  odds_meta?: {
+    source: string;
+    refreshed_at: string | null;
+    n_books: number;
+  };
   lineup_freshness?: {
     tier: "green" | "amber" | "red";
     reason: string;
@@ -1060,6 +1065,20 @@ function MatchIntelligencePanel() {
           <span className="text-[#3a4033] mx-1.5">·</span>
           expected total goals <span className="font-mono text-[#c4c7c0]">{(m.lambda_h + m.lambda_a).toFixed(2)}</span>
         </p>
+        {/* Odds freshness — books refresh at different cadences, so we
+            surface the most-recent stamp. The trader can see whether the
+            edges are 30 seconds stale vs 20 minutes stale before approving. */}
+        {data.odds_meta?.refreshed_at && (() => {
+          const ageMs = Date.now() - new Date(data.odds_meta.refreshed_at).getTime();
+          const ageMin = Math.max(0, Math.round(ageMs / 60_000));
+          const color = ageMin < 5 ? "#3ee68a" : ageMin < 30 ? "#f5c062" : "#ef4444";
+          return (
+            <p className="text-[9px] mt-1 font-mono" style={{ color }}>
+              odds refreshed {ageMin < 1 ? "just now" : `${ageMin}m ago`}
+              <span className="text-[#4a524a]"> · {data.odds_meta.n_books} books</span>
+            </p>
+          );
+        })()}
       </div>
 
       {/* Market grid */}
