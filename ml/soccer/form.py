@@ -120,6 +120,13 @@ _V2_COLUMNS: List[Tuple[str, str]] = [
     ("close_over_odds","REAL"),    # Pinnacle closing over
     ("close_under_odds","REAL"),   # Pinnacle closing under
     ("close_ah_line", "REAL"),     # Asian handicap line at close (home perspective)
+    # BTTS closing odds (M31) — added so calibration.py can backtest BTTS
+    # against Pinnacle close. football-data.co.uk recent CSVs expose these
+    # under column names "BFEY"/"BFEN" (Betfair Exchange BTTS yes/no) or
+    # "BbAvBTSY"/"BbAvBTSN" (Betbrain average). We prefer Betfair Exchange
+    # when present (sharpest) and fall back to Betbrain average.
+    ("close_btts_yes_odds", "REAL"),  # closing decimal odds — BTTS yes
+    ("close_btts_no_odds",  "REAL"),  # closing decimal odds — BTTS no
 ]
 
 
@@ -304,6 +311,20 @@ def _parse_completed_matches(csv_text: str) -> List[Dict[str, Any]]:
             "close_over":        _float_or_none(row.get("PC>2.5") or row.get("B365C>2.5")),
             "close_under":       _float_or_none(row.get("PC<2.5") or row.get("B365C<2.5")),
             "close_ah_line":     _float_or_none(row.get("AHCh") or row.get("AHC")),
+            # BTTS closing odds (M31). Column names vary across football-data
+            # vintages: "PC_BTSY" (Pinnacle closing), "B365CBTSY" (Bet365 closing),
+            # "BFEY" (Betfair Exchange BTTS yes), "AvgCBTSY" (closing average).
+            # We try each in priority order; whichever fires first wins.
+            "close_btts_yes":    _float_or_none(
+                row.get("PC_BTSY") or row.get("B365CBTSY") or
+                row.get("BFEY")    or row.get("AvgCBTSY")  or
+                row.get("BbAvBTSY")
+            ),
+            "close_btts_no":     _float_or_none(
+                row.get("PC_BTSN") or row.get("B365CBTSN") or
+                row.get("BFEN")    or row.get("AvgCBTSN")  or
+                row.get("BbAvBTSN")
+            ),
         })
         # football-data.co.uk publishes dedicated Over/Under 2.5 odds columns
         # (PC>2.5 / PC<2.5, or B365 fallbacks), not a varying totals line.
@@ -338,6 +359,8 @@ def _upsert_match(conn: sqlite3.Connection, league: str, m: Dict[str, Any]) -> i
     ou_over   = m.get("close_over")
     ou_under  = m.get("close_under")
     ah_line   = m.get("close_ah_line")
+    btts_y    = m.get("close_btts_yes")
+    btts_n    = m.get("close_btts_no")
     c_h, c_d, c_a = m.get("close_h"), m.get("close_d"), m.get("close_a")
 
     # Home team perspective
@@ -355,6 +378,7 @@ def _upsert_match(conn: sqlite3.Connection, league: str, m: Dict[str, Any]) -> i
         c_h, c_d, c_a,
         ou_line, ou_over, ou_under,
         ah_line,
+        btts_y, btts_n,
     )
     # Away team perspective — mirror the per-side fields
     away_row = (
@@ -371,6 +395,7 @@ def _upsert_match(conn: sqlite3.Connection, league: str, m: Dict[str, Any]) -> i
         c_h, c_d, c_a,
         ou_line, ou_over, ou_under,
         ah_line,
+        btts_y, btts_n,
     )
 
     written = 0
@@ -389,7 +414,8 @@ def _upsert_match(conn: sqlite3.Connection, league: str, m: Dict[str, Any]) -> i
                  referee,
                  close_home_odds, close_draw_odds, close_away_odds,
                  close_ou_line, close_over_odds, close_under_odds,
-                 close_ah_line)
+                 close_ah_line,
+                 close_btts_yes_odds, close_btts_no_odds)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?, ?,
@@ -400,7 +426,8 @@ def _upsert_match(conn: sqlite3.Connection, league: str, m: Dict[str, Any]) -> i
                     ?,
                     ?, ?, ?,
                     ?, ?, ?,
-                    ?)
+                    ?,
+                    ?, ?)
             ON CONFLICT(team_name, match_date, opponent) DO UPDATE SET
                 goals_for       = excluded.goals_for,
                 goals_against   = excluded.goals_against,
@@ -427,6 +454,8 @@ def _upsert_match(conn: sqlite3.Connection, league: str, m: Dict[str, Any]) -> i
                 close_over_odds = excluded.close_over_odds,
                 close_under_odds= excluded.close_under_odds,
                 close_ah_line   = excluded.close_ah_line,
+                close_btts_yes_odds = excluded.close_btts_yes_odds,
+                close_btts_no_odds  = excluded.close_btts_no_odds,
                 updated_at      = datetime('now')
             """,
             r,

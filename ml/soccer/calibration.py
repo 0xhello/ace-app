@@ -76,7 +76,8 @@ def _sample_matches(
         SELECT team_name AS home, opponent AS away, match_date, league,
                goals_for AS home_score, goals_against AS away_score,
                close_home_odds, close_draw_odds, close_away_odds,
-               close_over_odds, close_under_odds, close_ou_line
+               close_over_odds, close_under_odds, close_ou_line,
+               close_btts_yes_odds, close_btts_no_odds
           FROM soccer_team_form
          WHERE league = ?
            AND venue = 'home'
@@ -146,19 +147,18 @@ def run_calibration(
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
 
-    # NOTE: BTTS backtest is intentionally NOT included. football-data.co.uk
-    # closing-odds extracts in soccer_team_form don't carry BTTS Yes/No
-    # closing prices, so we have no Pinnacle benchmark to grade against.
-    # Extending requires adding BbAvBTSY / BbAvBTSN to the form ingestor —
-    # tracked as a follow-up. For now BTTS picks surface in the UI with an
-    # explicit "untested" badge so the trader doesn't bet from unvalidated
-    # output.
+    # BTTS bucket added in M31 — closing odds backfilled into soccer_team_form
+    # via the form ingestor. Older rows in the DB may still have NULL btts
+    # odds (no data in football-data CSVs for that vintage); those just get
+    # dropped from the BTTS sample silently.
     out_buckets: Dict[str, Dict[str, Any]] = {
         "1X2_home":  {"residuals": [], "bets": []},
         "1X2_draw":  {"residuals": [], "bets": []},
         "1X2_away":  {"residuals": [], "bets": []},
         "totals_over":  {"residuals": [], "bets": []},
         "totals_under": {"residuals": [], "bets": []},
+        "btts_yes":  {"residuals": [], "bets": []},
+        "btts_no":   {"residuals": [], "bets": []},
     }
     matches_predicted = 0
     matches_skipped = 0
@@ -206,13 +206,29 @@ def run_calibration(
                 hs = int(m["home_score"])
                 as_ = int(m["away_score"])
 
-                for bucket, model_prob, implied, market, side, dec_odds in [
+                # BTTS implied — only when both odds are present (some
+                # historical CSVs don't carry BTTS columns).
+                btts_yes_odds  = m.get("close_btts_yes_odds")
+                btts_no_odds   = m.get("close_btts_no_odds")
+                imp_btts_yes   = _decimal_to_implied(float(btts_yes_odds)) if btts_yes_odds else None
+                imp_btts_no    = _decimal_to_implied(float(btts_no_odds))  if btts_no_odds  else None
+
+                bucket_specs = [
                     ("1X2_home",  model["p_home_win"], imp_home, "1x2", "home", float(m["close_home_odds"])),
                     ("1X2_draw",  model["p_draw"],     imp_draw, "1x2", "draw", float(m["close_draw_odds"])),
                     ("1X2_away",  model["p_away_win"], imp_away, "1x2", "away", float(m["close_away_odds"])),
                     ("totals_over",  model["p_over_25"],  imp_over,  "totals", "over",  float(m["close_over_odds"])),
                     ("totals_under", model["p_under_25"], imp_under, "totals", "under", float(m["close_under_odds"])),
-                ]:
+                ]
+                if imp_btts_yes is not None:
+                    bucket_specs.append(
+                        ("btts_yes", model["p_btts_yes"], imp_btts_yes, "btts", "yes", float(btts_yes_odds))
+                    )
+                if imp_btts_no is not None:
+                    bucket_specs.append(
+                        ("btts_no", model["p_btts_no"], imp_btts_no, "btts", "no", float(btts_no_odds))
+                    )
+                for bucket, model_prob, implied, market, side, dec_odds in bucket_specs:
                     residual = model_prob - implied
                     out_buckets[bucket]["residuals"].append(residual)
                     # Only "bet" when model gives positive edge above the threshold
