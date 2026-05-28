@@ -105,7 +105,13 @@ try:
             game = next((g for g in games if g.get("id") == ${gameId ? JSON.stringify(gameId) : "None"}), None)
             if game:
                 # Extract best price per market+side across all books.
-                best = {"h2h": {}, "totals_25": {}, "btts": {}}
+                # Corners 9.5 is the standard line for marquee fixtures; books
+                # sometimes offer 8.5/10.5/11.5 too — we keep all and let the
+                # downstream best-tier search pick the best edge per side.
+                best = {
+                    "h2h": {}, "totals_25": {}, "btts": {},
+                    "corners_95": {}, "corners_85": {}, "corners_105": {},
+                }
                 for bm in game.get("bookmakers") or []:
                     book = bm.get("key")
                     for mkt in bm.get("markets") or []:
@@ -140,6 +146,23 @@ try:
                                 cur = best["btts"].get(name)
                                 if cur is None or float(price) > float(cur["price"]):
                                     best["btts"][name] = {"price": price, "book": book}
+                        elif mk == "totals_corners":
+                            # Multiple lines may be returned; bucket by line.
+                            for o in outs:
+                                pt = o.get("point")
+                                name = (o.get("name") or "").lower()
+                                price = o.get("price")
+                                if price is None or name not in ("over","under") or pt is None: continue
+                                bucket_key = (
+                                    "corners_85"  if float(pt) == 8.5  else
+                                    "corners_95"  if float(pt) == 9.5  else
+                                    "corners_105" if float(pt) == 10.5 else
+                                    None
+                                )
+                                if not bucket_key: continue
+                                cur = best[bucket_key].get(name)
+                                if cur is None or float(price) > float(cur["price"]):
+                                    best[bucket_key][name] = {"price": price, "book": book, "point": pt}
                 edges = edge_against_book(out, best)
     except Exception as e:
         edges = {"error": str(e)[:200]}

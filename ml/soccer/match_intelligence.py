@@ -783,6 +783,20 @@ def edge_against_book(
     push("BTTS", "yes", model.get("p_btts_yes") or 0.0, btts.get("yes"))
     push("BTTS", "no",  model.get("p_btts_no")  or 0.0, btts.get("no"))
 
+    # Corners (M25) — books may post any of 8.5 / 9.5 / 10.5 lines. We
+    # push the model's prob for whichever lines the book offered so the UI
+    # can show edges on each. The intelligence dict carries corner probs
+    # under intelligence["corners"] (M23).
+    corners_model = intelligence.get("corners") or {}
+    for line in (8.5, 9.5, 10.5):
+        line_key = f"corners_{int(line * 10)}"  # "corners_85", "corners_95", "corners_105"
+        bucket = odds.get(line_key) or {}
+        over_p  = corners_model.get(f"p_over_{int(line * 10) // 10}_{int(line * 10) % 10}")
+        under_p = corners_model.get(f"p_under_{int(line * 10) // 10}_{int(line * 10) % 10}")
+        market = f"Corners {line}"
+        push(market, "over",  over_p  or 0.0, bucket.get("over"))
+        push(market, "under", under_p or 0.0, bucket.get("under"))
+
     out.sort(key=lambda e: e["edge_pp"], reverse=True)
     return {"edges": out}
 

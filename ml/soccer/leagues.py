@@ -57,7 +57,7 @@ load_dotenv(_ENV_PATH)
 ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
 ODDS_BASE    = "https://api.the-odds-api.com/v4"
 
-MARKETS = "h2h,spreads,totals"
+MARKETS = "h2h,spreads,totals,btts,totals_corners"
 PLAYER_PROP_MARKETS = "player_goal_scorer_anytime"
 BOOKS   = "pinnacle,fanduel,draftkings,betmgm,williamhill_us,betrivers"
 

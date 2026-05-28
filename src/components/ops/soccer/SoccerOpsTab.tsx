@@ -795,6 +795,29 @@ function getVerdict(market: string, side: string): MarketVerdict | null {
   return MARKET_VERDICTS[`${market}|${side}`] ?? null;
 }
 
+// Break-even American odds for a given model probability.
+// At break-even the book's implied probability EQUALS our model's
+// probability, so the bettor gets exactly 0 edge. This is the line we'd
+// need to see at the book to be tempted to bet THIS side.
+//
+//   model_prob > 0.5 → odds are negative (favorite); -100 * p / (1-p)
+//   model_prob < 0.5 → odds are positive (underdog); +100 * (1-p) / p
+//
+// Caveats: doesn't account for vig — books quote both sides above the
+// break-even line in their favor. Treat as the "fair" line; real
+// bettable odds need a buffer.
+function modelProbToBreakEvenAmerican(p: number): number | null {
+  if (p <= 0 || p >= 1) return null;
+  if (p >= 0.5) {
+    return Math.round(-100 * p / (1 - p));
+  }
+  return Math.round(100 * (1 - p) / p);
+}
+
+function fmtAmericanWithSign(n: number): string {
+  return n >= 0 ? `+${n}` : `${n}`;
+}
+
 interface ApprovedPick {
   market: string;
   side: string;
@@ -1081,6 +1104,17 @@ function MatchIntelligencePanel() {
                         {fmtPct(s.prob)}
                       </p>
                     </div>
+                    {/* Break-even American odds — the line we'd need at the
+                        book to make this side bettable. Useful even when no
+                        edge exists today: lets the trader set a target. */}
+                    {(() => {
+                      const be = modelProbToBreakEvenAmerican(s.prob);
+                      return be !== null ? (
+                        <p className="text-[8px] text-[#4a524a] font-mono mt-0.5">
+                          fair @ {fmtAmericanWithSign(be)}
+                        </p>
+                      ) : null;
+                    })()}
                     {s.edge ? (
                       <div className="mt-1.5 text-[9px] space-y-0.5">
                         <p className="text-[#6b7068] font-mono">
