@@ -584,6 +584,45 @@ function ApprovedPicksDashboard() {
     );
   }
 
+  // M30 — Per-fixture exposure check. Picks on the same game are
+  // correlated (same xG distribution, same lineups, same ref). We
+  // can't bet 5u on PSG ML + 5u on Over 2.5 + 5u on BTTS Yes and
+  // pretend they're independent — that's actually a ~12u correlated
+  // position. Surface a warning when total stake on a fixture exceeds
+  // a sensible cap.
+  type FixtureExposure = {
+    fixture_label: string;
+    n_picks: number;
+    total_stake: number;
+    max_loss: number;
+    max_win: number;  // upper bound; assumes all win
+  };
+  const exposureByFixture: Record<string, FixtureExposure> = {};
+  for (const r of rows) {
+    if (r.graded_status !== "open") continue;
+    const key = r.fixture_label;
+    const decimal = r.opening_price >= 0
+      ? r.opening_price / 100 + 1
+      : 100 / -r.opening_price + 1;
+    const max_win = r.stake_units * (decimal - 1);
+    if (!exposureByFixture[key]) {
+      exposureByFixture[key] = {
+        fixture_label: key,
+        n_picks: 0,
+        total_stake: 0,
+        max_loss: 0,
+        max_win: 0,
+      };
+    }
+    exposureByFixture[key].n_picks += 1;
+    exposureByFixture[key].total_stake += r.stake_units;
+    exposureByFixture[key].max_loss += r.stake_units;   // worst case
+    exposureByFixture[key].max_win += max_win;
+  }
+  const overExposedFixtures = Object.values(exposureByFixture).filter(
+    (e) => e.n_picks >= 2 && e.total_stake > 10,  // > 10% of bankroll on one match
+  );
+
   return (
     <Panel>
       <SectionHead
@@ -599,6 +638,27 @@ function ApprovedPicksDashboard() {
           )
         }
       />
+
+      {/* Exposure warning — appears when any fixture has > 10u total across
+          multiple correlated picks. */}
+      {overExposedFixtures.length > 0 && (
+        <div className="mb-4 rounded-lg border border-[#f5c062]/25 bg-[#f5c062]/[0.04] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wider text-[#f5c062] font-bold mb-1.5">
+            ⚠ Correlated exposure warning
+          </p>
+          {overExposedFixtures.map((e) => (
+            <p key={e.fixture_label} className="text-[11px] text-[#c4c7c0]">
+              <span className="font-semibold">{e.fixture_label}</span>:
+              {" "}{e.n_picks} picks · total stake <span className="font-mono text-[#f5c062]">{e.total_stake.toFixed(2)}u</span>
+              {" "}· max loss if all fail <span className="font-mono text-[#ef4444]">-{e.max_loss.toFixed(2)}u</span>
+              {" "}· max win if all hit <span className="font-mono text-[#3ee68a]">+{e.max_win.toFixed(2)}u</span>
+            </p>
+          ))}
+          <p className="text-[9px] text-[#6b7068] mt-1.5 leading-relaxed">
+            Same-fixture picks share xG, lineups, and ref tendency — they're not independent. Consider trimming exposure or only approving the highest-edge market per game.
+          </p>
+        </div>
+      )}
 
       {/* Summary strip */}
       {summary && (

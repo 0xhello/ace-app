@@ -43,7 +43,7 @@ PLAYER_PROP_MARKETS = (
     "player_goal_scorer_first,"
     "player_to_score_2_or_more"
 )
-PLAYER_PROP_BOOKS = "fanduel,draftkings,betmgm,williamhill_us,betrivers,bet365"
+PLAYER_PROP_BOOKS = "fanduel,draftkings,betmgm,williamhill_us,betrivers,bet365,caesars,espnbet,hardrockbet"
 
 
 def get_db(path: Optional[Path] = None) -> sqlite3.Connection:

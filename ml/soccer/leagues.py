@@ -59,7 +59,12 @@ ODDS_BASE    = "https://api.the-odds-api.com/v4"
 
 MARKETS = "h2h,spreads,totals,btts,totals_corners"
 PLAYER_PROP_MARKETS = "player_goal_scorer_anytime"
-BOOKS   = "pinnacle,fanduel,draftkings,betmgm,williamhill_us,betrivers"
+# Books we pull odds for. Expanded in M29 to include three more US books
+# that price soccer markets — Caesars, ESPN BET (Penn Entertainment's
+# Disney-branded sportsbook), and Hard Rock Bet (Seminole Tribe's growing
+# regional book). More books = better best-prices in the surfacing layer.
+# pinnacle stays at the front as the sharpest-line benchmark for CLV calc.
+BOOKS = "pinnacle,fanduel,draftkings,betmgm,williamhill_us,betrivers,caesars,espnbet,hardrockbet"
 
 # Player-prop scanning is opt-in per call. Costs 1 extra credit per league
 # per tick, so the worker calls it on a slower cadence than game-level

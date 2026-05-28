@@ -46,18 +46,26 @@ LEAGUE_NAME = {sport_key: lg for (sport_key, lg, _) in LEAGUES}
 # per-team league hints (PSG = Ligue 1, Arsenal = Premier League) so the
 # match-intelligence call resolves both teams' Understat data correctly.
 # For league play home_league = away_league = the league itself.
-def hints_for(sport_key, home_team, away_team):
+def hints_for(sport_key, home_team, away_team, kickoff_dt, ucl_count_in_window):
     league = LEAGUE_NAME.get(sport_key, "Premier League")
     if sport_key == "soccer_uefa_champs_league":
-        # UCL final pilot uses ucl_final; otherwise default knockout.
-        # We can't reliably detect "final" from the Odds API payload,
-        # so callers can override via the UI if needed.
+        # M29 — heuristic auto-detect for UCL final.
+        # UCL final is always a single match in late May / early June with
+        # NO other UCL matches nearby. If the fixture is between May 28
+        # and June 7 AND it's the ONLY UCL fixture in our 14-day horizon,
+        # we treat it as the final and apply the tighter scaler (0.81).
+        # Everything else UCL falls back to "ucl_knockout" (0.88).
+        is_final_window = (
+            kickoff_dt.month in (5, 6) and
+            (kickoff_dt.month == 5 and kickoff_dt.day >= 25) or kickoff_dt.month == 6
+        )
+        stage = "ucl_final" if (is_final_window and ucl_count_in_window == 1) else "ucl_knockout"
         return {
             "tournament": "UCL",
             "home_league": _guess_team_league(home_team),
             "away_league": _guess_team_league(away_team),
             "neutral_venue": True,  # all UCL knockouts after the draw are neutral-ish
-            "competition_stage": "ucl_knockout",
+            "competition_stage": stage,
         }
     return {
         "tournament": league,
@@ -129,8 +137,12 @@ if not candidates:
     print(json.dumps({"error": "no upcoming fixtures in 14-day horizon"}))
     sys.exit(0)
 
+# Count UCL fixtures inside the horizon so hints_for can detect "final"
+ucl_count = sum(1 for c in candidates if c["sport_key"] == "soccer_uefa_champs_league")
+
 top = candidates[0]
-hints = hints_for(top["sport_key"], top["home_team"], top["away_team"])
+top_kickoff = datetime.fromtimestamp(top["kickoff_unix"], tz=timezone.utc)
+hints = hints_for(top["sport_key"], top["home_team"], top["away_team"], top_kickoff, ucl_count)
 result = {
     "ok": True,
     "fixture": {
