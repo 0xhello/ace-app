@@ -498,6 +498,240 @@ function humanizeRationale(
   return lines;
 }
 
+// ─── Match Intelligence (per-fixture trading-desk view) ─────────────────────
+//
+// Bob's direction (M17): treat soccer picks as a football intelligence +
+// trading desk system. For each "feature match" we surface the FULL picture:
+// our model's fair probabilities for every market we have signal on
+// (1X2, Totals 2.5, BTTS), the best book prices, the edges with confidence
+// tiers, and the data drivers (xG window per team, adjustments fired).
+//
+// This panel sits ABOVE Today's plays because it's the trader's first view:
+// "here's what we think this match looks like; here's where the market
+// disagrees enough to bet."
+
+interface MatchIntelEdge {
+  market: string;
+  side: string;
+  model_prob: number;
+  implied_prob: number;
+  edge_pp: number;
+  best_book: string | null;
+  best_price: number | null;
+  tier: "A" | "B" | "C" | "pass";
+}
+
+interface MatchIntelResponse {
+  fixture?: {
+    home: string;
+    away: string;
+    tournament: string;
+    commence_time: string | null;
+    game_id: string | null;
+    neutral_venue: boolean;
+  };
+  model?: {
+    lambda_h: number;
+    lambda_a: number;
+    p_home_win: number;
+    p_draw: number;
+    p_away_win: number;
+    p_over_25: number;
+    p_under_25: number;
+    p_btts_yes: number;
+    p_btts_no: number;
+    p_home_over_15_raw: number;
+    p_away_over_15_raw: number;
+  };
+  drivers?: {
+    home_xg_window?: { team: string; n_matches: number; xg_for_pg: number; xg_against_pg: number; goals_for_pg: number };
+    away_xg_window?: { team: string; n_matches: number; xg_for_pg: number; xg_against_pg: number; goals_for_pg: number };
+    adjustments?: Record<string, unknown>;
+  };
+  edges?: { edges: MatchIntelEdge[] };
+  error?: string;
+}
+
+function MatchIntelligencePanel() {
+  // For now hardcoded to UCL final — the most relevant match for the next
+  // 5 days and the pilot Bob asked for. Once this view is validated we'll
+  // make it pick the next "feature match" automatically (highest-edge or
+  // highest-tournament fixture inside the slate).
+  const [data, setData] = useState<MatchIntelResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const u = new URLSearchParams({
+      home: "Paris Saint Germain",
+      away: "Arsenal",
+      home_league: "Ligue 1",
+      away_league: "Premier League",
+      tournament: "UCL",
+      commence_time: "2026-05-30T16:00:00Z",
+      neutral_venue: "1",
+    });
+    void fetch(`/api/ops/match-intelligence?${u.toString()}`)
+      .then((r) => r.json())
+      .then((json: MatchIntelResponse) => setData(json))
+      .catch(() => setData({ error: "fetch failed" }))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <Panel>
+        <SectionHead icon={Brain} title="Match Intelligence" />
+        <p className="text-[11px] text-[#4a524a] py-4">Computing model probabilities…</p>
+      </Panel>
+    );
+  }
+  if (!data || data.error || !data.model || !data.fixture) {
+    return (
+      <Panel>
+        <SectionHead icon={Brain} title="Match Intelligence" />
+        <p className="text-[11px] text-[#ef4444] py-4">
+          {data?.error ?? "No intelligence data yet"}
+        </p>
+      </Panel>
+    );
+  }
+
+  const m = data.model;
+  const home = data.fixture.home;
+  const away = data.fixture.away;
+  const homeXg = data.drivers?.home_xg_window;
+  const awayXg = data.drivers?.away_xg_window;
+  const edges = data.edges?.edges ?? [];
+
+  // Build the market grid — one row per market, three columns (our prob,
+  // best book + price, edge / tier). Markets shown in trading-desk order.
+  const marketRows = [
+    {
+      market: "1X2",
+      sides: [
+        { label: home,                   prob: m.p_home_win, edge: edges.find(e => e.market === "1X2" && e.side === "home") },
+        { label: "Draw",                 prob: m.p_draw,     edge: edges.find(e => e.market === "1X2" && e.side === "draw") },
+        { label: away,                   prob: m.p_away_win, edge: edges.find(e => e.market === "1X2" && e.side === "away") },
+      ],
+    },
+    {
+      market: "Totals 2.5",
+      sides: [
+        { label: "Over",  prob: m.p_over_25,  edge: edges.find(e => e.market === "Totals 2.5" && e.side === "over") },
+        { label: "Under", prob: m.p_under_25, edge: edges.find(e => e.market === "Totals 2.5" && e.side === "under") },
+      ],
+    },
+    {
+      market: "BTTS",
+      sides: [
+        { label: "Yes", prob: m.p_btts_yes, edge: edges.find(e => e.market === "BTTS" && e.side === "yes") },
+        { label: "No",  prob: m.p_btts_no,  edge: edges.find(e => e.market === "BTTS" && e.side === "no") },
+      ],
+    },
+  ];
+
+  return (
+    <Panel>
+      <SectionHead
+        icon={Brain}
+        title="Match Intelligence"
+        right={
+          <span className="text-[10px] text-[#6b7068]">
+            {data.fixture.tournament} · {formatGameTime(data.fixture.commence_time) ?? "TBD"}
+            {data.fixture.neutral_venue ? " · neutral" : ""}
+          </span>
+        }
+      />
+
+      {/* Fixture headline */}
+      <div className="mb-4">
+        <p className="text-[18px] font-black text-white">
+          {home} <span className="text-[#6b7068]">vs</span> {away}
+        </p>
+        <p className="text-[11px] text-[#9ca39a] mt-1">
+          Model: <span className="font-mono text-[#3ee68a]">λ_H {m.lambda_h.toFixed(2)}</span>
+          <span className="text-[#3a4033] mx-1.5">·</span>
+          <span className="font-mono text-[#3ee68a]">λ_A {m.lambda_a.toFixed(2)}</span>
+          <span className="text-[#3a4033] mx-1.5">·</span>
+          expected total goals <span className="font-mono text-[#c4c7c0]">{(m.lambda_h + m.lambda_a).toFixed(2)}</span>
+        </p>
+      </div>
+
+      {/* Market grid */}
+      <div className="space-y-3 mb-5">
+        {marketRows.map((row) => (
+          <div key={row.market} className="rounded-lg border border-[#1a211c] bg-[#0a0d0a]">
+            <div className="flex items-center gap-2 px-4 py-2 border-b border-[#181c18]">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[#9ca39a]">{row.market}</p>
+            </div>
+            <div className={`grid gap-0 ${row.sides.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+              {row.sides.map((s, i) => {
+                const tierColor =
+                  s.edge?.tier === "A" ? "#3ee68a" :
+                  s.edge?.tier === "B" ? "#f5c062" :
+                  s.edge?.tier === "C" ? "#9ca39a" : "#3a4033";
+                return (
+                  <div
+                    key={s.label}
+                    className={`px-4 py-2.5 ${i < row.sides.length - 1 ? "border-r border-[#181c18]" : ""}`}
+                  >
+                    <p className="text-[11px] font-semibold text-[#c4c7c0] truncate mb-1">{s.label}</p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-[14px] font-mono font-black text-[#3ee68a]">
+                        {fmtPct(s.prob)}
+                      </p>
+                    </div>
+                    {s.edge ? (
+                      <div className="mt-1.5 text-[9px] space-y-0.5">
+                        <p className="text-[#6b7068] font-mono">
+                          mkt {fmtPct(s.edge.implied_prob)} · {s.edge.best_book} {fmtOdds(s.edge.best_price)}
+                        </p>
+                        <p className="font-mono font-bold" style={{ color: tierColor }}>
+                          {s.edge.edge_pp >= 0 ? "+" : ""}{(s.edge.edge_pp * 100).toFixed(1)}pp · {s.edge.tier !== "pass" ? `tier ${s.edge.tier}` : "no bet"}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-[9px] text-[#3a4033] mt-1.5">no book price</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Drivers — what's feeding the model */}
+      {(homeXg || awayXg) && (
+        <div className="rounded-lg bg-[#080a08] border border-[#151a15] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wider text-[#4a524a] mb-2">Drivers (last 12 matches)</p>
+          <div className="grid grid-cols-2 gap-4 text-[10px]">
+            {homeXg && (
+              <div>
+                <p className="font-semibold text-[#c4c7c0] mb-1">{home}</p>
+                <p className="font-mono text-[#9ca39a]">xG {homeXg.xg_for_pg.toFixed(2)} <span className="text-[#4a524a]">·</span> xGA {homeXg.xg_against_pg.toFixed(2)}</p>
+                <p className="font-mono text-[#6b7068]">Goals {homeXg.goals_for_pg.toFixed(2)}/g over {homeXg.n_matches} matches</p>
+              </div>
+            )}
+            {awayXg && (
+              <div>
+                <p className="font-semibold text-[#c4c7c0] mb-1">{away}</p>
+                <p className="font-mono text-[#9ca39a]">xG {awayXg.xg_for_pg.toFixed(2)} <span className="text-[#4a524a]">·</span> xGA {awayXg.xg_against_pg.toFixed(2)}</p>
+                <p className="font-mono text-[#6b7068]">Goals {awayXg.goals_for_pg.toFixed(2)}/g over {awayXg.n_matches} matches</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <p className="text-[10px] text-[#3a4033] mt-3 leading-relaxed">
+        Pre-odds model probabilities from Understat xG + M9 prior regression + M7/M8 lineup adjustments (when fresh).
+        Confidence tiers: A = ≥5pp edge · B = ≥3pp · C = ≥1.5pp · below = no bet.
+      </p>
+    </Panel>
+  );
+}
+
 // ─── Today's plays (humanized) ────────────────────────────────────────────────
 //
 // Top-level prose panel. Card per candidate with the model's view in plain
@@ -1177,6 +1411,12 @@ export default function SoccerOpsTab() {
             </div>
           </div>
         )}
+
+        {/* ══ MATCH INTELLIGENCE — featured fixture trading desk view ═══════
+            Currently pinned to UCL final (PSG vs Arsenal, Sat May 30). Shows
+            our pre-odds opinion on every market we have signal on, the best
+            book prices, and per-market edge with confidence tier. */}
+        <MatchIntelligencePanel />
 
         {/* ══ TODAY'S PLAYS — humanized, top of the page ════════════════════
             Card per candidate with prose rationale from the live signal
