@@ -552,6 +552,21 @@ interface MatchIntelResponse {
   error?: string;
 }
 
+// Real Odds API game_id for the UCL final — verified live in the prop cards
+// table on prod (Saka shots / Ramos shots all reference this same game_id).
+// Pinning lets the approve flow target the right game_id every time.
+const _UCL_FINAL_GAME_ID = "a54f22aca3be31d95f13eac0aeac62cf";
+
+interface ApprovedPick {
+  market: string;
+  side: string;
+  bet_label: string;
+  stake_units: number;
+  opening_price: number;
+  opening_book: string;
+  edge_pp_at_pick: number;
+}
+
 function MatchIntelligencePanel() {
   // For now hardcoded to UCL final — the most relevant match for the next
   // 5 days and the pilot Bob asked for. Once this view is validated we'll
@@ -559,6 +574,31 @@ function MatchIntelligencePanel() {
   // highest-tournament fixture inside the slate).
   const [data, setData] = useState<MatchIntelResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [approved, setApproved] = useState<Record<string, ApprovedPick>>({});
+  const [approving, setApproving] = useState<string | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
+
+  const reloadApproved = useCallback(() => {
+    void fetch(`/api/ops/approved-picks?game_id=${_UCL_FINAL_GAME_ID}&limit=20`)
+      .then((r) => r.json())
+      .then((json: { picks?: Array<Record<string, unknown>> }) => {
+        const idx: Record<string, ApprovedPick> = {};
+        for (const p of json.picks ?? []) {
+          const key = `${p.market}|${p.side}`;
+          idx[key] = {
+            market: String(p.market),
+            side: String(p.side),
+            bet_label: String(p.bet_label),
+            stake_units: Number(p.stake_units),
+            opening_price: Number(p.opening_price),
+            opening_book: String(p.opening_book),
+            edge_pp_at_pick: Number(p.edge_pp_at_pick),
+          };
+        }
+        setApproved(idx);
+      })
+      .catch(() => { /* silent */ });
+  }, []);
 
   useEffect(() => {
     const u = new URLSearchParams({
@@ -568,6 +608,7 @@ function MatchIntelligencePanel() {
       away_league: "Premier League",
       tournament: "UCL",
       commence_time: "2026-05-30T16:00:00Z",
+      game_id: _UCL_FINAL_GAME_ID,
       neutral_venue: "1",
     });
     void fetch(`/api/ops/match-intelligence?${u.toString()}`)
@@ -575,7 +616,44 @@ function MatchIntelligencePanel() {
       .then((json: MatchIntelResponse) => setData(json))
       .catch(() => setData({ error: "fetch failed" }))
       .finally(() => setLoading(false));
-  }, []);
+    reloadApproved();
+  }, [reloadApproved]);
+
+  async function approve(edge: MatchIntelEdge, betLabel: string) {
+    if (!data?.fixture) return;
+    const key = `${edge.market}|${edge.side}`;
+    setApproving(key);
+    setApproveError(null);
+    try {
+      const res = await fetch("/api/ops/approved-picks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          game_id: _UCL_FINAL_GAME_ID,
+          market: edge.market,
+          side: edge.side,
+          bet_label: betLabel,
+          model_prob: edge.model_prob,
+          best_price: edge.best_price,
+          best_book: edge.best_book,
+          fixture_label: `${data.fixture.home} vs ${data.fixture.away} · ${data.fixture.tournament}`,
+          tournament: data.fixture.tournament,
+          commence_time: data.fixture.commence_time,
+          lineup_status: "projected",
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) {
+        setApproveError(json.error ?? "approval failed");
+      } else {
+        reloadApproved();
+      }
+    } catch (e) {
+      setApproveError(e instanceof Error ? e.message : "approval failed");
+    } finally {
+      setApproving(null);
+    }
+  }
 
   if (loading) {
     return (
@@ -670,6 +748,17 @@ function MatchIntelligencePanel() {
                   s.edge?.tier === "A" ? "#3ee68a" :
                   s.edge?.tier === "B" ? "#f5c062" :
                   s.edge?.tier === "C" ? "#9ca39a" : "#3a4033";
+                const edgeKey = s.edge ? `${s.edge.market}|${s.edge.side}` : "";
+                const isApproved = edgeKey ? !!approved[edgeKey] : false;
+                const approvedRow = isApproved ? approved[edgeKey] : null;
+                const canApprove = s.edge && s.edge.best_price !== null && s.edge.tier !== "pass";
+                // Build the human bet label for the approval row — e.g.
+                // "Paris Saint Germain to win" / "Over 2.5 goals" / "BTTS yes"
+                const betLabel =
+                  row.market === "1X2" ? (s.label === "Draw" ? "Draw" : `${s.label} to win`) :
+                  row.market === "Totals 2.5" ? `${s.label === "Over" ? "Over" : "Under"} 2.5 goals` :
+                  row.market === "BTTS" ? `BTTS ${s.label}` :
+                  `${s.label} ${row.market}`;
                 return (
                   <div
                     key={s.label}
@@ -692,6 +781,27 @@ function MatchIntelligencePanel() {
                       </div>
                     ) : (
                       <p className="text-[9px] text-[#3a4033] mt-1.5">no book price</p>
+                    )}
+                    {/* Approval row — only shows for tier-A/B/C edges */}
+                    {canApprove && !isApproved && (
+                      <button
+                        onClick={() => s.edge && approve(s.edge, betLabel)}
+                        disabled={approving === edgeKey}
+                        className="mt-2 w-full rounded border border-[#3ee68a]/30 bg-[#3ee68a]/[0.06] px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-[#3ee68a] hover:bg-[#3ee68a]/[0.12] disabled:opacity-40"
+                      >
+                        {approving === edgeKey ? "Approving…" : "Approve · Kelly stake"}
+                      </button>
+                    )}
+                    {isApproved && approvedRow && (
+                      <div className="mt-2 rounded border border-[#3ee68a]/25 bg-[#3ee68a]/[0.04] px-2 py-1.5">
+                        <p className="text-[8px] uppercase tracking-wider text-[#4a524a]">Approved</p>
+                        <p className="text-[12px] font-mono font-black text-[#3ee68a]">
+                          {approvedRow.stake_units.toFixed(2)}u
+                        </p>
+                        <p className="text-[8px] text-[#6b7068] font-mono">
+                          {approvedRow.opening_book} {approvedRow.opening_price >= 0 ? "+" : ""}{approvedRow.opening_price}
+                        </p>
+                      </div>
                     )}
                   </div>
                 );
@@ -724,9 +834,38 @@ function MatchIntelligencePanel() {
         </div>
       )}
 
+      {/* Approval summary — what's already on the ticket for this fixture */}
+      {Object.keys(approved).length > 0 && (
+        <div className="mt-3 rounded-lg border border-[#3ee68a]/15 bg-[#3ee68a]/[0.03] px-4 py-3">
+          <p className="text-[10px] uppercase tracking-wider text-[#4a524a] mb-1.5">
+            Your approved picks for this fixture
+          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px]">
+            {Object.values(approved).map((p) => (
+              <div key={`${p.market}|${p.side}`} className="flex items-center gap-1.5">
+                <span className="text-[#c4c7c0] font-semibold">{p.bet_label}</span>
+                <span className="text-[#3ee68a] font-mono font-black">{p.stake_units.toFixed(2)}u</span>
+                <span className="text-[#6b7068] font-mono text-[10px]">
+                  ({p.opening_book} {p.opening_price >= 0 ? "+" : ""}{p.opening_price})
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[9px] text-[#3a4033] mt-2">
+            Stakes are quarter-Kelly · 1 unit = 1% of bankroll · capped at 5u per pick.
+          </p>
+        </div>
+      )}
+
+      {/* Error banner if the last approval attempt failed */}
+      {approveError && (
+        <p className="mt-2 text-[10px] text-[#ef4444]">Approval error: {approveError}</p>
+      )}
+
       <p className="text-[10px] text-[#3a4033] mt-3 leading-relaxed">
         Pre-odds model probabilities from Understat xG + M9 prior regression + M7/M8 lineup adjustments (when fresh).
-        Confidence tiers: A = ≥5pp edge · B = ≥3pp · C = ≥1.5pp · below = no bet.
+        Confidence tiers: A ≥5pp · B ≥3pp · C ≥1.5pp · below = no bet.
+        Stake recommendation is quarter-Kelly capped at 5u/pick.
       </p>
     </Panel>
   );
