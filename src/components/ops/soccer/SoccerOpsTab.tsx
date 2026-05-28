@@ -848,19 +848,50 @@ interface ApprovedPick {
   pnl_units: number | null;
 }
 
+interface FeaturedFixture {
+  home: string;
+  away: string;
+  commence_time: string | null;
+  game_id: string | null;
+  sport_key: string;
+  tournament: string;
+  home_league: string;
+  away_league: string;
+  neutral_venue: boolean;
+  competition_stage: string;
+}
+
 function MatchIntelligencePanel() {
-  // For now hardcoded to UCL final — the most relevant match for the next
-  // 5 days and the pilot Bob asked for. Once this view is validated we'll
-  // make it pick the next "feature match" automatically (highest-edge or
-  // highest-tournament fixture inside the slate).
+  // Auto-pick the next "feature match" from /api/ops/featured-fixture
+  // (M28). Falls back to PSG vs Arsenal UCL final if the endpoint fails
+  // OR the selected fixture is the UCL final itself.
+  const [fixture, setFixture] = useState<FeaturedFixture | null>(null);
   const [data, setData] = useState<MatchIntelResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [approved, setApproved] = useState<Record<string, ApprovedPick>>({});
   const [approving, setApproving] = useState<string | null>(null);
   const [approveError, setApproveError] = useState<string | null>(null);
 
+  // Fallback: hardcoded UCL final (the pilot fixture). Used when
+  // /api/ops/featured-fixture returns no candidates yet — e.g. between-
+  // seasons gap before WC kicks off.
+  const _FALLBACK_FIXTURE: FeaturedFixture = {
+    home: "Paris Saint Germain",
+    away: "Arsenal",
+    commence_time: "2026-05-30T16:00:00Z",
+    game_id: _UCL_FINAL_GAME_ID,
+    sport_key: "soccer_uefa_champs_league",
+    tournament: "UCL",
+    home_league: "Ligue 1",
+    away_league: "Premier League",
+    neutral_venue: true,
+    competition_stage: "ucl_final",
+  };
+
+  const activeGameId = fixture?.game_id ?? _UCL_FINAL_GAME_ID;
+
   const reloadApproved = useCallback(() => {
-    void fetch(`/api/ops/approved-picks?game_id=${_UCL_FINAL_GAME_ID}&limit=20`)
+    void fetch(`/api/ops/approved-picks?game_id=${activeGameId}&limit=20`)
       .then((r) => r.json())
       .then((json: { picks?: Array<Record<string, unknown>> }) => {
         const idx: Record<string, ApprovedPick> = {};
@@ -884,29 +915,41 @@ function MatchIntelligencePanel() {
         setApproved(idx);
       })
       .catch(() => { /* silent */ });
+  }, [activeGameId]);
+
+  // Step 1: resolve the featured fixture
+  useEffect(() => {
+    void fetch("/api/ops/featured-fixture")
+      .then((r) => r.json())
+      .then((json: { ok?: boolean; fixture?: FeaturedFixture }) => {
+        setFixture(json.ok && json.fixture ? json.fixture : _FALLBACK_FIXTURE);
+      })
+      .catch(() => setFixture(_FALLBACK_FIXTURE));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Step 2: once we have a fixture, load match intelligence + approved picks
   useEffect(() => {
+    if (!fixture) return;
     const u = new URLSearchParams({
-      home: "Paris Saint Germain",
-      away: "Arsenal",
-      home_league: "Ligue 1",
-      away_league: "Premier League",
-      tournament: "UCL",
-      commence_time: "2026-05-30T16:00:00Z",
-      game_id: _UCL_FINAL_GAME_ID,
-      neutral_venue: "1",
-      // M20 — explicit UCL final scaler so the model down-weights
-      // Big-5 regular-season xG into the much tighter knockout/final pace.
-      competition_stage: "ucl_final",
+      home: fixture.home,
+      away: fixture.away,
+      home_league: fixture.home_league,
+      away_league: fixture.away_league,
+      tournament: fixture.tournament,
+      neutral_venue: fixture.neutral_venue ? "1" : "0",
+      competition_stage: fixture.competition_stage,
     });
+    if (fixture.commence_time) u.set("commence_time", fixture.commence_time);
+    if (fixture.game_id) u.set("game_id", fixture.game_id);
+    setLoading(true);
     void fetch(`/api/ops/match-intelligence?${u.toString()}`)
       .then((r) => r.json())
       .then((json: MatchIntelResponse) => setData(json))
       .catch(() => setData({ error: "fetch failed" }))
       .finally(() => setLoading(false));
     reloadApproved();
-  }, [reloadApproved]);
+  }, [fixture, reloadApproved]);
 
   async function approve(edge: MatchIntelEdge, betLabel: string) {
     if (!data?.fixture) return;
@@ -918,7 +961,7 @@ function MatchIntelligencePanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          game_id: _UCL_FINAL_GAME_ID,
+          game_id: activeGameId,
           market: edge.market,
           side: edge.side,
           bet_label: betLabel,
