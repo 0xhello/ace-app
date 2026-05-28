@@ -267,6 +267,87 @@ function fmtNum(v: number | null | undefined, digits = 1) {
   return typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : "—";
 }
 
+// Game time / date formatter for the prop + plays cards.
+//
+// Input: ISO string like "2026-06-01T19:00:00Z" or "2026-06-01 19:00:00+00:00".
+// Output: "Sat Jun 1 · 3:00 PM ET" — short weekday, month/day, ET-local time,
+// always tagged ET so subscribers in different zones aren't confused by their
+// local clock.
+function formatGameTime(commenceTime: string | null | undefined): string | null {
+  if (!commenceTime) return null;
+  try {
+    const iso = commenceTime.includes("T")
+      ? commenceTime
+      : commenceTime.replace(" ", "T");
+    const d = new Date(iso);
+    if (!Number.isFinite(d.getTime())) return null;
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    // Intl gives "Sat, Jun 1, 3:00 PM" — collapse the commas and append ET
+    const raw = fmt.format(d);
+    return raw.replace(",", "").replace(",", " ·") + " ET";
+  } catch {
+    return null;
+  }
+}
+
+// Translate a raw prop card into the explicit pick the bettor should see.
+//
+// The model writes model_mean (e.g. 2.34 expected shots) and book_point (e.g.
+// 2.5 — the book's line). The pick side is implied by which side of the line
+// the model lands on, but the UI never showed that translation — the user
+// would see "2.34" with no idea whether to take OVER or UNDER. This helper
+// makes the inference explicit.
+//
+// Markets handled:
+//   shots / shots_on_target / passes / tackles → "OVER 2.5 shots" or "UNDER 2.5"
+//   anytime_scorer → "Anytime goal" (always a YES bet; model_prob is the
+//                    probability)
+//   first_scorer → "First goal" (same shape)
+//   any unknown market → readable fallback ("Player Goals", etc.)
+function formatPropPick(card: PropCard): { headline: string; side: "over" | "under" | "yes" | "—" } {
+  const market = (card.market || "").toLowerCase();
+  const line = card.book_point;
+  const mean = card.model_mean;
+
+  // Yes/No markets — no line, just probability
+  if (market === "anytime_scorer") {
+    return { headline: "Anytime goal", side: "yes" };
+  }
+  if (market === "first_scorer" || market === "first_goalscorer") {
+    return { headline: "First goal", side: "yes" };
+  }
+
+  // Over/under markets — derive side from model_mean vs book_point
+  const niceUnit =
+    market === "shots" ? "shots" :
+    market === "shots_on_target" || market === "sot" ? "shots on target" :
+    market === "passes" ? "passes" :
+    market === "tackles" ? "tackles" :
+    market === "fouls_committed" || market === "fouls" ? "fouls" :
+    market.replace(/_/g, " ");
+
+  if (line != null && mean != null) {
+    const side = mean > line ? "over" : "under";
+    return {
+      headline: `${side === "over" ? "OVER" : "UNDER"} ${line} ${niceUnit}`,
+      side,
+    };
+  }
+  // No book line yet — can only describe the model's projection
+  if (mean != null) {
+    return { headline: `${niceUnit.charAt(0).toUpperCase() + niceUnit.slice(1)} (no line yet)`, side: "—" };
+  }
+  return { headline: niceUnit.charAt(0).toUpperCase() + niceUnit.slice(1), side: "—" };
+}
+
 // ─── Prose rationale ──────────────────────────────────────────────────────────
 //
 // Turns the JSON _adj block (xG priors, lineup, defense vulnerability, SoT,
@@ -641,26 +722,79 @@ function PropCardsPanel({ cards, stats, meta }: { cards: PropCard[]; stats?: WCP
           {top.map((c) => {
             const teamEnv = c.context?.team_environment;
             const opp = c.context?.opponent_weakness;
+            const pick = formatPropPick(c);
+            const gameTime = formatGameTime(c.commence_time);
+            // Model number context: anytime/first_scorer use model_prob (%);
+            // shots/SoT/etc. use model_mean (count). Show with an explicit
+            // "model says" label so the number isn't a mystery.
+            const modelNumber =
+              c.model_prob != null
+                ? { value: fmtPct(c.model_prob), label: "Model probability" }
+                : { value: fmtNum(c.model_mean, 2), label: "Model projection" };
             return (
               <div key={c.id} className="rounded-xl border border-[#1a211c] bg-[#0a0d0a] p-4">
-                <div className="flex items-start justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Tag label={c.decision.toUpperCase()} color={c.decision === "pick" ? "#3ee68a" : c.decision === "lean" ? "#f5c062" : "#6b7068"} />
-                      <Tag label={c.confidence_tier} color={tierColor(c.confidence_tier)} />
-                    </div>
-                    <p className="text-[13px] font-bold text-white truncate">{c.player_name} {c.market.replaceAll("_", " ")}</p>
-                    <p className="text-[10px] text-[#6b7068] truncate">{c.team} vs {c.opponent} · {c.tournament}</p>
+                {/* Header row — decision/tier tags on left, game time on right */}
+                <div className="flex items-start justify-between gap-3 mb-2.5">
+                  <div className="flex items-center gap-2">
+                    <Tag label={c.decision.toUpperCase()} color={c.decision === "pick" ? "#3ee68a" : c.decision === "lean" ? "#f5c062" : "#6b7068"} />
+                    <Tag label={c.confidence_tier} color={tierColor(c.confidence_tier)} />
                   </div>
-                  <p className="text-[12px] font-mono font-black text-[#3ee68a]">{c.model_prob != null ? fmtPct(c.model_prob) : fmtNum(c.model_mean, 2)}</p>
+                  {gameTime && (
+                    <p className="text-[10px] font-mono text-[#9ca39a] shrink-0">{gameTime}</p>
+                  )}
                 </div>
+
+                {/* The pick — biggest, clearest line. Tells the bettor exactly
+                    what to bet ("OVER 2.5 shots" / "Anytime goal") instead of
+                    making them infer it from a raw number. */}
+                <div className="mb-1">
+                  <p className="text-[15px] font-black text-white leading-snug">
+                    {pick.headline}
+                  </p>
+                  <p className="text-[12px] font-semibold text-[#c4c7c0] truncate">
+                    {c.player_name}
+                  </p>
+                </div>
+
+                {/* Matchup + tournament */}
+                <p className="text-[10px] text-[#6b7068] truncate mb-3">
+                  {c.away_team} @ {c.home_team} · {c.tournament}
+                </p>
+
+                {/* Model output — labeled. No more mystery numbers. */}
+                <div className="grid grid-cols-2 gap-2 mb-3 rounded-lg bg-[#080a08] border border-[#151a15] px-3 py-2">
+                  <div>
+                    <p className="text-[8px] text-[#4a524a] uppercase tracking-wider">{modelNumber.label}</p>
+                    <p className="text-[14px] font-mono font-black text-[#3ee68a]">{modelNumber.value}</p>
+                  </div>
+                  <div>
+                    <p className="text-[8px] text-[#4a524a] uppercase tracking-wider">Best price</p>
+                    <p className="text-[14px] font-mono font-bold text-[#f5c062]">
+                      {c.book ? `${c.book} ${fmtOdds(c.book_odds)}` : "no price yet"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Driver context — what's behind the number */}
                 <div className="grid grid-cols-4 gap-2 mb-3 text-[10px]">
-                  <div><p className="text-[#4a524a] uppercase tracking-wider">Team xG</p><p className="font-mono text-[#c4c7c0]">{fmtNum(teamEnv?.projected_team_goals, 2)}</p></div>
-                  <div><p className="text-[#4a524a] uppercase tracking-wider">Opp</p><p className="font-mono text-[#c4c7c0]">{opp?.grade ?? "—"}</p></div>
-                  <div><p className="text-[#4a524a] uppercase tracking-wider">xGA</p><p className="font-mono text-[#c4c7c0]">{fmtNum(opp?.recent_xg_against, 2)}</p></div>
-                  <div><p className="text-[#4a524a] uppercase tracking-wider">Market</p><p className="font-mono text-[#f5c062] truncate">{c.book ? `${c.book} ${fmtOdds(c.book_odds)}` : "pending"}</p></div>
+                  <div title="Expected goals for this player's team this match">
+                    <p className="text-[#4a524a] uppercase tracking-wider">Team xG</p>
+                    <p className="font-mono text-[#c4c7c0]">{fmtNum(teamEnv?.projected_team_goals, 2)}</p>
+                  </div>
+                  <div title="Opponent's defensive grade — weak / average / strong">
+                    <p className="text-[#4a524a] uppercase tracking-wider">Opp def</p>
+                    <p className="font-mono text-[#c4c7c0]">{opp?.grade ?? "—"}</p>
+                  </div>
+                  <div title="Opponent's recent expected goals against per match">
+                    <p className="text-[#4a524a] uppercase tracking-wider">Opp xGA</p>
+                    <p className="font-mono text-[#c4c7c0]">{fmtNum(opp?.recent_xg_against, 2)}</p>
+                  </div>
+                  <div title="Edge of model vs market in percentage points">
+                    <p className="text-[#4a524a] uppercase tracking-wider">Edge</p>
+                    <p className="font-mono font-bold text-[#3ee68a]">{fmtEdge(c.edge_pp)}</p>
+                  </div>
                 </div>
-                <p className="text-[10px] text-[#3a4033]">Edge {fmtEdge(c.edge_pp)} · Line {c.book_point ?? "—"} · {c.away_team} @ {c.home_team}</p>
+
                 {c.blocker_reasons && c.blocker_reasons.length > 0 && (
                   <p className="mt-2 text-[9px] text-[#6b7068] leading-relaxed">Blocked: {c.blocker_reasons.slice(0, 3).join(", ")}</p>
                 )}
