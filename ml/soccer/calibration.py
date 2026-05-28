@@ -146,6 +146,13 @@ def run_calibration(
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
 
+    # NOTE: BTTS backtest is intentionally NOT included. football-data.co.uk
+    # closing-odds extracts in soccer_team_form don't carry BTTS Yes/No
+    # closing prices, so we have no Pinnacle benchmark to grade against.
+    # Extending requires adding BbAvBTSY / BbAvBTSN to the form ingestor —
+    # tracked as a follow-up. For now BTTS picks surface in the UI with an
+    # explicit "untested" badge so the trader doesn't bet from unvalidated
+    # output.
     out_buckets: Dict[str, Dict[str, Any]] = {
         "1X2_home":  {"residuals": [], "bets": []},
         "1X2_draw":  {"residuals": [], "bets": []},

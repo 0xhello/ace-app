@@ -164,6 +164,116 @@ _RHO_DEFAULT = -0.05
 # to any probability we care about, so summing to 8 is plenty.
 _MAX_GOALS = 8
 
+# Corners (M23) — bigger range than goals because total corners typically
+# sits around 9-12 per match with substantial spread. Sum to 24 to cover
+# the tail.
+_MAX_CORNERS = 24
+
+
+# ── Corners (M23) ────────────────────────────────────────────────────────────
+
+# Common team-name variants across our sources. soccer_team_form uses
+# football-data.co.uk's short names ("Paris SG", "Man United"); Understat
+# uses the full club name. We collapse known variants here so the corner-
+# rate lookup doesn't silently miss the biggest clubs.
+_FORM_TABLE_NAME_ALIASES: Dict[str, List[str]] = {
+    "Paris Saint Germain": ["Paris SG", "PSG"],
+    "Manchester United":   ["Man United", "Man Utd"],
+    "Manchester City":     ["Man City"],
+    "Tottenham":           ["Tottenham Hotspur"],
+    "Wolverhampton Wanderers": ["Wolves"],
+    "Newcastle":           ["Newcastle United"],
+    "Athletic Bilbao":     ["Ath Bilbao"],
+    "Atletico Madrid":     ["Ath Madrid"],
+    "Borussia Dortmund":   ["Dortmund"],
+    "Borussia Monchengladbach": ["M'gladbach"],
+    "Bayer Leverkusen":    ["Leverkusen"],
+    "Eintracht Frankfurt": ["Frankfurt"],
+    "Bologna FC":          ["Bologna"],
+}
+
+
+def _team_corners_window(
+    conn: sqlite3.Connection,
+    team: str,
+    *,
+    n: int = _RECENT_MATCH_WINDOW,
+    before_date: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Last n league matches for ``team`` with corner stats.
+
+    Pulls from soccer_team_form. Resolves common name variants via the
+    alias map (so "Paris Saint Germain" → looks up "Paris SG" too).
+    Returns the team's per-match corners-for / corners-against, or None
+    if fewer than 6 rows are available.
+    """
+    # Try exact, alias variants, then a LIKE fallback
+    candidates = [team] + _FORM_TABLE_NAME_ALIASES.get(team, [])
+    placeholders = ",".join("?" for _ in candidates)
+    where = (
+        f"(team_name IN ({placeholders}) OR team_name LIKE ?) "
+        f"AND corners IS NOT NULL"
+    )
+    params: List[Any] = list(candidates) + [f"%{team}%"]
+    if before_date:
+        where += " AND match_date < ?"
+        params.append(before_date)
+    rows = conn.execute(
+        f"""SELECT team_name, corners, corners_against, match_date
+              FROM soccer_team_form
+             WHERE {where}
+             ORDER BY match_date DESC
+             LIMIT ?""",
+        (*params, n),
+    ).fetchall()
+    if len(rows) < 6:
+        return None
+    canonical = rows[0]["team_name"]
+    n_used = len(rows)
+    cor_for = sum(r["corners"] or 0 for r in rows) / n_used
+    cor_against = sum(r["corners_against"] or 0 for r in rows) / n_used
+    return {
+        "team": canonical,
+        "n_matches": n_used,
+        "corners_for_pg": cor_for,
+        "corners_against_pg": cor_against,
+    }
+
+
+def _corner_markets(lam_total: float) -> Dict[str, float]:
+    """Poisson P(X >= line) for the standard corner totals lines.
+
+    Books typically offer 8.5, 9.5, 10.5, 11.5. We compute all of them
+    so the UI / edge layer can match whichever line the book is offering.
+    """
+    def pmf(lam: float, k: int) -> float:
+        if lam <= 0:
+            return 1.0 if k == 0 else 0.0
+        return math.exp(-lam) * (lam ** k) / math.factorial(k)
+    if lam_total <= 0:
+        return {}
+    # Compute cumulative for thresholds
+    pdf = [pmf(lam_total, i) for i in range(_MAX_CORNERS + 1)]
+    cdf_at = [0.0] * (_MAX_CORNERS + 2)
+    cdf_at[0] = pdf[0]
+    for k in range(1, _MAX_CORNERS + 1):
+        cdf_at[k] = cdf_at[k - 1] + pdf[k]
+    cdf_at[_MAX_CORNERS + 1] = 1.0
+
+    def p_at_least(k: int) -> float:
+        if k <= 0:
+            return 1.0
+        if k > _MAX_CORNERS:
+            return 0.0
+        return max(0.0, 1.0 - cdf_at[k - 1])
+
+    out: Dict[str, float] = {"lambda_total_corners": round(lam_total, 3)}
+    for line in (7.5, 8.5, 9.5, 10.5, 11.5, 12.5):
+        thr = int(math.ceil(line))
+        out[f"p_over_{line}".replace(".", "_")]  = round(p_at_least(thr), 4)
+        out[f"p_under_{line}".replace(".", "_")] = round(1.0 - p_at_least(thr), 4)
+    return out
+
 
 # ── Data fetchers ────────────────────────────────────────────────────────────
 
@@ -531,6 +641,23 @@ def intelligence_for_match(
         grid = _joint_probability_grid(lam_h, lam_a)
         raw_probs = _markets_from_grid(grid)
 
+        # Corners (M23) — independent of the goal grid. Each team's
+        # expected corners is the average of (their own corners-for rate)
+        # and (opponent's corners-against rate). Notably, UCL knockouts
+        # typically have AS MANY OR MORE corners than league play (pressure-
+        # driven attacking) — so we DON'T apply the COMPETITION_FACTORS
+        # scaler here. Total = home_team_corners + away_team_corners.
+        home_corners = _team_corners_window(conn, home_team, before_date=before_date)
+        away_corners = _team_corners_window(conn, away_team, before_date=before_date)
+        corners_markets: Dict[str, Any] = {}
+        if home_corners and away_corners:
+            home_cor = (home_corners["corners_for_pg"] + away_corners["corners_against_pg"]) / 2.0
+            away_cor = (away_corners["corners_for_pg"] + home_corners["corners_against_pg"]) / 2.0
+            total_lam = home_cor + away_cor
+            corners_markets = _corner_markets(total_lam)
+            corners_markets["home_team_corners"] = round(home_cor, 3)
+            corners_markets["away_team_corners"] = round(away_cor, 3)
+
         # Apply shrinkage so the model isn't over-confident — same factors
         # as predict_match. 1X2 shrinks 28% toward uniform; totals 20%; BTTS 15%.
         p_h, p_d, p_a = _shrink_1x2(
@@ -584,8 +711,11 @@ def intelligence_for_match(
             "drivers": {
                 "home_xg_window": home_xg,
                 "away_xg_window": away_xg,
+                "home_corners_window": home_corners,
+                "away_corners_window": away_corners,
                 "adjustments": adj_trace,
             },
+            "corners": corners_markets,
             "shrinkage": {
                 "factor_1x2":  SHRINKAGE_FACTOR_1X2,
                 "factor_tot":  SHRINKAGE_FACTOR_TOTALS,

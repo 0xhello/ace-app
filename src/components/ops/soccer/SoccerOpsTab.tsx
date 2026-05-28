@@ -543,6 +543,15 @@ interface MatchIntelResponse {
     p_home_over_15_raw: number;
     p_away_over_15_raw: number;
   };
+  corners?: {
+    lambda_total_corners: number;
+    home_team_corners: number;
+    away_team_corners: number;
+    p_over_8_5: number;  p_under_8_5: number;
+    p_over_9_5: number;  p_under_9_5: number;
+    p_over_10_5: number; p_under_10_5: number;
+    p_over_11_5: number; p_under_11_5: number;
+  };
   drivers?: {
     home_xg_window?: { team: string; n_matches: number; xg_for_pg: number; xg_against_pg: number; goals_for_pg: number };
     away_xg_window?: { team: string; n_matches: number; xg_for_pg: number; xg_against_pg: number; goals_for_pg: number };
@@ -566,6 +575,32 @@ interface MatchIntelResponse {
 // table on prod (Saka shots / Ramos shots all reference this same game_id).
 // Pinning lets the approve flow target the right game_id every time.
 const _UCL_FINAL_GAME_ID = "a54f22aca3be31d95f13eac0aeac62cf";
+
+// Per-market calibration verdict from the M21 backtest (420 Big-5 matches,
+// 5pp tier-A threshold). Drives the badge on each market row so the bettor
+// knows which buckets are backtested-positive vs unvalidated vs losing.
+// Updated by running `python3 -m ml.soccer.calibration --n-per-league 100`
+// and reading the table.
+type MarketVerdict =
+  | { status: "bet"; roi: number; n: number; note?: string }
+  | { status: "loses"; roi: number; n: number; note?: string }
+  | { status: "untested"; note?: string };
+
+const MARKET_VERDICTS: Record<string, MarketVerdict> = {
+  "1X2|home":         { status: "loses", roi: -0.092, n: 138, note: "Model over-confident; predicted 39% wins actual 25%" },
+  "1X2|draw":         { status: "loses", roi: -0.357, n:  71, note: "Worst-calibrated bucket" },
+  "1X2|away":         { status: "bet",   roi:  0.129, n: 152, note: "Profitable for non-neutral fixtures only" },
+  "Totals 2.5|over":  { status: "bet",   roi:  0.091, n: 198, note: "198-bet sample, consistent ROI across runs" },
+  "Totals 2.5|under": { status: "loses", roi: -0.363, n:  38, note: "Small-sample loss but consistent direction" },
+  "BTTS|yes":         { status: "untested",            note: "BTTS closing odds not in our backfill — extending form ingestor is the fix" },
+  "BTTS|no":          { status: "untested",            note: "BTTS closing odds not in our backfill" },
+  "Corners 9.5|over": { status: "untested",            note: "Corners market shipped in M23; backtest pipeline pending" },
+  "Corners 9.5|under":{ status: "untested",            note: "Corners market shipped in M23; backtest pipeline pending" },
+};
+
+function getVerdict(market: string, side: string): MarketVerdict | null {
+  return MARKET_VERDICTS[`${market}|${side}`] ?? null;
+}
 
 interface ApprovedPick {
   market: string;
@@ -706,6 +741,7 @@ function MatchIntelligencePanel() {
 
   // Build the market grid — one row per market, three columns (our prob,
   // best book + price, edge / tier). Markets shown in trading-desk order.
+  const corners = data.corners;
   const marketRows = [
     {
       market: "1X2",
@@ -729,6 +765,18 @@ function MatchIntelligencePanel() {
         { label: "No",  prob: m.p_btts_no,  edge: edges.find(e => e.market === "BTTS" && e.side === "no") },
       ],
     },
+    // Corners (M23). Books typically post 9.5 or 10.5 as the popular line —
+    // we show 9.5 here. No edge layer yet because our Odds API pull doesn't
+    // include the corners market (M23 follow-up to add fetchers). The row
+    // surfaces the model's view alongside the badges so the trader can
+    // eyeball it vs whatever line a book offers.
+    ...(corners ? [{
+      market: "Corners 9.5",
+      sides: [
+        { label: "Over",  prob: corners.p_over_9_5,  edge: undefined as MatchIntelEdge | undefined },
+        { label: "Under", prob: corners.p_under_9_5, edge: undefined as MatchIntelEdge | undefined },
+      ],
+    }] : []),
   ];
 
   // Lineup-freshness traffic light. Green = fresh confirmed XI, amber =
@@ -804,7 +852,24 @@ function MatchIntelligencePanel() {
                 const edgeKey = s.edge ? `${s.edge.market}|${s.edge.side}` : "";
                 const isApproved = edgeKey ? !!approved[edgeKey] : false;
                 const approvedRow = isApproved ? approved[edgeKey] : null;
-                const canApprove = s.edge && s.edge.best_price !== null && s.edge.tier !== "pass";
+                const verdict = s.edge ? getVerdict(s.edge.market, s.edge.side) : null;
+                // Only allow approval on backtest-validated markets.
+                // Markets that lose in backtest are flagged but un-approvable;
+                // untested markets show a yellow warning + still allow but
+                // with friction. UCL final is neutral venue, so "1X2 away"
+                // bettable only in non-neutral fixtures has its verdict
+                // downgraded to "untested" at neutral venue.
+                const isNeutralFixture = data.fixture?.neutral_venue === true;
+                const verdictApplies = verdict && !(
+                  isNeutralFixture && verdict.status === "bet" &&
+                  (verdict.note ?? "").toLowerCase().includes("non-neutral")
+                );
+                const canApprove = !!(
+                  s.edge &&
+                  s.edge.best_price !== null &&
+                  s.edge.tier !== "pass" &&
+                  (!verdict || verdict.status === "bet" || verdict.status === "untested")
+                );
                 // Build the human bet label for the approval row — e.g.
                 // "Paris Saint Germain to win" / "Over 2.5 goals" / "BTTS yes"
                 const betLabel =
@@ -831,6 +896,33 @@ function MatchIntelligencePanel() {
                         <p className="font-mono font-bold" style={{ color: tierColor }}>
                           {s.edge.edge_pp >= 0 ? "+" : ""}{(s.edge.edge_pp * 100).toFixed(1)}pp · {s.edge.tier !== "pass" ? `tier ${s.edge.tier}` : "no bet"}
                         </p>
+                        {/* Backtest verdict badge — derived from the M21 calibration
+                            run. Green = bet (and how much ROI). Red = backtest loses
+                            money. Amber = untested market. */}
+                        {verdict && (
+                          <p className="font-mono text-[9px]" title={verdict.note ?? ""}>
+                            {verdict.status === "bet" && verdictApplies && (
+                              <span style={{ color: "#3ee68a" }}>
+                                ✓ backtest +{((verdict.roi ?? 0) * 100).toFixed(1)}% ROI ({verdict.n}b)
+                              </span>
+                            )}
+                            {verdict.status === "bet" && !verdictApplies && (
+                              <span style={{ color: "#f5c062" }}>
+                                ⚠ backtested non-neutral only
+                              </span>
+                            )}
+                            {verdict.status === "loses" && (
+                              <span style={{ color: "#ef4444" }}>
+                                ✗ backtest {((verdict.roi ?? 0) * 100).toFixed(1)}% ROI ({verdict.n}b) · no bet
+                              </span>
+                            )}
+                            {verdict.status === "untested" && (
+                              <span style={{ color: "#f5c062" }}>
+                                ⚠ market not yet backtested
+                              </span>
+                            )}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <p className="text-[9px] text-[#3a4033] mt-1.5">no book price</p>
