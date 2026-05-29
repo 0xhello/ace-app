@@ -6,6 +6,7 @@ import GameRow from "@/components/GameRow";
 import TopAIPicks from "@/components/TopAIPicks";
 import WCBanner from "@/components/dashboard/WCBanner";
 import SoccerPicksPanel from "@/components/dashboard/SoccerPicksPanel";
+import FeaturedPickCard from "@/components/dashboard/FeaturedPickCard";
 import BetSlip from "@/components/BetSlip";
 import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
@@ -351,12 +352,19 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
         <div className="flex-1 overflow-y-auto scrollbar-hide">
           <WCBanner />
-          {/* Soccer picks panel only when the SOCCER sport filter is selected.
-              Now driven by the model layer (soccer_model_candidates +
-              soccer_prop_cards) — not the CLV-divergence engine. The
-              divergence engine continues running silently in the background
-              for data collection / training purposes (per user direction). */}
-          {sport === "SOCCER" && <SoccerPicksPanel />}
+          {/* Soccer surface:
+              - FeaturedPickCard (M34): premium, single backtest-validated
+                pick of the moment with the receipt that earns trust.
+              - SoccerPicksPanel (existing): the broader signals stream —
+                more picks, more markets, more history. Kept under the
+                featured card for now so subscribers can see the
+                supporting context. */}
+          {sport === "SOCCER" && (
+            <>
+              <FeaturedPickCard />
+              <SoccerPicksPanel />
+            </>
+          )}
           <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
 
           <div
