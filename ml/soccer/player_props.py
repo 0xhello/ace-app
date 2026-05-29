@@ -119,6 +119,104 @@ def _assumed_minutes(position_bucket: str, sample_confidence: str) -> int:
     return 70
 
 
+# Default minute envelopes when we DO have a Sportmonks lineup. These
+# replace the hand-coded `_assumed_minutes` heuristic on cards where the
+# player is found in the projected XI. Tuned to Big-5 averages — starting
+# forwards play 75–80 min, midfielders 78–82, defenders nearly the full 90;
+# bench players who come on usually get 15–25.
+_LINEUP_STARTER_MINUTES = {
+    "forward":    78,
+    "attacker":   78,
+    "midfielder": 80,
+    "defender":   85,
+}
+_LINEUP_BENCH_MINUTES = 20
+
+
+def _minutes_from_lineup(
+    *,
+    bundle: Optional[Dict[str, Any]],
+    team_name: str,
+    player_name: str,
+    position_bucket: str,
+    sample_confidence: str,
+) -> Dict[str, Any]:
+    """Resolve a player's match minutes + lineup_status.
+
+    Decision order:
+      1. If a Sportmonks bundle is provided AND the player is found in
+         the projected XI for the matching team:
+           - starter → (envelope minutes for position, "projected_starting", "sportmonks")
+           - bench   → (_LINEUP_BENCH_MINUTES, "projected_bench", "sportmonks")
+      2. If a bundle is provided but the player is NOT in the lineup:
+           - returns ``in_lineup=False`` so the caller can SKIP the prop
+             card entirely. We will not project minutes for a player
+             Sportmonks has already excluded from the matchday XI — that
+             produced the worst false positives in the M37 audit.
+      3. If no bundle is provided (cache miss / Sportmonks down) → fall
+         back to the existing heuristic. Zero regression vs pre-M38.
+    """
+    # Defer the heavy import so tests + non-soccer call paths don't pull
+    # the cache module unnecessarily.
+    if bundle is not None:
+        try:
+            from ml.soccer.sportmonks_fixture import lookup_player_in_lineup
+        except Exception:
+            bundle = None  # treat as no bundle on import failure
+
+    if bundle is not None:
+        # Decide whether `team_name` refers to the home or away side of the
+        # cached bundle so the lookup filters correctly.
+        nh = _norm(bundle.get("home_team_name") or "")
+        na = _norm(bundle.get("away_team_name") or "")
+        nt = _norm(team_name)
+        side: Optional[str] = None
+        if nt and (nt in nh or nh in nt):
+            side = "home"
+        elif nt and (nt in na or na in nt):
+            side = "away"
+
+        hit = lookup_player_in_lineup(bundle, player_name, team_side=side)
+        if hit:
+            if hit.get("is_starter"):
+                mins = _LINEUP_STARTER_MINUTES.get(
+                    position_bucket, _LINEUP_STARTER_MINUTES["midfielder"]
+                )
+                return {
+                    "minutes": mins,
+                    "lineup_status": "projected_starting",
+                    "source": "sportmonks",
+                    "in_lineup": True,
+                    "jersey": hit.get("jersey_number"),
+                    "formation_field": hit.get("formation_field"),
+                    "sportmonks_player_id": hit.get("player_id"),
+                }
+            return {
+                "minutes": _LINEUP_BENCH_MINUTES,
+                "lineup_status": "projected_bench",
+                "source": "sportmonks",
+                "in_lineup": True,
+                "jersey": hit.get("jersey_number"),
+                "formation_field": hit.get("formation_field"),
+                "sportmonks_player_id": hit.get("player_id"),
+            }
+        # Bundle present, player NOT in XI → caller should skip.
+        return {
+            "minutes": None,
+            "lineup_status": "not_in_xi",
+            "source": "sportmonks",
+            "in_lineup": False,
+        }
+
+    # No bundle — fall back to the legacy heuristic.
+    return {
+        "minutes": _assumed_minutes(position_bucket, sample_confidence),
+        "lineup_status": "projected_unknown",
+        "source": "heuristic",
+        "in_lineup": None,  # unknown
+    }
+
+
 def _poisson_at_least_one(lam: float) -> float:
     return 1.0 - math.exp(-max(lam, 0.0))
 
@@ -294,7 +392,21 @@ def _build_prop_rows(
     team_ctx: Optional[Dict[str, Any]] = None,
     opp_ctx: Optional[Dict[str, Any]] = None,
     market_odds: Optional[Dict[str, Any]] = None,
+    sportmonks_bundle: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
+    """Build per-player prop rows for one team.
+
+    When ``sportmonks_bundle`` is provided (M38), players are matched
+    against the projected XI: starters get realistic minute envelopes,
+    bench entries get short envelopes, and players NOT in the XI are
+    SKIPPED rather than projected on a hand-coded heuristic. This is the
+    biggest single accuracy win over the legacy path — see the docstring
+    of ``_minutes_from_lineup`` for the decision order.
+
+    Backward compatible: passing ``sportmonks_bundle=None`` keeps the
+    previous heuristic minutes path verbatim, so every existing caller
+    (tests, WC pipeline, ops dashboards) continues to work unchanged.
+    """
     attack_pool = [
         p for p in pool
         if (p.get("position_bucket") or "") in ("forward", "attacker", "midfielder")
@@ -308,17 +420,29 @@ def _build_prop_rows(
     for p in attack_pool:
         pos = p.get("position_bucket") or "attacker"
         conf = p.get("sample_confidence") or "minimal"
-        mins = _assumed_minutes(pos, conf)
+        resolved = _minutes_from_lineup(
+            bundle=sportmonks_bundle,
+            team_name=label,
+            player_name=p["player_name"],
+            position_bucket=pos,
+            sample_confidence=conf,
+        )
+        if resolved["in_lineup"] is False:
+            # Sportmonks knows the projected XI and this player is NOT in
+            # it. Drop the card — projecting minutes on a benched/missing
+            # player produced the worst false positives in the M37 audit.
+            continue
+        mins = resolved["minutes"]
         g90 = float(p.get("g_per_90_shrunk") or 0.0)
         raw_xg = max(0.0, g90 * mins / 90.0)
         total_raw_xg += raw_xg
-        raw_rows.append((p, mins, raw_xg))
+        raw_rows.append((p, mins, raw_xg, resolved))
 
     target_named_xg = max(team_goal_lambda, 0.05) * 0.82
     scale = target_named_xg / total_raw_xg if total_raw_xg > 0 else 1.0
 
     out = []
-    for p, mins, raw_xg in raw_rows:
+    for p, mins, raw_xg, resolved in raw_rows:
         xg = raw_xg * scale
         anytime = _poisson_at_least_one(xg)
         shots90 = p.get("shots_per_90")
@@ -360,11 +484,19 @@ def _build_prop_rows(
                     "confidence": p.get("sample_confidence"),
                 },
                 "role_today": {
-                    "lineup_status": "projected_unknown",
+                    "lineup_status": resolved.get("lineup_status", "projected_unknown"),
                     "assumed_minutes": mins,
+                    "minutes_source": resolved.get("source", "heuristic"),
                     "penalty_role": "unknown",
                     "set_piece_role": "unknown",
-                    "notes": "No confirmed lineup/penalty source wired yet; using role/minutes prior from position and sample confidence.",
+                    "jersey_number": resolved.get("jersey"),
+                    "formation_field": resolved.get("formation_field"),
+                    "sportmonks_player_id": resolved.get("sportmonks_player_id"),
+                    "notes": (
+                        "Lineup confirmed from Sportmonks projected XI."
+                        if resolved.get("source") == "sportmonks"
+                        else "No Sportmonks lineup match; minutes prior from position + sample confidence."
+                    ),
                 },
                 "team_environment": {
                     "projected_team_goals": round(team_goal_lambda, 3),
@@ -428,6 +560,7 @@ def club_prop_context_cards(
     limit: int = 8,
     path: Optional[Path] = None,
     market_odds: Optional[Dict[str, Any]] = None,
+    sportmonks_bundle: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     team_ctx = team_context(team, league, season, path=path)
     opp_ctx = team_context(opponent, league or team_ctx.get("league"), season or team_ctx.get("season"), path=path)
@@ -446,6 +579,7 @@ def club_prop_context_cards(
         team_ctx=team_ctx,
         opp_ctx=opp_ctx,
         market_odds=market_odds,
+        sportmonks_bundle=sportmonks_bundle,
     )
 
 
@@ -460,10 +594,11 @@ def matchup_prop_context_cards(
     limit_per_team: int = 5,
     path: Optional[Path] = None,
     market_odds: Optional[Dict[str, Any]] = None,
+    sportmonks_bundle: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     return (
-        club_prop_context_cards(home_team, away_team, team_goal_lambda=home_goals, league=league, season=season, limit=limit_per_team, path=path, market_odds=market_odds) +
-        club_prop_context_cards(away_team, home_team, team_goal_lambda=away_goals, league=league, season=season, limit=limit_per_team, path=path, market_odds=market_odds)
+        club_prop_context_cards(home_team, away_team, team_goal_lambda=home_goals, league=league, season=season, limit=limit_per_team, path=path, market_odds=market_odds, sportmonks_bundle=sportmonks_bundle) +
+        club_prop_context_cards(away_team, home_team, team_goal_lambda=away_goals, league=league, season=season, limit=limit_per_team, path=path, market_odds=market_odds, sportmonks_bundle=sportmonks_bundle)
     )
 
 

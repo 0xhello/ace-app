@@ -1071,6 +1071,49 @@ def run_loop(once: bool = False) -> None:
                 except Exception:
                     pass
 
+        # M38 — Sportmonks pre-match fixture bundle sync. Discovers Big-5,
+        # UCL and WC fixtures over the next 3 days and pulls each one's
+        # projected lineup + 28 prediction markets into the local cache
+        # at soccer_sportmonks_fixture_cache. Downstream prop-card builds
+        # use this to replace the assumed_minutes=74 heuristic with real
+        # XI minutes (zero regression vs the legacy path when the cache
+        # misses — see player_props._minutes_from_lineup).
+        #
+        # Gated to once per hour because:
+        #   - The /fixtures/between discovery call costs 1 credit regardless
+        #     of whether anything changed, and rate-limit-friendly cadence
+        #     is what we want.
+        #   - Individual fixture refreshes inside sync_slate() are gated by
+        #     the module's own refresh policy (24h far / 6h near to kickoff),
+        #     so calling more often wouldn't burn extra fixture credits but
+        #     would burn a discovery credit per call.
+        if _interval_due("sportmonks_fixture_sync", minutes=60):
+            try:
+                from ml.soccer.sportmonks_fixture import sync_slate
+                summary = sync_slate(days=3)
+                print(
+                    f"  [worker] sportmonks slate: discovered={summary['discovered']} "
+                    f"fetched={summary['fetched']} skipped={summary['skipped']} "
+                    f"errors={len(summary['errors'])}",
+                    flush=True,
+                )
+                _wc_update_meta(
+                    "job:sportmonks_fixture_sync:last_run_at",
+                    datetime.now(timezone.utc).isoformat(),
+                )
+                _wc_update_meta("job:sportmonks_fixture_sync:last_error", "")
+            except Exception as e:
+                print(
+                    f"  [worker] sportmonks fixture sync error: {e}",
+                    file=sys.stderr, flush=True,
+                )
+                try:
+                    _wc_update_meta(
+                        "job:sportmonks_fixture_sync:last_error", str(e)[:200],
+                    )
+                except Exception:
+                    pass
+
         # European club leagues + UCL — same divergence engine as WC, just
         # different sport keys. Each league's active_until date gates whether
         # it runs (we skip Bundesliga after May 17, EPL after May 25, etc.).

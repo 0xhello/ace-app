@@ -451,6 +451,22 @@ def cards_for_game(
     if not home or not away:
         return []
     home_goals, away_goals = estimate_team_goals(game)
+
+    # M38 — resolve the Sportmonks fixture bundle ONCE per game. If we hit
+    # cache, every prop card downstream gets real-XI minutes; if we miss
+    # (Sportmonks down, league not covered, fixture not synced yet),
+    # bundle stays None and the legacy heuristic path runs unchanged.
+    sportmonks_bundle = None
+    try:
+        from ml.soccer.sportmonks_fixture import get_cached_bundle_by_teams
+        sportmonks_bundle = get_cached_bundle_by_teams(
+            home, away,
+            commence_time_iso=game.get("commence_time"),
+            path=db_path,
+        )
+    except Exception:
+        sportmonks_bundle = None
+
     base_cards = matchup_prop_context_cards(
         home,
         away,
@@ -460,6 +476,7 @@ def cards_for_game(
         season=None,
         limit_per_team=limit_per_team,
         market_odds=prop_odds,
+        sportmonks_bundle=sportmonks_bundle,
     )
     now = datetime.now(timezone.utc).isoformat()
     rows: List[Dict[str, Any]] = []
