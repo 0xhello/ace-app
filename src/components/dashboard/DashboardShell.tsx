@@ -7,6 +7,7 @@ import TopAIPicks from "@/components/TopAIPicks";
 import WCBanner from "@/components/dashboard/WCBanner";
 import SoccerPicksPanel from "@/components/dashboard/SoccerPicksPanel";
 import FeaturedPickCard from "@/components/dashboard/FeaturedPickCard";
+import RecentPicksStrip from "@/components/dashboard/RecentPicksStrip";
 import BetSlip from "@/components/BetSlip";
 import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
@@ -362,6 +363,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
           {sport === "SOCCER" && (
             <>
               <FeaturedPickCard />
+              <RecentPicksStrip />
               <SoccerPicksPanel />
             </>
           )}
