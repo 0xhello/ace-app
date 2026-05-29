@@ -361,14 +361,12 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
                 more picks, more markets, more history. Kept under the
                 featured card for now so subscribers can see the
                 supporting context. */}
-          {sport === "SOCCER" && (
-            <>
-              <FeaturedPickCard />
-              <BankrollCurve />
-              <RecentPicksStrip />
-              <SoccerPicksPanel />
-            </>
-          )}
+          {/* Subscriber-side soccer surface — reverted to the existing
+              SoccerPicksPanel only. FeaturedPickCard / BankrollCurve /
+              RecentPicksStrip components ship in the repo for future
+              activation, but are NOT exposed until the picks themselves
+              pass a serious review (formatting, validation, taste). */}
+          {sport === "SOCCER" && <SoccerPicksPanel />}
           <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
 
           <div

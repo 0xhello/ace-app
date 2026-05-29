@@ -279,11 +279,42 @@ function confidenceFromEdge(edge: number | null | undefined): string {
   return "Low confidence";
 }
 
+// Map any market+side+line into a clean human label for the candidate
+// table / row views. Handles game markets (h2h, totals, AH) AND player
+// props (shots, scorer, assist) — the latter were previously falling
+// through and producing nonsense like "Shots Yes".
 function betLabel(market: string, side: string, line: number | null) {
-  if (market === "totals") return `${side.toUpperCase()} ${line ?? ""}`;
-  if (market === "asian_handicap") return `AH ${side === "home" ? "Home" : "Away"} ${line != null ? (line >= 0 ? `+${line}` : line) : ""}`;
-  if (market === "h2h" && side === "draw") return "Draw";
-  return side.charAt(0).toUpperCase() + side.slice(1);
+  const m = (market || "").toLowerCase();
+  const s = (side || "").toLowerCase();
+
+  // Game-level
+  if (m === "totals") return `${side === "over" ? "Over" : "Under"} ${line ?? ""}`;
+  if (m === "asian_handicap") return `AH ${side === "home" ? "Home" : "Away"} ${line != null ? (line >= 0 ? `+${line}` : line) : ""}`;
+  if (m === "h2h" && s === "draw") return "Draw";
+  if (m === "h2h") return side.charAt(0).toUpperCase() + side.slice(1);
+  if (m === "btts") return `BTTS ${s === "yes" ? "Yes" : "No"}`;
+
+  // Player props — never just show "Yes"; describe the actual bet
+  const unit =
+    m === "shots" ? "shots" :
+    m === "shots_on_target" || m === "sot" ? "SoT" :
+    m === "passes" ? "passes" :
+    m === "tackles" ? "tackles" :
+    m === "fouls_committed" || m === "fouls" ? "fouls" :
+    null;
+  if (unit && line != null) {
+    const isHalfLine = Math.abs(line - Math.round(line)) > 0.01;
+    return isHalfLine ? `Over ${line} ${unit}` : `${line}+ ${unit}`;
+  }
+  if (m === "anytime_scorer") return "Anytime goal";
+  if (m === "first_scorer" || m === "first_goalscorer") return "First goal";
+  if (m === "anytime_assist") return "Anytime assist";
+  if (m === "to_score_2_or_more") return "2+ goals";
+  if (m === "to_score_3_or_more") return "3+ goals";
+
+  // Fallback — capitalize side but include market for context so it doesn't
+  // read as bare "Yes"
+  return `${side.charAt(0).toUpperCase() + side.slice(1)} ${m}`;
 }
 
 function tierColor(tier: "A" | "B" | "C") {
@@ -384,8 +415,15 @@ function formatPropPick(card: PropCard): { headline: string; side: "yes" | "—"
     market === "corners_taken" || market === "corners" ? "corners" :
     market.replace(/_/g, " ");
 
+  // Books quote count markets in two shapes — half-line over/under and
+  // whole-number X+. Half-line bets (line ends in .5) read as "Over 2.5
+  // shots". Whole-number bets read as "5+ shots". Picking the wrong shape
+  // makes the card look broken to anyone who's ever placed a bet.
   if (line != null) {
-    // "5+ shots" — the threshold is the book_point; bet is YES at that line
+    const isHalfLine = Math.abs(line - Math.round(line)) > 0.01;
+    if (isHalfLine) {
+      return { headline: `Over ${line} ${niceUnit}`, side: "yes" };
+    }
     return { headline: `${line}+ ${niceUnit}`, side: "yes" };
   }
   return { headline: niceUnit.charAt(0).toUpperCase() + niceUnit.slice(1), side: "—" };
@@ -1069,18 +1107,30 @@ function FeaturedPickPanel() {
             </p>
           </div>
 
-          {/* Plain-English read */}
-          <div className="space-y-2 mb-4 text-[12px] leading-relaxed text-[#c4c7c0]">
+          {/* Plain-English read — no pp / λ / mono jargon. */}
+          <div className="space-y-2 mb-4 text-[13px] leading-relaxed text-[#c4c7c0]">
             <p>
-              Our model gives <span className="font-mono text-white">{(featured.model_prob * 100).toFixed(1)}%</span>
-              {" "}probability for {featuredLabel.toLowerCase()}.
+              Our model gives this about{" "}
+              <span className="font-bold text-white">
+                {Math.round(featured.model_prob * 100)}%
+              </span>
+              {" "}to hit.
             </p>
             <p>
-              The market implies <span className="font-mono text-[#9ca39a]">{(featured.implied_prob * 100).toFixed(1)}%</span>
-              {" "}at the best available price ({featured.best_book} {featured.best_price !== null && featured.best_price >= 0 ? "+" : ""}{featured.best_price}).
+              The market is pricing it around{" "}
+              <span className="text-[#9ca39a]">
+                {Math.round(featured.implied_prob * 100)}%
+              </span>.
             </p>
             <p>
-              That's a <span className="font-mono font-bold text-[#3ee68a]">+{(featured.edge_pp * 100).toFixed(1)}pp</span> edge for our side, which ACE translates to <span className="font-bold text-white">{confidenceFromEdge(featured.edge_pp)}</span>.
+              That's about a{" "}
+              <span className="font-bold text-[#3ee68a]">
+                {Math.round(featured.edge_pp * 100)}-point
+              </span>{" "}
+              edge for our side —{" "}
+              <span className="font-semibold text-white">
+                {confidenceFromEdge(featured.edge_pp).toLowerCase()}
+              </span>.
             </p>
           </div>
 
@@ -1112,21 +1162,23 @@ function FeaturedPickPanel() {
                    featuredApproved.graded_status === "lost" ? "Lost" :
                    featuredApproved.graded_status === "push" ? "Push" : "On your ticket"}
                 </p>
-                <p className="text-[15px] font-mono font-black text-[#3ee68a]">
+                <p className="text-[15px] font-black text-[#3ee68a]">
                   {stakeSizeLabel(featuredApproved.stake_units)}
                   {featuredApproved.pnl_units !== null && (
-                    <span className="ml-1 text-[11px]">
-                      ({featuredApproved.pnl_units >= 0 ? "+" : ""}{featuredApproved.pnl_units.toFixed(2)} units P&L)
+                    <span className="ml-2 text-[11px] font-mono text-white">
+                      ({featuredApproved.pnl_units >= 0 ? "+" : ""}{featuredApproved.pnl_units.toFixed(2)} units)
                     </span>
                   )}
                 </p>
               </div>
               {featuredApproved.clv_pp !== null && (
                 <div className="text-right">
-                  <p className="text-[9px] uppercase tracking-wider text-[#4a524a]">CLV</p>
-                  <p className="text-[13px] font-mono font-bold"
+                  <p className="text-[9px] uppercase tracking-wider text-[#4a524a]" title="Closing line value — did the market move toward our side after we picked?">
+                    Line move
+                  </p>
+                  <p className="text-[13px] font-bold"
                      style={{ color: featuredApproved.clv_pp >= 0 ? "#3ee68a" : "#ef4444" }}>
-                    {featuredApproved.clv_pp >= 0 ? "+" : ""}{(featuredApproved.clv_pp * 100).toFixed(1)}pp
+                    {featuredApproved.clv_pp >= 0 ? "+" : ""}{Math.round(featuredApproved.clv_pp * 100)} points
                   </p>
                 </div>
               )}
@@ -2018,95 +2070,90 @@ function PropCardsPanel({ cards, stats, meta }: { cards: PropCard[]; stats?: WCP
         }
       />
       <div className="rounded-lg border border-[#f5c062]/15 bg-[#f5c062]/[0.03] px-3 py-2 mb-3">
-        <p className="text-[10px] text-[#f5c062]">
-          ⚠ <span className="font-bold">Research only.</span> These cards surface positive-edge tiers from the Poisson search across player-shot / scorer / assist markets, but the underlying rates haven't been backtested against closing lines. Treat as data exploration, not picks.
+        <p className="text-[10px] text-[#f5c062] leading-relaxed">
+          <span className="font-bold">Research only.</span> The numbers here come from a Poisson model on each player's historical rate. We have not backtested player-prop picks against closing lines, so the "pick" tag is the model's opinion — not a validated bet.
         </p>
       </div>
       {top.length === 0 ? (
-        <EmptyState>No fixture-driven prop cards yet. Run Prop Cards after upcoming soccer odds are cached/posting.</EmptyState>
+        <EmptyState>No upcoming prop reads. The model runs whenever new soccer odds post.</EmptyState>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {top.map((c) => {
-            const teamEnv = c.context?.team_environment;
-            const opp = c.context?.opponent_weakness;
             const pick = formatPropPick(c);
             const gameTime = formatGameTime(c.commence_time);
-            // Model number context: anytime/first_scorer use model_prob (%);
-            // shots/SoT/etc. use model_mean (count). Show with an explicit
-            // "model says" label so the number isn't a mystery.
-            const modelNumber =
-              c.model_prob != null
-                ? { value: fmtPct(c.model_prob), label: "Model probability" }
-                : { value: fmtNum(c.model_mean, 2), label: "Model projection" };
+
+            // Build a single plain-English read of why the model likes this.
+            // For YES/NO markets (anytime, first goal, assist) we have a
+            // model probability; for count markets (shots, SoT) we have a
+            // projection plus — when the book line is set — the Poisson
+            // probability of clearing the line.
+            const modelPctText = c.model_prob != null
+              ? `Our model has it at ${(c.model_prob * 100).toFixed(0)}%.`
+              : c.model_mean != null
+                ? `Our model projects ${c.model_mean.toFixed(1)} ${pick.headline.toLowerCase().replace(/^over \d+(\.\d+)? |^\d+\+ /, "")}.`
+                : null;
+            const marketText = c.implied_prob != null && c.book
+              ? `Market is pricing it around ${(c.implied_prob * 100).toFixed(0)}% (${c.book} ${fmtOdds(c.book_odds)}).`
+              : null;
+            const edgeText = c.edge_pp != null
+              ? `That's a ${Math.abs(c.edge_pp * 100).toFixed(0)}-point ${c.edge_pp >= 0 ? "edge" : "gap"} for our side.`
+              : null;
+            const decisionColor = c.decision === "pick" ? "#3ee68a" : c.decision === "lean" ? "#f5c062" : "#6b7068";
+
             return (
-              <div key={c.id} className="rounded-xl border border-[#1a211c] bg-[#0a0d0a] p-4">
-                {/* Header row — decision/tier tags on left, game time on right */}
-                <div className="flex items-start justify-between gap-3 mb-2.5">
+              <div key={c.id} className="rounded-xl border border-[#1a211c] bg-[#0a0d0a] p-5">
+                {/* Header — small status row */}
+                <div className="flex items-center justify-between gap-3 mb-3 text-[10px]">
                   <div className="flex items-center gap-2">
-                    <Tag label={c.decision.toUpperCase()} color={c.decision === "pick" ? "#3ee68a" : c.decision === "lean" ? "#f5c062" : "#6b7068"} />
-                    <Tag label={c.confidence_tier} color={tierColor(c.confidence_tier)} />
+                    <span
+                      className="font-bold uppercase tracking-[0.18em]"
+                      style={{ color: decisionColor }}
+                    >
+                      {c.decision === "pick" ? "Model pick" : c.decision === "lean" ? "Lean" : c.decision === "watch" ? "Watch" : "Pass"}
+                    </span>
+                    <span className="text-[#3a4033]">·</span>
+                    <span className="text-[#9ca39a]">Tier {c.confidence_tier}</span>
                   </div>
-                  {gameTime && (
-                    <p className="text-[10px] font-mono text-[#9ca39a] shrink-0">{gameTime}</p>
+                  {gameTime && <span className="text-[#6b7068]">{gameTime}</span>}
+                </div>
+
+                {/* The bet — main headline in plain English */}
+                <p className="text-[18px] font-black text-white leading-tight mb-1">
+                  {c.player_name} · {pick.headline.toLowerCase()}
+                </p>
+
+                {/* Matchup */}
+                <p className="text-[11px] text-[#6b7068] mb-4">
+                  {c.away_team} at {c.home_team} · {c.tournament}
+                </p>
+
+                {/* Plain-English read — no labeled boxes, just prose */}
+                <div className="space-y-1 text-[12px] leading-relaxed text-[#c4c7c0] mb-4">
+                  {modelPctText && <p>{modelPctText}</p>}
+                  {marketText && <p>{marketText}</p>}
+                  {edgeText && (
+                    <p
+                      className="font-semibold"
+                      style={{ color: (c.edge_pp ?? 0) >= 0 ? "#3ee68a" : "#ef4444" }}
+                    >
+                      {edgeText}
+                    </p>
+                  )}
+                  {!modelPctText && !marketText && (
+                    <p className="text-[#6b7068]">
+                      Not enough live data to read yet.
+                    </p>
                   )}
                 </div>
 
-                {/* The pick — biggest, clearest line. Tells the bettor exactly
-                    what to bet ("OVER 2.5 shots" / "Anytime goal") instead of
-                    making them infer it from a raw number. */}
-                <div className="mb-1">
-                  <p className="text-[15px] font-black text-white leading-snug">
-                    {pick.headline}
-                  </p>
-                  <p className="text-[12px] font-semibold text-[#c4c7c0] truncate">
-                    {c.player_name}
-                  </p>
-                </div>
-
-                {/* Matchup + tournament */}
-                <p className="text-[10px] text-[#6b7068] truncate mb-3">
-                  {c.away_team} @ {c.home_team} · {c.tournament}
-                </p>
-
-                {/* Model output — labeled. No more mystery numbers. */}
-                <div className="grid grid-cols-2 gap-2 mb-3 rounded-lg bg-[#080a08] border border-[#151a15] px-3 py-2">
-                  <div>
-                    <p className="text-[8px] text-[#4a524a] uppercase tracking-wider">{modelNumber.label}</p>
-                    <p className="text-[14px] font-mono font-black text-[#3ee68a]">{modelNumber.value}</p>
+                {/* Bottom row — book/price only. Skip the raw stat grid. */}
+                {c.book && (
+                  <div className="flex items-center justify-between pt-3 border-t border-[#181c18] text-[11px]">
+                    <span className="text-[#6b7068]">Best price</span>
+                    <span className="font-mono text-[#f5c062] font-bold">
+                      {c.book} {fmtOdds(c.book_odds)}
+                    </span>
                   </div>
-                  <div>
-                    <p className="text-[8px] text-[#4a524a] uppercase tracking-wider">Best price</p>
-                    <p className="text-[14px] font-mono font-bold text-[#f5c062]">
-                      {c.book ? `${c.book} ${fmtOdds(c.book_odds)}` : "no price yet"}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Driver context — what's behind the number */}
-                <div className="grid grid-cols-4 gap-2 mb-3 text-[10px]">
-                  <div title="Expected goals for this player's team this match">
-                    <p className="text-[#4a524a] uppercase tracking-wider">Team xG</p>
-                    <p className="font-mono text-[#c4c7c0]">{fmtNum(teamEnv?.projected_team_goals, 2)}</p>
-                  </div>
-                  <div title="Opponent's defensive grade — weak / average / strong">
-                    <p className="text-[#4a524a] uppercase tracking-wider">Opp def</p>
-                    <p className="font-mono text-[#c4c7c0]">{opp?.grade ?? "—"}</p>
-                  </div>
-                  <div title="Opponent's recent expected goals against per match">
-                    <p className="text-[#4a524a] uppercase tracking-wider">Opp xGA</p>
-                    <p className="font-mono text-[#c4c7c0]">{fmtNum(opp?.recent_xg_against, 2)}</p>
-                  </div>
-                  <div title="Edge of model vs market in percentage points">
-                    <p className="text-[#4a524a] uppercase tracking-wider">Edge</p>
-                    <p className="font-mono font-bold text-[#3ee68a]">{fmtEdge(c.edge_pp)}</p>
-                  </div>
-                </div>
-
-                {c.blocker_reasons && c.blocker_reasons.length > 0 && (
-                  <p className="mt-2 text-[9px] text-[#6b7068] leading-relaxed">Blocked: {c.blocker_reasons.slice(0, 3).join(", ")}</p>
-                )}
-                {c.bettor_notes && c.bettor_notes.length > 0 && (
-                  <p className="mt-1 text-[9px] text-[#4a524a] leading-relaxed">Notes: {c.bettor_notes.slice(0, 3).join(" · ")}</p>
                 )}
               </div>
             );
@@ -2114,7 +2161,7 @@ function PropCardsPanel({ cards, stats, meta }: { cards: PropCard[]; stats?: WCP
         </div>
       )}
       <p className="text-[10px] text-[#3a4033] mt-3 leading-relaxed">
-        These are fixture-aware prop reads. “Prop Cards” builds the context queue; “Prop Prices” deliberately checks live per-event player-prop markets for up to 4 events. Last price run checked {meta?.marketEventsChecked ?? 0} events and priced {meta?.pricedCards ?? stats?.priced ?? 0} cards.
+        Last price refresh checked {meta?.marketEventsChecked ?? 0} fixtures and priced {meta?.pricedCards ?? stats?.priced ?? 0} player markets.
       </p>
     </Panel>
   );
