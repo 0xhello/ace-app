@@ -105,8 +105,25 @@ def _get_db(path: Optional[Path] = None) -> sqlite3.Connection:
     return conn
 
 
+_CURRENT_MODEL_VERSION = "v2_post_m21"
+_LEGACY_MODEL_VERSION  = "v1_pre_m21"
+
+
 def init_table(path: Optional[Path] = None) -> None:
-    """Create soccer_approved_picks if it doesn't exist. Idempotent."""
+    """Create soccer_approved_picks if it doesn't exist. Idempotent.
+
+    Also handles the M37 follow-up migration: add a `model_version` column
+    on existing tables so the displayed track record can filter out
+    legacy v1 picks (made before M9 xG priors + M21 calibration fixes).
+
+    Migration steps (all idempotent — safe to run on every call):
+      1. CREATE TABLE includes model_version column for fresh installs.
+      2. ALTER TABLE adds the column to pre-existing DBs that lack it.
+      3. Pre-existing rows are tagged `v1_pre_m21` (legacy backfill).
+         The default for new rows is `v2_post_m21`, but we set it
+         explicitly in approve_pick() so the source of truth is the
+         module constant, not the SQL default.
+    """
     conn = _get_db(path)
     try:
         conn.executescript(
@@ -140,6 +157,10 @@ def init_table(path: Optional[Path] = None) -> None:
                 graded_at           TEXT,
                 pnl_units           REAL,
 
+                model_version       TEXT NOT NULL DEFAULT 'v2_post_m21',
+                                              -- v1_pre_m21 = legacy backfill
+                                              -- v2_post_m21 = current model
+
                 rationale_json      TEXT,
                 notes               TEXT,
                 approved_at         TEXT NOT NULL DEFAULT (datetime('now')),
@@ -152,6 +173,40 @@ def init_table(path: Optional[Path] = None) -> None:
               ON soccer_approved_picks(graded_status);
             """
         )
+
+        # Idempotent ALTER for pre-existing DBs created before M37. We can't
+        # CREATE INDEX on model_version inside the executescript above
+        # because pre-M37 DBs don't have that column yet — the executescript
+        # would explode on the index DDL even though the CREATE TABLE is a
+        # no-op. So we add the column first (if missing), then build the
+        # index — both operations are idempotent.
+        cols = {row["name"] for row in conn.execute(
+            "PRAGMA table_info(soccer_approved_picks)"
+        ).fetchall()}
+        if "model_version" not in cols:
+            # SQLite can't add NOT NULL columns without a default. The default
+            # here is intentionally the LEGACY version, so every pre-existing
+            # row gets tagged as backfill. New inserts overwrite this with
+            # the current version explicitly.
+            conn.execute(
+                "ALTER TABLE soccer_approved_picks "
+                f"ADD COLUMN model_version TEXT NOT NULL DEFAULT '{_LEGACY_MODEL_VERSION}'"
+            )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_approved_picks_model_version "
+            "ON soccer_approved_picks(model_version)"
+        )
+
+        # Belt-and-suspenders: any row that somehow ended up with NULL or
+        # empty model_version gets tagged as legacy. New approvals always
+        # set it explicitly to _CURRENT_MODEL_VERSION via approve_pick().
+        conn.execute(
+            "UPDATE soccer_approved_picks "
+            "   SET model_version = ? "
+            " WHERE model_version IS NULL OR model_version = ''",
+            (_LEGACY_MODEL_VERSION,),
+        )
+
         conn.commit()
     finally:
         conn.close()
@@ -208,9 +263,10 @@ def approve_pick(
                 model_prob_at_pick, implied_prob_at_pick, edge_pp_at_pick,
                 opening_price, opening_book, lineup_status_at_pick,
                 kelly_full, stake_units,
+                model_version,
                 rationale_json, notes,
                 approved_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(game_id, market, side) DO UPDATE SET
                 fixture_label        = excluded.fixture_label,
                 tournament           = excluded.tournament,
@@ -224,6 +280,7 @@ def approve_pick(
                 lineup_status_at_pick = excluded.lineup_status_at_pick,
                 kelly_full           = excluded.kelly_full,
                 stake_units          = excluded.stake_units,
+                model_version        = excluded.model_version,
                 rationale_json       = excluded.rationale_json,
                 notes                = excluded.notes,
                 updated_at           = excluded.updated_at
@@ -236,6 +293,7 @@ def approve_pick(
                 round(edge_pp, 4),
                 float(best_price), best_book, lineup_status,
                 kelly["kelly_full"], kelly["stake_units"],
+                _CURRENT_MODEL_VERSION,
                 json.dumps(rationale, ensure_ascii=False) if rationale else None,
                 notes,
                 now, now,
@@ -255,10 +313,17 @@ def list_approved_picks(
     *,
     game_id: Optional[str] = None,
     status: Optional[str] = None,
+    model_version: Optional[str] = _CURRENT_MODEL_VERSION,
     limit: int = 50,
     path: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
-    """Return approved picks, newest first. Filterable by game or status."""
+    """Return approved picks, newest first. Filterable by game or status.
+
+    ``model_version`` defaults to the current model version so the UI never
+    accidentally surfaces legacy v1 backfill picks alongside live picks.
+    Pass ``model_version=None`` to include every version (ops debugging).
+    Pass ``model_version="v1_pre_m21"`` to inspect the backfill cohort.
+    """
     init_table(path)
     conn = _get_db(path)
     try:
@@ -268,6 +333,8 @@ def list_approved_picks(
             sql += " AND game_id = ?"; params.append(game_id)
         if status:
             sql += " AND graded_status = ?"; params.append(status)
+        if model_version is not None:
+            sql += " AND model_version = ?"; params.append(model_version)
         sql += " ORDER BY approved_at DESC LIMIT ?"; params.append(limit)
         return [dict(r) for r in conn.execute(sql, params).fetchall()]
     finally:
@@ -576,12 +643,34 @@ def _resolve_outcome(market: str, side: str, hs: int, as_: int) -> Optional[str]
     return None
 
 
-def summary_stats(path: Optional[Path] = None) -> Dict[str, Any]:
-    """Aggregate stats across all approved picks — graded + open."""
+def summary_stats(
+    path: Optional[Path] = None,
+    *,
+    model_version: Optional[str] = _CURRENT_MODEL_VERSION,
+) -> Dict[str, Any]:
+    """Aggregate stats across approved picks — graded + open.
+
+    Defaults to the current model version so the displayed track record
+    never includes the legacy v1 backfill cohort (whose −25.8% ROI was
+    misleading subscribers). Pass ``model_version=None`` to include every
+    version, or ``"v1_pre_m21"`` to inspect the backfill cohort.
+
+    The returned dict echoes which cohort was measured under
+    ``model_version`` so the UI can label the number honestly
+    ("current model · 0 graded picks" vs "all-time · 18 graded picks").
+    """
     init_table(path)
     conn = _get_db(path)
     try:
-        rows = conn.execute("SELECT * FROM soccer_approved_picks").fetchall()
+        if model_version is None:
+            rows = conn.execute(
+                "SELECT * FROM soccer_approved_picks"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM soccer_approved_picks WHERE model_version = ?",
+                (model_version,),
+            ).fetchall()
     finally:
         conn.close()
 
@@ -597,6 +686,7 @@ def summary_stats(path: Optional[Path] = None) -> Dict[str, Any]:
     clv_rows  = [r for r in rows if r["clv_pp"] is not None]
     avg_clv   = (sum(r["clv_pp"] for r in clv_rows) / len(clv_rows)) if clv_rows else None
     return {
+        "model_version": model_version,  # None = all-time
         "total":       n_total,
         "open":        n_open,
         "graded":      len(graded),

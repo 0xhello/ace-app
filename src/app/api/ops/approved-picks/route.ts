@@ -28,6 +28,16 @@ export async function GET(req: NextRequest) {
   const gameId = req.nextUrl.searchParams.get("game_id")?.trim() || null;
   const status = req.nextUrl.searchParams.get("status")?.trim() || null;
   const limit = parseInt(req.nextUrl.searchParams.get("limit") || "50", 10);
+  // Ops sees ALL picks regardless of model version so admins can inspect
+  // the legacy v1 backfill cohort. Subscriber surfaces use the default
+  // (current-model-only) to keep the displayed track record honest.
+  // ?model_version=v1_pre_m21 lets admins filter to legacy specifically.
+  const modelVersionParam = req.nextUrl.searchParams.get("model_version")?.trim();
+  // Empty string or "all" → None (everything). Anything else → that string.
+  const modelVersionExpr =
+    modelVersionParam && modelVersionParam !== "all"
+      ? JSON.stringify(modelVersionParam)
+      : "None";
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
 
   const script = `
@@ -37,9 +47,10 @@ try:
     picks = list_approved_picks(
         game_id=${gameId ? JSON.stringify(gameId) : "None"},
         status=${status ? JSON.stringify(status) : "None"},
+        model_version=${modelVersionExpr},
         limit=${Number.isFinite(limit) ? limit : 50},
     )
-    summary = summary_stats()
+    summary = summary_stats(model_version=${modelVersionExpr})
     print(json.dumps({"picks": picks, "summary": summary}, default=str))
 except Exception as e:
     print(json.dumps({"error": str(e)[:300]})); sys.exit(1)
