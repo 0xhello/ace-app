@@ -50,6 +50,111 @@ from ml.world_cup.signal_logger import DB_PATH as DEFAULT_DB_PATH
 _MAX_STAKE_UNITS = 5.0
 _KELLY_FRACTION = 0.25  # quarter-Kelly
 
+# ── M40.6 — leakage-aware stake caps ──────────────────────────────────────
+# Kelly assumes the model probability is perfectly calibrated. Per the
+# 2026-05-29 leakage audit, our soccer model's edges are partially
+# over-fit (shrinkage + M21 hyperparams tuned on the same holdout used
+# to report ROI). Until M40.2 ships proper train/val/test splits, Kelly
+# over-stakes on any pick the model surfaces.
+#
+# Until then, when a pick's rationale flags one of the audit caveats,
+# we cap the displayed stake_units at a conservative ceiling. The
+# underlying Kelly_full math stays honest in the DB so we can compare
+# post-M40.2 calibration; only the recommended size is capped.
+#
+# Tiered caps (most → least confident):
+#   - validated market (Totals 2.5) with leakage note:    1.0u
+#   - cross-checked market w/ leakage note (BTTS, etc):   0.5u
+#   - unvalidated market (backtest_support='NONE'):       0.25u
+#
+# Caps are NOT applied when rationale has no leakage flag — that path
+# preserves the original Kelly behaviour for any future model that
+# earns its keep through clean validation.
+_LEAKAGE_CAP_VALIDATED   = 1.0
+_LEAKAGE_CAP_CROSSCHECK  = 0.5
+_LEAKAGE_CAP_UNVALIDATED = 0.25
+
+# Markets we've measured positive ROI on in at least one backtest run
+# (Over 2.5 over, post-M21). These get the highest leakage cap because
+# the directional signal is more trustworthy even if magnitude is over-fit.
+_VALIDATED_MARKETS = {"totals_2.5", "totals"}
+
+
+def _apply_leakage_cap(
+    raw_stake_units: float,
+    market: str,
+    rationale: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """If the rationale block flags a leakage caveat, replace the raw
+    Kelly recommendation with a tier-appropriate conservative cap.
+
+    Returns:
+      {
+        "stake_units":      capped value (what the UI displays),
+        "raw_stake_units":  original Kelly value (preserved for audit),
+        "cap_applied":      bool — whether a cap took effect,
+        "cap_reason":       short string for the badge,
+      }
+    """
+    if not rationale:
+        return {
+            "stake_units":      raw_stake_units,
+            "raw_stake_units":  raw_stake_units,
+            "cap_applied":      False,
+            "cap_reason":       None,
+        }
+    has_leakage_note = bool(rationale.get("leakage_note"))
+    backtest_support_raw = (rationale.get("backtest_support") or "")
+    backtest_support = backtest_support_raw.upper().strip()
+    # Catch "NONE", "NONE — ...", "NOT YET BACKTESTED", "no backtest" etc.
+    unvalidated = (
+        backtest_support == "NONE"
+        or backtest_support.startswith("NONE ")
+        or backtest_support.startswith("NONE—")
+        or backtest_support.startswith("NONE -")
+        or backtest_support.startswith("NOT")
+        or "untested" in backtest_support_raw.lower()
+        or "never backtested" in backtest_support_raw.lower()
+        or "no backtest" in backtest_support_raw.lower()
+    )
+    # Markets we treat as untested by default regardless of how the
+    # caller phrased their rationale.  Player props have never had a
+    # backtest harness; treat them as untested unless the rationale
+    # explicitly cites a positive backtest.
+    untested_markets = {
+        "anytime_scorer", "shots", "shots_on_target",
+        "anytime_assist", "first_scorer", "to_score_2_or_more",
+    }
+    if market.lower() in untested_markets and "POSITIVE" not in backtest_support:
+        unvalidated = True
+
+    # Pick the tightest applicable ceiling
+    cap: Optional[float] = None
+    reason: Optional[str] = None
+    if unvalidated:
+        cap = _LEAKAGE_CAP_UNVALIDATED
+        reason = "untested market — leakage-aware cap"
+    elif has_leakage_note and market.lower() in _VALIDATED_MARKETS:
+        cap = _LEAKAGE_CAP_VALIDATED
+        reason = "leakage-aware cap (validated market)"
+    elif has_leakage_note:
+        cap = _LEAKAGE_CAP_CROSSCHECK
+        reason = "leakage-aware cap (cross-check market)"
+
+    if cap is None or raw_stake_units <= cap:
+        return {
+            "stake_units":      raw_stake_units,
+            "raw_stake_units":  raw_stake_units,
+            "cap_applied":      False,
+            "cap_reason":       None,
+        }
+    return {
+        "stake_units":      round(cap, 2),
+        "raw_stake_units":  raw_stake_units,
+        "cap_applied":      True,
+        "cap_reason":       reason,
+    }
+
 
 # ── Kelly helpers ────────────────────────────────────────────────────────────
 
@@ -244,6 +349,18 @@ def approve_pick(
             f"{best_price} yields no positive Kelly. Re-check the data."
         )
 
+    # M40.6 — apply leakage-aware cap. Underlying Kelly stays in the
+    # rationale (raw_stake_units, cap_applied, cap_reason) so we can
+    # measure post-M40.2 calibration against the original recommendation.
+    cap_result = _apply_leakage_cap(kelly["stake_units"], market, rationale)
+    displayed_stake = cap_result["stake_units"]
+    if cap_result["cap_applied"]:
+        # Decorate the rationale so the UI can surface the badge cleanly
+        rationale = dict(rationale or {})
+        rationale["stake_cap_applied"] = True
+        rationale["stake_cap_reason"] = cap_result["cap_reason"]
+        rationale["raw_kelly_stake_units"] = cap_result["raw_stake_units"]
+
     implied = 1.0 / kelly["decimal_odds"]
     edge_pp = float(model_prob) - implied
 
@@ -292,7 +409,7 @@ def approve_pick(
                 round(implied, 4),
                 round(edge_pp, 4),
                 float(best_price), best_book, lineup_status,
-                kelly["kelly_full"], kelly["stake_units"],
+                kelly["kelly_full"], displayed_stake,
                 _CURRENT_MODEL_VERSION,
                 json.dumps(rationale, ensure_ascii=False) if rationale else None,
                 notes,
