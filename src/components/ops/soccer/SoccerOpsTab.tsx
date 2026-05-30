@@ -28,6 +28,7 @@ import {
 } from "@/components/ops/shared/panels";
 import PlayerPriorsPanel from "@/components/ops/soccer/PlayerPriorsPanel";
 import MarketProbePanel from "@/components/ops/soccer/MarketProbePanel";
+import SuggestedPicksPanel from "@/components/ops/soccer/SuggestedPicksPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2535,6 +2536,15 @@ export default function SoccerOpsTab() {
             </div>
           </div>
         )}
+
+        {/* ══ SUGGESTED PICKS (M44) ══════════════════════════════════════════
+            Model-surfaced picks for the current slate with one-click
+            approval. POSTs to /api/ops/approved-picks via the admin
+            session that's already attached in the dashboard context —
+            replaces the previous F12+paste approval flow. Hidden when
+            the model has nothing to surface OR everything has already
+            been approved. */}
+        <SuggestedPicksPanel />
 
         {/* ══ FEATURED PICK (M33) ════════════════════════════════════════════
             The single thing worth your attention right now: one validated
