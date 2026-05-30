@@ -75,12 +75,24 @@ SPORTMONKS_LEAGUE_IDS: Dict[str, int] = {
 }
 
 # Includes we always request — one call brings back the full pre-match
-# bundle plus post-match xG when the match has settled. `participants`
-# populates home_team_id / away_team_id (otherwise we only get the
-# concatenated fixture.name and lineup-side filtering breaks).
+# bundle plus post-match xG + goal events when the match has settled.
+# `participants` populates home_team_id / away_team_id (otherwise we
+# only get the concatenated fixture.name and lineup-side filtering
+# breaks). `events.player` carries goal/card events with the scorer's
+# player_id + name — used by M43 player-prop grading.
 _FIXTURE_BUNDLE_INCLUDES = (
-    "lineups.player;predictions.type;xGFixture.type;participants"
+    "lineups.player;predictions.type;xGFixture.type;"
+    "events.player;participants"
 )
+
+# Sportmonks event type_ids that count as a goal for grading purposes.
+# Verified via /types lookup: 14 = Goal, 15 = Own Goal (counts to the
+# scoring team's tally), 16 = Penalty Goal (scored), 18 = Goal Cancelled
+# (does NOT count). We exclude own goals from anytime_scorer grading
+# because they're scored AGAINST the listed player's team — the player
+# is credited with the OG but no sportsbook pays anytime-scorer on an
+# own goal.
+_GOAL_EVENT_TYPE_IDS = {14, 16}    # regular + penalty (not OG, not cancelled)
 
 # Refresh policy (used by sync_slate). Tunable from a single source.
 REFRESH_FAR_HOURS = 24      # >24h from kickoff: refresh once a day
@@ -180,6 +192,8 @@ def init_table(path: Optional[Path] = None) -> None:
                 predictions_market_count INTEGER,
                 xgfixture_json       TEXT,                -- dict {metric_name: {home,away}}
                 xgfixture_metric_count INTEGER,
+                events_json          TEXT,                -- list[event] including goals (M43)
+                events_count         INTEGER,
                 settled_at           TEXT,                -- first time xGFixture came back populated
                 fetched_at           TEXT NOT NULL,
                 updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
@@ -192,6 +206,24 @@ def init_table(path: Optional[Path] = None) -> None:
               ON soccer_sportmonks_fixture_cache(sportmonks_league_id, starting_at);
             """
         )
+
+        # M43 idempotent ALTER for prod DBs created before events were added
+        # to the schema. The CREATE TABLE above is a no-op on those DBs, so
+        # we explicitly add the new columns if they're missing.
+        cols = {row["name"] for row in conn.execute(
+            "PRAGMA table_info(soccer_sportmonks_fixture_cache)"
+        ).fetchall()}
+        if "events_json" not in cols:
+            conn.execute(
+                "ALTER TABLE soccer_sportmonks_fixture_cache "
+                "ADD COLUMN events_json TEXT"
+            )
+        if "events_count" not in cols:
+            conn.execute(
+                "ALTER TABLE soccer_sportmonks_fixture_cache "
+                "ADD COLUMN events_count INTEGER"
+            )
+
         conn.commit()
     finally:
         conn.close()
@@ -299,6 +331,28 @@ def _normalize_predictions(raw: Optional[List[Dict[str, Any]]]) -> Dict[str, Any
     return out
 
 
+def _normalize_events(raw: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Pivot Sportmonks events list to {type_id, player_id, player_name,
+    team_id, minute}. Keeps the order Sportmonks returned them — typically
+    chronological — so first_scorer grading works."""
+    out: List[Dict[str, Any]] = []
+    for row in raw or []:
+        player = row.get("player") or {}
+        out.append({
+            "type_id":     row.get("type_id"),
+            "player_id":   row.get("player_id") or player.get("id"),
+            "player_name": (
+                row.get("player_name")
+                or player.get("display_name")
+                or player.get("name")
+            ),
+            "team_id":     row.get("participant_id") or row.get("team_id"),
+            "minute":      row.get("minute"),
+            "result":      row.get("result"),  # e.g. "1-0" if available
+        })
+    return out
+
+
 def _normalize_xgfixture(raw: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
     """Pivot xGFixture list into {metric_name: {home: float, away: float}}.
 
@@ -370,6 +424,8 @@ def cache_fixture_bundle(
     xgfx = _normalize_xgfixture(
         bundle.get("xgfixture") or bundle.get("xGFixture") or []
     )
+    # M43 — events (goals, etc) — empty pre-match, populated during/after
+    events = _normalize_events(bundle.get("events") or [])
 
     now = datetime.now(timezone.utc).isoformat()
     settled_at = now if xgfx else None
@@ -394,8 +450,9 @@ def cache_fixture_bundle(
                 lineups_json, lineups_player_count,
                 predictions_json, predictions_market_count,
                 xgfixture_json, xgfixture_metric_count,
+                events_json, events_count,
                 settled_at, fetched_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(fixture_id) DO UPDATE SET
                 sportmonks_league_id   = excluded.sportmonks_league_id,
                 league_name            = excluded.league_name,
@@ -410,6 +467,8 @@ def cache_fixture_bundle(
                 predictions_market_count = excluded.predictions_market_count,
                 xgfixture_json         = excluded.xgfixture_json,
                 xgfixture_metric_count = excluded.xgfixture_metric_count,
+                events_json            = excluded.events_json,
+                events_count           = excluded.events_count,
                 settled_at             = COALESCE(soccer_sportmonks_fixture_cache.settled_at, excluded.settled_at),
                 fetched_at             = excluded.fetched_at,
                 updated_at             = excluded.updated_at
@@ -426,6 +485,8 @@ def cache_fixture_bundle(
                 len(predictions) or None,
                 json.dumps(xgfx, ensure_ascii=False) if xgfx else None,
                 len(xgfx) or None,
+                json.dumps(events, ensure_ascii=False) if events else None,
+                len(events) or None,
                 settled_at,
                 now, now,
             ),
@@ -703,6 +764,12 @@ def _row_to_bundle(row: sqlite3.Row) -> Dict[str, Any]:
             return json.loads(v)
         except Exception:
             return None
+    # `events_json` is a M43 column — defensive guard for ancient cached
+    # rows that may have been written before the migration.
+    try:
+        events = _parse("events_json") or []
+    except (KeyError, IndexError):
+        events = []
     return {
         "fixture_id":           row["fixture_id"],
         "sportmonks_league_id": row["sportmonks_league_id"],
@@ -715,9 +782,44 @@ def _row_to_bundle(row: sqlite3.Row) -> Dict[str, Any]:
         "lineups":              _parse("lineups_json") or [],
         "predictions":          _parse("predictions_json") or {},
         "xgfixture":            _parse("xgfixture_json") or {},
+        "events":               events,
         "settled_at":           row["settled_at"],
         "fetched_at":           row["fetched_at"],
     }
+
+
+def get_goal_scorers(
+    bundle: Optional[Dict[str, Any]],
+) -> Optional[List[str]]:
+    """Return the ordered list of player names who scored in this fixture.
+
+    Excludes own goals (Sportmonks type_id 15) and cancelled goals (18).
+    Includes regular and penalty goals (14, 16).
+
+    Returns None when:
+      - no bundle (cache miss)
+      - bundle hasn't yet been settled (no xGFixture / no settled_at)
+
+    Returns [] when the match HAS settled but no goals were recorded in
+    the events list (e.g. a 0-0 final). The grader uses this distinction
+    to leave player-prop picks open during the match (return None) and
+    only settle them as 'lost' once the result is final (return []).
+    """
+    if not bundle:
+        return None
+    # The match isn't graded as "ended" until xGFixture populates
+    # (Sportmonks writes those metrics at fulltime).
+    if not bundle.get("settled_at"):
+        return None
+    out: List[str] = []
+    for ev in bundle.get("events") or []:
+        tid = ev.get("type_id")
+        if tid is None or tid not in _GOAL_EVENT_TYPE_IDS:
+            continue
+        name = ev.get("player_name")
+        if name:
+            out.append(name)
+    return out
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────

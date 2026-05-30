@@ -200,28 +200,72 @@ def _approved_picks_result_lookup(game_id: str) -> Optional[Dict[str, Any]]:
 
     Reads from soccer_team_form (final scores written by the form ingestor)
     AND from the live Odds API game data when available. None if no result.
+
+    M43: also pulls goal_scorers from the Sportmonks fixture cache when
+    the bundle includes events. The list is matched to game_id via the
+    persisted fixture_label (we stored fixture_label='PSG vs Arsenal'
+    on the approved pick — we re-use it here to look up the cached
+    bundle by home/away team names). When goal_scorers is None,
+    player-prop markets stay 'open'; when it's a list (possibly empty),
+    they grade.
     """
     try:
         from ml.world_cup.signal_logger import DB_PATH as _WC_DB
         conn = sqlite3.connect(str(_WC_DB))
+        conn.row_factory = sqlite3.Row
         try:
-            # soccer_team_form is keyed by team + match_date, not game_id, so
-            # we can't look up directly. Instead use the soccer_model_candidates
-            # graded rows which have correct + home_score + away_score linked
-            # to game_id.
+            # 1. Final score from soccer_model_candidates
             row = conn.execute(
-                "SELECT home_score, away_score, status, result "
+                "SELECT home_score, away_score "
                 "FROM soccer_model_candidates "
                 "WHERE game_id = ? AND home_score IS NOT NULL "
                 "LIMIT 1",
                 (game_id,),
             ).fetchone()
-            if row and row[0] is not None and row[1] is not None:
-                return {
-                    "home_score": int(row[0]),
-                    "away_score": int(row[1]),
-                    "status": "final",
-                }
+            if not row or row["home_score"] is None or row["away_score"] is None:
+                return None
+
+            result: Dict[str, Any] = {
+                "home_score": int(row["home_score"]),
+                "away_score": int(row["away_score"]),
+                "status": "final",
+            }
+
+            # 2. M43 — goal_scorers via Sportmonks cache. Look up the
+            #    approved pick's home/away team names (denormalized on the
+            #    cache) to find the right fixture without needing a
+            #    fixture_id map.
+            try:
+                # Look up the bet's fixture team names from approved picks
+                ap_row = conn.execute(
+                    "SELECT fixture_label, commence_time "
+                    "FROM soccer_approved_picks "
+                    "WHERE game_id = ? LIMIT 1",
+                    (game_id,),
+                ).fetchone()
+                if ap_row and ap_row["fixture_label"]:
+                    label = ap_row["fixture_label"]
+                    # Labels are 'Home vs Away · League' — split on ' vs '
+                    home_away = label.split(" · ")[0]
+                    if " vs " in home_away:
+                        h, a = home_away.split(" vs ", 1)
+                        from ml.soccer.sportmonks_fixture import (
+                            get_cached_bundle_by_teams, get_goal_scorers,
+                        )
+                        bundle = get_cached_bundle_by_teams(
+                            h.strip(), a.strip(),
+                            commence_time_iso=ap_row["commence_time"],
+                        )
+                        scorers = get_goal_scorers(bundle)
+                        if scorers is not None:
+                            result["goal_scorers"] = scorers
+            except Exception:
+                # If anything in the goal-scorer lookup breaks, fall back
+                # to the score-only result — player-prop picks will stay
+                # open and a follow-up run can settle them.
+                pass
+
+            return result
         finally:
             conn.close()
     except Exception:

@@ -668,14 +668,19 @@ def capture_closing_prices(
 
 def grade_approved_picks(
     *,
-    result_lookup: Any,  # Callable[(game_id) -> {home_score, away_score, status}] | None
+    result_lookup: Any,  # Callable[(game_id) -> {home_score, away_score, status, goal_scorers?}] | None
     path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Walk open approved picks. For any whose game has a final result,
     determine win/loss/push and set graded_status + pnl_units.
 
     ``result_lookup`` returns {"home_score": int, "away_score": int,
-    "status": "final"|"in_progress"|None} or None if no result is known.
+    "status": "final"|"in_progress"|None, "goal_scorers": List[str] | None}
+    or None if no result is known.
+
+    The optional ``goal_scorers`` list (every player who scored, ordered
+    by event time) is required to grade player-prop markets like
+    ``anytime_scorer``. Game-level markets (1X2, totals, BTTS) ignore it.
 
     pnl_units math (in 1u stake units):
         won  → stake_units × (decimal_odds − 1)
@@ -701,7 +706,12 @@ def grade_approved_picks(
                 continue
             hs = int(res.get("home_score") or 0)
             as_ = int(res.get("away_score") or 0)
-            outcome = _resolve_outcome(r["market"], r["side"], hs, as_)
+            goal_scorers = res.get("goal_scorers")  # may be None for game-level
+            outcome = _resolve_outcome(
+                r["market"], r["side"], hs, as_,
+                goal_scorers=goal_scorers,
+                bet_label=r["bet_label"],
+            )
             if outcome is None:
                 # Market we don't know how to grade yet — leave open, surface
                 # so a follow-up can extend.
@@ -734,9 +744,88 @@ def grade_approved_picks(
     return {"graded": graded, "skipped_no_result": skipped_no_result}
 
 
-def _resolve_outcome(market: str, side: str, hs: int, as_: int) -> Optional[str]:
-    """Return 'won' / 'lost' / 'push' for a given market+side and final score.
-    None means we don't know how to grade this market yet."""
+def _norm_player_name(s: Optional[str]) -> str:
+    """Lowercase + accent-fold + alphanumeric-only. 'Ousmane Dembélé'
+    → 'ousmanedembele'. Used as the full-name token."""
+    if not s:
+        return ""
+    table = str.maketrans("àáâãäåèéêëìíîïòóôõöùúûüýÿñç",
+                          "aaaaaaeeeeiiiiooooouuuuyync")
+    return "".join(ch.lower() for ch in s.translate(table) if ch.isalnum())
+
+
+def _last_name_token(s: Optional[str]) -> str:
+    """Extract the LAST word from a player name + normalize. 'Ousmane
+    Dembélé' → 'dembele', 'O. Dembele' → 'dembele'. This is the most
+    stable identifier across Sportmonks' inconsistent display formats
+    ('Ousmane Dembélé' / 'O. Dembele' / 'Dembele' all collapse the same).
+    """
+    if not s:
+        return ""
+    # Strip trailing dots/commas, split on whitespace, take last word
+    parts = s.strip().rstrip(".").split()
+    last = parts[-1] if parts else s
+    return _norm_player_name(last)
+
+
+def _player_name_match(target: str, candidate: str) -> bool:
+    """Decide whether `candidate` refers to the same player as `target`.
+
+    Order of evidence (strongest first):
+      1. Last-name token match (most stable — survives 'O. Dembele'
+         vs 'Ousmane Dembélé')
+      2. Whole normalized name substring either direction (handles
+         single-name players like 'Vinícius' or compound names)
+    """
+    t_full = _norm_player_name(target)
+    c_full = _norm_player_name(candidate)
+    if not t_full or not c_full:
+        return False
+    # 1. Last-name token
+    t_last = _last_name_token(target)
+    c_last = _last_name_token(candidate)
+    if t_last and c_last and t_last == c_last:
+        return True
+    # 2. Full-name substring either direction
+    if t_full == c_full or t_full in c_full or c_full in t_full:
+        return True
+    return False
+
+
+def _extract_player_from_bet_label(bet_label: Optional[str]) -> Optional[str]:
+    """Extract the player name from labels like 'Ousmane Dembélé to score
+    anytime' or 'Bukayo Saka anytime'.  Strips the standard suffixes so
+    we end with just the player's display name."""
+    if not bet_label:
+        return None
+    cleaned = bet_label
+    for sfx in (
+        " to score anytime", " anytime scorer", " anytime",
+        " to score 2 or more", " 2+ goals", " 2 or more goals",
+        " first scorer", " to score first",
+        " to record an assist", " anytime assist",
+    ):
+        if cleaned.lower().endswith(sfx.lower()):
+            cleaned = cleaned[: -len(sfx)]
+            break
+    return cleaned.strip()
+
+
+def _resolve_outcome(
+    market: str,
+    side: str,
+    hs: int,
+    as_: int,
+    *,
+    goal_scorers: Optional[List[str]] = None,
+    bet_label: Optional[str] = None,
+) -> Optional[str]:
+    """Return 'won' / 'lost' / 'push' for a given market+side and final
+    score. None means we don't know how to grade this market yet.
+
+    For player-prop markets, ``goal_scorers`` is a list of player names
+    who scored in the match (any goal type), and ``bet_label`` is the
+    persisted bet_label so we can extract the target player name."""
     s = side.lower()
     m = market.lower()
     total = hs + as_
@@ -757,6 +846,38 @@ def _resolve_outcome(market: str, side: str, hs: int, as_: int) -> Optional[str]
         if s == "yes":  return "won" if both_scored else "lost"
         if s == "no":   return "won" if not both_scored else "lost"
         return None
+    # ── Player props ──────────────────────────────────────────────
+    if m == "anytime_scorer":
+        # Need the bet label to know WHO; need the scorer list to know IF.
+        # Without either we can't grade — leave open so a later run with
+        # better data can settle.
+        if not bet_label or goal_scorers is None:
+            return None
+        target = _extract_player_from_bet_label(bet_label)
+        if not target:
+            return None
+        hit = any(_player_name_match(target, sc) for sc in goal_scorers)
+        # anytime_scorer is a YES-side market — we only price the
+        # "player to score" outcome, so a hit means won.
+        return ("won" if hit else "lost") if s == "yes" else ("lost" if hit else "won")
+    if m == "first_scorer":
+        # Same logic but ONLY the FIRST entry in goal_scorers wins.
+        if not bet_label or not goal_scorers:
+            return None
+        target = _extract_player_from_bet_label(bet_label)
+        if not target:
+            return None
+        hit = _player_name_match(target, goal_scorers[0])
+        return ("won" if hit else "lost") if s == "yes" else ("lost" if hit else "won")
+    if m == "to_score_2_or_more":
+        if not bet_label or goal_scorers is None:
+            return None
+        target = _extract_player_from_bet_label(bet_label)
+        if not target:
+            return None
+        hits = sum(1 for sc in goal_scorers if _player_name_match(target, sc))
+        won = hits >= 2
+        return ("won" if won else "lost") if s == "yes" else ("lost" if won else "won")
     return None
 
 

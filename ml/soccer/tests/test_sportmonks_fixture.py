@@ -235,6 +235,47 @@ def test_minutes_from_lineup_no_bundle_falls_back_to_heuristic() -> None:
     assert out["minutes"] == _assumed_minutes("forward", "high")
 
 
+def test_get_goal_scorers_returns_none_pre_match(tmp_path: Path) -> None:
+    """Pre-match (no settled_at on the cache row) must return None so
+    the grader leaves player-prop picks open instead of settling them
+    as 'lost'."""
+    from ml.soccer.sportmonks_fixture import (
+        cache_fixture_bundle, get_cached_bundle_by_fixture_id, get_goal_scorers,
+    )
+    db = tmp_path / "smfx.db"
+    # Bundle with no xGFixture (pre-match) and no events — typical pre-game state
+    bundle = _fake_bundle()
+    cache_fixture_bundle(19683241, path=db, bundle=bundle)
+    cached = get_cached_bundle_by_fixture_id(19683241, path=db)
+    assert cached["settled_at"] is None
+    assert get_goal_scorers(cached) is None
+
+
+def test_get_goal_scorers_returns_list_post_match() -> None:
+    """When the bundle has settled (xGFixture populated), scorer list
+    comes back even if empty (= 0-0 final)."""
+    from ml.soccer.sportmonks_fixture import get_goal_scorers
+    bundle_with_goals = {
+        "settled_at": "2026-05-30T19:00:00+00:00",
+        "events": [
+            {"type_id": 14, "player_name": "Ousmane Dembélé", "minute": 27},
+            {"type_id": 15, "player_name": "Marquinhos", "minute": 41},  # own goal — excluded
+            {"type_id": 18, "player_name": "Saka", "minute": 60},        # cancelled — excluded
+            {"type_id": 16, "player_name": "Bukayo Saka", "minute": 78}, # penalty — included
+        ],
+    }
+    scorers = get_goal_scorers(bundle_with_goals)
+    assert scorers == ["Ousmane Dembélé", "Bukayo Saka"]
+
+
+def test_get_goal_scorers_returns_empty_list_on_settled_0_0() -> None:
+    """A 0-0 final: settled_at populated, no goal events. Scorers = []
+    (not None) so the grader can settle anytime_scorer picks as 'lost'."""
+    from ml.soccer.sportmonks_fixture import get_goal_scorers
+    bundle = {"settled_at": "2026-05-30T19:00:00+00:00", "events": []}
+    assert get_goal_scorers(bundle) == []
+
+
 def test_refresh_policy_skips_settled(tmp_path: Path) -> None:
     """Once xGFixture is populated (post-match), don't re-fetch — the
     realized stats are stable. _needs_refresh must return False."""
