@@ -5,7 +5,6 @@ import { Game } from "@/types/game";
 import GameRow from "@/components/GameRow";
 import TopAIPicks from "@/components/TopAIPicks";
 import WCBanner from "@/components/dashboard/WCBanner";
-import SoccerPicksPanel from "@/components/dashboard/SoccerPicksPanel";
 import FeaturedPickCard from "@/components/dashboard/FeaturedPickCard";
 import BankrollCurve from "@/components/dashboard/BankrollCurve";
 import RecentPicksStrip from "@/components/dashboard/RecentPicksStrip";
@@ -202,6 +201,20 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   const liveGames = filtered.filter((g) => g.status === "live");
   const upcomingGames = filtered.filter((g) => g.status !== "live");
 
+  // Signal Feed picks, filtered to the active sport (P1.2). One feed that
+  // respects the sport tab: Soccer tab → soccer signals, All → best across
+  // everything. Each pick carries a gameId; we resolve its sport via the
+  // games list. Under a specific sport filter we exclude picks whose sport
+  // can't be resolved (don't show stray off-sport signals).
+  const feedPicks = useMemo(() => {
+    if (sport === "ALL") return topPicks;
+    const sportById = new Map(games.map((g) => [g.id, g.sport_title]));
+    return topPicks.filter((p) => {
+      const st = sportById.get(p?.gameId);
+      return !!st && st.toUpperCase().includes(sport);
+    });
+  }, [topPicks, games, sport]);
+
   const upcomingBySport = useMemo(() => {
     const sports = Array.from(new Set(upcomingGames.map((g) => g.sport_title)));
     if (sports.length <= 1) return null;
@@ -354,20 +367,13 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
         <div className="flex-1 overflow-y-auto scrollbar-hide">
           <WCBanner />
-          {/* Soccer surface:
-              - FeaturedPickCard (M34): premium, single backtest-validated
-                pick of the moment with the receipt that earns trust.
-              - SoccerPicksPanel (existing): the broader signals stream —
-                more picks, more markets, more history. Kept under the
-                featured card for now so subscribers can see the
-                supporting context. */}
-          {/* Subscriber-side soccer surface — reverted to the existing
-              SoccerPicksPanel only. FeaturedPickCard / BankrollCurve /
-              RecentPicksStrip components ship in the repo for future
-              activation, but are NOT exposed until the picks themselves
-              pass a serious review (formatting, validation, taste). */}
-          {sport === "SOCCER" && <SoccerPicksPanel />}
-          <TopAIPicks onAddLeg={toggleLeg} picks={topPicks} />
+          {/* P1.2 — ONE Signal Feed that respects the sport filter. The old
+              separate "Soccer Picks" section (SoccerPicksPanel) was removed
+              here: it was redundant with the feed and confusing. Soccer
+              signals now flow through the same Signal Feed as every other
+              sport, filtered by the active tab. SoccerPicksPanel.tsx stays
+              in the repo for future re-use but is no longer double-rendered. */}
+          <TopAIPicks onAddLeg={toggleLeg} picks={feedPicks} />
 
           <div
             className="sticky top-0 z-20 px-5 py-2 grid items-center gap-2 border-b border-[#1b201a] bg-[#0a0b0a]/98 backdrop-blur-sm"
