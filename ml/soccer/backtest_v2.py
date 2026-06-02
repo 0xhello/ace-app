@@ -54,6 +54,7 @@ from ml.soccer.model import (
     DCFit, LEAGUES_TO_FIT, get_db,
     fit_dixon_coles, predict_match, MODEL_DIR, _logit_shrink,
 )
+from ml.soccer.hist_join import HistJoiner
 
 
 # ── Settings ─────────────────────────────────────────────────────────────────
@@ -143,9 +144,11 @@ def _three_way_split(matches: List[Dict[str, Any]]):
 # ── Prediction → market rows ─────────────────────────────────────────────────
 
 def _rows_for_match(league: str, fit: DCFit, conn: sqlite3.Connection,
-                    m: Dict[str, Any]) -> List[MarketRow]:
+                    m: Dict[str, Any],
+                    joiner: Optional[HistJoiner] = None) -> List[MarketRow]:
     """Raw (un-shrunk) model probabilities for one match, paired with the
-    closing odds + realized outcome, for the 1X2 and totals markets."""
+    closing odds + realized outcome. 1X2 + totals use football-data odds;
+    BTTS uses Sportmonks closing odds via the joiner (M48)."""
     pred = predict_match(
         fit, m["home"], m["away"], league=league, referee=m.get("referee"),
         apply_adjustments=True, apply_shrinkage=False,  # RAW probs only
@@ -175,14 +178,30 @@ def _rows_for_match(league: str, fit: DCFit, conn: sqlite3.Connection,
         ]:
             out.append(MarketRow(league, m["match_date"], "totals", sel,
                                  float(p), float(bp), float(bo), win))
+
+    # ── BTTS — model prob from predict_match, benchmark from Sportmonks ──
+    if joiner is not None:
+        btts = joiner.btts_odds(m["match_date"], m["home"], m["away"])
+        if btts:
+            yes_dec, no_dec = btts
+            book_btts = _devig2(yes_dec, no_dec)
+            if book_btts:
+                both_scored = 1 if (gh >= 1 and ga >= 1) else 0
+                for sel, p, bp, bo, win in [
+                    ("btts_yes", pred["btts_yes"], book_btts[0], yes_dec, both_scored),
+                    ("btts_no",  pred["btts_no"],  book_btts[1], no_dec,  1 - both_scored),
+                ]:
+                    out.append(MarketRow(league, m["match_date"], "btts", sel,
+                                         float(p), float(bp), float(bo), win))
     return out
 
 
 def _collect_rows(league: str, fit: DCFit, conn: sqlite3.Connection,
-                  matches: List[Dict[str, Any]]) -> List[MarketRow]:
+                  matches: List[Dict[str, Any]],
+                  joiner: Optional[HistJoiner] = None) -> List[MarketRow]:
     rows: List[MarketRow] = []
     for m in matches:
-        rows.extend(_rows_for_match(league, fit, conn, m))
+        rows.extend(_rows_for_match(league, fit, conn, m, joiner))
     return rows
 
 
@@ -248,6 +267,13 @@ def run_backtest_v2(leagues: Optional[List[str]] = None) -> Dict[str, Any]:
     leagues = leagues or LEAGUES_TO_FIT
     conn = get_db()
 
+    # Sportmonks historical odds join (M48) — adds BTTS (and later corners /
+    # anytime) closing prices that football-data never carried.
+    try:
+        joiner: Optional[HistJoiner] = HistJoiner(conn)
+    except Exception:
+        joiner = None
+
     val_rows_all: List[MarketRow] = []
     test_rows_all: List[MarketRow] = []
     per_league_meta: Dict[str, Any] = {}
@@ -270,7 +296,7 @@ def run_backtest_v2(leagues: Optional[List[str]] = None) -> Dict[str, Any]:
         if fit_train is None:
             per_league_meta[league]["skipped"] = "train fit failed"
             continue
-        val_rows_all.extend(_collect_rows(league, fit_train, conn, val))
+        val_rows_all.extend(_collect_rows(league, fit_train, conn, val, joiner))
 
         # Pass B — fit on TRAIN+VAL, predict TEST (for the verdict)
         fit_trainval = fit_dixon_coles(league, conn,
@@ -278,13 +304,13 @@ def run_backtest_v2(leagues: Optional[List[str]] = None) -> Dict[str, Any]:
         if fit_trainval is None:
             per_league_meta[league]["skipped_test"] = "train+val fit failed"
             continue
-        test_rows_all.extend(_collect_rows(league, fit_trainval, conn, test))
+        test_rows_all.extend(_collect_rows(league, fit_trainval, conn, test, joiner))
 
     conn.close()
 
     # ── Tune shrinkage per market group on pooled VALIDATION (by log-loss) ──
     tuned: Dict[str, Dict[str, Any]] = {}
-    for group in ("1x2", "totals"):
+    for group in ("1x2", "totals", "btts"):
         best_factor, best_ll = 1.0, float("inf")
         sweep = []
         for f in SHRINK_GRID:
@@ -302,7 +328,7 @@ def run_backtest_v2(leagues: Optional[List[str]] = None) -> Dict[str, Any]:
     # Proven while the other is a clear avoid. The product only ever bets
     # one side, so that's the granularity that matters.
     markets_report: Dict[str, Any] = {}
-    for group in ("1x2", "totals"):
+    for group in ("1x2", "totals", "btts"):
         factor = tuned[group]["best_factor"]
         shrunk = _apply_shrink_group(test_rows_all, group, factor)
         sels = sorted({r.selection for r in test_rows_all if r.group == group})
