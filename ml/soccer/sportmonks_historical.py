@@ -486,9 +486,14 @@ def _already_ingested(path: Optional[Path] = None) -> set:
         conn.close()
 
 
-def discover_finished_fixtures(date_from: date, date_to: date,
-                               league_ids: List[int]) -> List[Dict[str, Any]]:
-    leagues = set(league_ids)
+# Sportmonks /fixtures/between caps the date span per request. 100 days is
+# safe; we chunk longer ranges into windows of this size.
+_MAX_WINDOW_DAYS = 90
+
+
+def _discover_window(date_from: date, date_to: date,
+                     leagues: set) -> List[Dict[str, Any]]:
+    """Single-window discovery (≤ _MAX_WINDOW_DAYS). Paginates."""
     out: List[Dict[str, Any]] = []
     page = 1
     while True:
@@ -506,6 +511,111 @@ def discover_finished_fixtures(date_from: date, date_to: date,
         if page > 60:
             break
     return out
+
+
+def discover_finished_fixtures(date_from: date, date_to: date,
+                               league_ids: List[int]) -> List[Dict[str, Any]]:
+    """Discover finished fixtures across an arbitrary date span, chunking
+    into ≤90-day windows to respect the Sportmonks /fixtures/between limit
+    (a 10-month span returns 422)."""
+    leagues = set(league_ids)
+    out: List[Dict[str, Any]] = []
+    seen: set = set()
+    cursor = date_from
+    while cursor <= date_to:
+        window_end = min(cursor + timedelta(days=_MAX_WINDOW_DAYS), date_to)
+        for fx in _discover_window(cursor, window_end, leagues):
+            fid = fx.get("id")
+            if fid is not None and fid not in seen:
+                seen.add(fid)
+                out.append(fx)
+        cursor = window_end + timedelta(days=1)
+    return out
+
+
+def get_season_id(league_id: int, season_name: str) -> Optional[int]:
+    """Resolve a (league_id, season_name like '2024/2025') → season_id.
+    The per-season fixtures endpoint is complete + untruncated, unlike the
+    global /fixtures/between (which caps per_page at 25 and returns ALL
+    leagues, truncating our Big-5 fixtures)."""
+    r = _get(f"/leagues/{league_id}", {"include": "seasons"})
+    seasons = (r.get("data") or {}).get("seasons") or []
+    # Accept both '2024/2025' and '2024-2025'
+    wanted = {season_name, season_name.replace("/", "-"), season_name.replace("-", "/")}
+    for s in seasons:
+        if s.get("name") in wanted:
+            return s.get("id")
+    return None
+
+
+def discover_season_fixtures(league_id: int, season_name: str) -> List[Dict[str, Any]]:
+    """All finished fixtures for one league-season. Complete (no global
+    truncation) — uses /seasons/{id}?include=fixtures."""
+    sid = get_season_id(league_id, season_name)
+    if not sid:
+        return []
+    r = _get(f"/seasons/{sid}", {"include": "fixtures"})
+    fixtures = (r.get("data") or {}).get("fixtures") or []
+    # Stamp league_id on each (the nested fixtures carry it, but be safe)
+    out = []
+    for fx in fixtures:
+        if fx.get("result_info"):  # finished only
+            fx.setdefault("league_id", league_id)
+            out.append(fx)
+    return out
+
+
+def ingest_season(*, season_name: str,
+                  league_ids: Optional[List[int]] = None,
+                  limit: Optional[int] = None,
+                  sleep_between: float = 0.08,
+                  path: Optional[Path] = None) -> Dict[str, Any]:
+    """Ingest a full season across the given leagues using the complete
+    per-season endpoint. Resumable. This is the primary bulk path."""
+    league_ids = league_ids or list(HISTORICAL_LEAGUE_IDS.values())
+    id_to_name = {v: k for k, v in HISTORICAL_LEAGUE_IDS.items()}
+    done = _already_ingested(path)
+
+    discovered_total = 0
+    ingested = 0
+    errors: List[Dict[str, Any]] = []
+    market_totals: Dict[str, int] = {}
+    per_league: Dict[str, int] = {}
+
+    for lid in league_ids:
+        lname = id_to_name.get(lid, str(lid))
+        try:
+            fixtures = discover_season_fixtures(lid, season_name)
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"league": lname, "error": str(exc)[:150]})
+            continue
+        discovered_total += len(fixtures)
+        todo = [fx for fx in fixtures if int(fx["id"]) not in done]
+        if limit:
+            todo = todo[:limit]
+        league_ingested = 0
+        for fx in todo:
+            try:
+                res = ingest_fixture(int(fx["id"]), league_name=lname, path=path)
+                if res.get("ok"):
+                    ingested += 1
+                    league_ingested += 1
+                    for m, n in (res.get("markets") or {}).items():
+                        market_totals[m] = market_totals.get(m, 0) + n
+                if sleep_between:
+                    time.sleep(sleep_between)
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"fixture_id": fx.get("id"), "error": str(exc)[:150]})
+        per_league[lname] = league_ingested
+
+    return {
+        "season": season_name,
+        "discovered_finished": discovered_total,
+        "ingested": ingested,
+        "per_league": per_league,
+        "errors": errors[:20],
+        "market_coverage": market_totals,
+    }
 
 
 def ingest_range(*, date_from: date, date_to: date,
@@ -593,6 +703,11 @@ if __name__ == "__main__":
     rng.add_argument("--leagues", default=None, help="CSV of league_ids")
     rng.add_argument("--limit", type=int, default=None)
 
+    seas = sub.add_parser("season")
+    seas.add_argument("--name", required=True, help="e.g. 2024/2025")
+    seas.add_argument("--leagues", default=None, help="CSV of league_ids")
+    seas.add_argument("--limit", type=int, default=None)
+
     sub.add_parser("coverage")
 
     args = p.parse_args()
@@ -604,6 +719,11 @@ if __name__ == "__main__":
             date_from=date.fromisoformat(args.date_from),
             date_to=date.fromisoformat(args.date_to),
             league_ids=lids, limit=args.limit,
+        ), indent=2, ensure_ascii=False))
+    elif args.cmd == "season":
+        lids = [int(x) for x in args.leagues.split(",")] if args.leagues else None
+        print(json.dumps(ingest_season(
+            season_name=args.name, league_ids=lids, limit=args.limit,
         ), indent=2, ensure_ascii=False))
     elif args.cmd == "coverage":
         print(json.dumps(coverage_report(), indent=2, ensure_ascii=False))
