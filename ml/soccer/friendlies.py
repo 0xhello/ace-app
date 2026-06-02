@@ -129,10 +129,11 @@ def discover_friendlies(date_from: Optional[date] = None,
 
 # ── Odds + predictions extraction ──────────────────────────────────────────
 
-def _collect_book_prices(odds_rows: List[Dict[str, Any]]) -> Dict[Tuple[int, str, Optional[float]], List[float]]:
-    """Collect ALL book decimal prices per (market_id, label, line) for our
-    three graded markets — so we can take a consensus, not a lone outlier."""
-    prices: Dict[Tuple[int, str, Optional[float]], List[float]] = {}
+def _collect_book_prices(odds_rows: List[Dict[str, Any]]) -> Dict[Tuple[int, str, Optional[float]], List[Tuple[float, str]]]:
+    """Collect ALL (decimal, book_name) per (market_id, label, line) for our
+    three graded markets — so we can take a consensus, not a lone outlier,
+    and know which book holds the best price."""
+    prices: Dict[Tuple[int, str, Optional[float]], List[Tuple[float, str]]] = {}
     for o in odds_rows:
         mid = o.get("market_id")
         if mid not in (_MKT_FULLTIME, _MKT_TOTALS, _MKT_BTTS):
@@ -157,21 +158,26 @@ def _collect_book_prices(odds_rows: List[Dict[str, Any]]) -> Dict[Tuple[int, str
             continue
         elif mid == _MKT_BTTS and label not in ("Yes", "No"):
             continue
-        prices.setdefault((mid, label, line), []).append(dec)
+        book = (o.get("bookmaker") or {}).get("name") or f"book#{o.get('bookmaker_id')}"
+        prices.setdefault((mid, label, line), []).append((dec, book))
     return prices
 
 
-def _market_summary(prices: Dict[Tuple[int, str, Optional[float]], List[float]]):
-    """Per selection: {n_books, consensus_decimal (median), best_decimal (max)}.
-    Consensus is what we measure edge against; best is what we'd bet at."""
-    out: Dict[Tuple[int, str, Optional[float]], Dict[str, float]] = {}
-    for key, decs in prices.items():
-        if not decs:
+def _market_summary(prices: Dict[Tuple[int, str, Optional[float]], List[Tuple[float, str]]]):
+    """Per selection: {n_books, consensus_decimal (median), best_decimal (max),
+    best_book}. Consensus is what we measure edge against; best is what we'd
+    bet at."""
+    out: Dict[Tuple[int, str, Optional[float]], Dict[str, Any]] = {}
+    for key, quotes in prices.items():
+        if not quotes:
             continue
+        decs = [d for d, _ in quotes]
+        best_dec, best_book = max(quotes, key=lambda q: q[0])
         out[key] = {
             "n_books": len(decs),
             "consensus_decimal": float(_stats.median(decs)),
-            "best_decimal": float(max(decs)),
+            "best_decimal": float(best_dec),
+            "best_book": best_book,
         }
     return out
 
@@ -193,7 +199,7 @@ def friendly_candidates(fixture: Dict[str, Any]) -> List[Dict[str, Any]]:
     Sportmonks model (not ACE DC). Returns only positive-edge candidates."""
     fid = fixture["fixture_id"]
     data = _get(f"/fixtures/{fid}",
-                {"include": "odds;predictions.type;participants"}).get("data", {})
+                {"include": "odds.bookmaker;predictions.type;participants"}).get("data", {})
     summ = _market_summary(_collect_book_prices(data.get("odds") or []))
     preds = _predictions(data.get("predictions") or [])
 
@@ -237,6 +243,7 @@ def friendly_candidates(fixture: Dict[str, Any]) -> List[Dict[str, Any]]:
             "consensus_prob": round(consensus_implied, 4),
             "best_decimal": round(info["best_decimal"], 4),
             "best_american": _decimal_to_american(info["best_decimal"]),
+            "best_book": info["best_book"],
             "n_books": info["n_books"],
             "edge_pp": round(edge_pp, 2),
         })

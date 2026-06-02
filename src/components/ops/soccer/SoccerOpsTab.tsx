@@ -29,6 +29,7 @@ import {
 import PlayerPriorsPanel from "@/components/ops/soccer/PlayerPriorsPanel";
 import MarketProbePanel from "@/components/ops/soccer/MarketProbePanel";
 import SuggestedPicksPanel from "@/components/ops/soccer/SuggestedPicksPanel";
+import FriendliesPanel from "@/components/ops/soccer/FriendliesPanel";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2545,6 +2546,11 @@ export default function SoccerOpsTab() {
             the model has nothing to surface OR everything has already
             been approved. */}
         <SuggestedPicksPanel />
+
+        {/* F2 — International-friendly dress-rehearsal candidates. Sportmonks-
+            sourced (Odds API doesn't carry friendlies), clearly Experimental.
+            Exercises the live pipeline on real WC-team games before June 11. */}
+        <FriendliesPanel />
 
         {/* ══ FEATURED PICK (M33) ════════════════════════════════════════════
             The single thing worth your attention right now: one validated
