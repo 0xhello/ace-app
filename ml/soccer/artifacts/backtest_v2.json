@@ -1,0 +1,282 @@
+{
+  "ran_at": "2026-06-02T01:02:15.755487+00:00",
+  "method": "3-way chronological split (60/20/20); shrink tuned on val by log-loss; ROI reported on held-out test",
+  "split": {
+    "train": 0.6,
+    "val": 0.2,
+    "test": 0.2
+  },
+  "verdict_edge": 0.05,
+  "min_test_bets": 30,
+  "per_league": {
+    "Premier League": {
+      "n": 1130,
+      "train": 678,
+      "val": 226,
+      "test": 226,
+      "val_start": "2025-04-03",
+      "test_start": "2025-12-06"
+    },
+    "La Liga": {
+      "n": 1130,
+      "train": 678,
+      "val": 226,
+      "test": 226,
+      "val_start": "2025-04-07",
+      "test_start": "2025-12-06"
+    },
+    "Bundesliga": {
+      "n": 918,
+      "train": 550,
+      "val": 184,
+      "test": 184,
+      "val_start": "2025-04-05",
+      "test_start": "2025-12-13"
+    },
+    "Serie A": {
+      "n": 1130,
+      "train": 678,
+      "val": 226,
+      "test": 226,
+      "val_start": "2025-03-31",
+      "test_start": "2025-12-14"
+    },
+    "Ligue 1": {
+      "n": 917,
+      "train": 550,
+      "val": 183,
+      "test": 184,
+      "val_start": "2025-04-05",
+      "test_start": "2025-11-30"
+    }
+  },
+  "tuned_shrinkage": {
+    "1x2": {
+      "best_factor": 0.92,
+      "val_logloss": 0.8291,
+      "sweep": [
+        {
+          "factor": 1.0,
+          "val_logloss": 0.8292
+        },
+        {
+          "factor": 0.92,
+          "val_logloss": 0.8291
+        },
+        {
+          "factor": 0.85,
+          "val_logloss": 0.8295
+        },
+        {
+          "factor": 0.78,
+          "val_logloss": 0.8305
+        },
+        {
+          "factor": 0.72,
+          "val_logloss": 0.8317
+        },
+        {
+          "factor": 0.65,
+          "val_logloss": 0.8335
+        },
+        {
+          "factor": 0.58,
+          "val_logloss": 0.8359
+        },
+        {
+          "factor": 0.5,
+          "val_logloss": 0.8391
+        }
+      ]
+    },
+    "totals": {
+      "best_factor": 0.5,
+      "val_logloss": 1.0727,
+      "sweep": [
+        {
+          "factor": 1.0,
+          "val_logloss": 1.0807
+        },
+        {
+          "factor": 0.92,
+          "val_logloss": 1.0788
+        },
+        {
+          "factor": 0.85,
+          "val_logloss": 1.0773
+        },
+        {
+          "factor": 0.78,
+          "val_logloss": 1.0759
+        },
+        {
+          "factor": 0.72,
+          "val_logloss": 1.075
+        },
+        {
+          "factor": 0.65,
+          "val_logloss": 1.074
+        },
+        {
+          "factor": 0.58,
+          "val_logloss": 1.0733
+        },
+        {
+          "factor": 0.5,
+          "val_logloss": 1.0727
+        }
+      ]
+    }
+  },
+  "markets": {
+    "h2h_away": {
+      "group": "1x2",
+      "shrink_factor": 0.92,
+      "by_edge": {
+        "3pp": {
+          "n_bets": 31,
+          "wins": 8,
+          "win_rate": 0.2581,
+          "roi": -0.0429,
+          "units": -1.33
+        },
+        "5pp": {
+          "n_bets": 19,
+          "wins": 4,
+          "win_rate": 0.2105,
+          "roi": -0.2121,
+          "units": -4.03
+        },
+        "7pp": {
+          "n_bets": 16,
+          "wins": 3,
+          "win_rate": 0.1875,
+          "roi": -0.1831,
+          "units": -2.93
+        }
+      },
+      "verdict": "EXPERIMENTAL",
+      "sample_note": "losing on test"
+    },
+    "h2h_draw": {
+      "group": "1x2",
+      "shrink_factor": 0.92,
+      "by_edge": {
+        "3pp": {
+          "n_bets": 21,
+          "wins": 5,
+          "win_rate": 0.2381,
+          "roi": 0.019,
+          "units": 0.4
+        },
+        "5pp": {
+          "n_bets": 9,
+          "wins": 1,
+          "win_rate": 0.1111,
+          "roi": -0.2778,
+          "units": -2.5
+        },
+        "7pp": {
+          "n_bets": 5,
+          "wins": 1,
+          "win_rate": 0.2,
+          "roi": 0.3,
+          "units": 1.5
+        }
+      },
+      "verdict": "EXPERIMENTAL",
+      "sample_note": "losing on test"
+    },
+    "h2h_home": {
+      "group": "1x2",
+      "shrink_factor": 0.92,
+      "by_edge": {
+        "3pp": {
+          "n_bets": 73,
+          "wins": 29,
+          "win_rate": 0.3973,
+          "roi": -0.0975,
+          "units": -7.12
+        },
+        "5pp": {
+          "n_bets": 59,
+          "wins": 23,
+          "win_rate": 0.3898,
+          "roi": -0.1525,
+          "units": -9.0
+        },
+        "7pp": {
+          "n_bets": 45,
+          "wins": 20,
+          "win_rate": 0.4444,
+          "roi": -0.0144,
+          "units": -0.65
+        }
+      },
+      "verdict": "EXPERIMENTAL",
+      "sample_note": "losing on test"
+    },
+    "over_2.5": {
+      "group": "totals",
+      "shrink_factor": 0.5,
+      "by_edge": {
+        "3pp": {
+          "n_bets": 44,
+          "wins": 21,
+          "win_rate": 0.4773,
+          "roi": 0.0777,
+          "units": 3.42
+        },
+        "5pp": {
+          "n_bets": 36,
+          "wins": 17,
+          "win_rate": 0.4722,
+          "roi": 0.0883,
+          "units": 3.18
+        },
+        "7pp": {
+          "n_bets": 28,
+          "wins": 16,
+          "win_rate": 0.5714,
+          "roi": 0.3279,
+          "units": 9.18
+        }
+      },
+      "verdict": "PROVEN",
+      "sample_note": "small sample"
+    },
+    "under_2.5": {
+      "group": "totals",
+      "shrink_factor": 0.5,
+      "by_edge": {
+        "3pp": {
+          "n_bets": 49,
+          "wins": 20,
+          "win_rate": 0.4082,
+          "roi": -0.06,
+          "units": -2.94
+        },
+        "5pp": {
+          "n_bets": 37,
+          "wins": 14,
+          "win_rate": 0.3784,
+          "roi": -0.0997,
+          "units": -3.69
+        },
+        "7pp": {
+          "n_bets": 28,
+          "wins": 10,
+          "win_rate": 0.3571,
+          "roi": -0.085,
+          "units": -2.38
+        }
+      },
+      "verdict": "EXPERIMENTAL",
+      "sample_note": "losing on test"
+    }
+  },
+  "pooled_counts": {
+    "val_rows": 4584,
+    "test_rows": 5230
+  }
+}
