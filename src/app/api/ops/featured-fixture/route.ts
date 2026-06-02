@@ -28,9 +28,9 @@ import json, sys
 from datetime import datetime, timezone, timedelta
 from ml.soccer.leagues import LEAGUES, fetch_league_odds
 
-# Tournament priority — UCL knockouts beat league play. Update once we
-# expand to UEL knockout / WC / etc.
+# Tournament priority — the World Cup outranks everything once it's near.
 PRIORITY = {
+    "World Cup":       6,
     "UCL":             5,
     "Premier League":  3,
     "La Liga":         3,
@@ -48,6 +48,18 @@ LEAGUE_NAME = {sport_key: lg for (sport_key, lg, _) in LEAGUES}
 # For league play home_league = away_league = the league itself.
 def hints_for(sport_key, home_team, away_team, kickoff_dt, ucl_count_in_window):
     league = LEAGUE_NAME.get(sport_key, "Premier League")
+    if sport_key == "soccer_fifa_world_cup":
+        # National teams — neutral venue, no club-league hint. Model picks
+        # for WC are gated until squad data is verified (Phase 4); this just
+        # surfaces the fixture so the panel shows the tournament, not stale
+        # club data.
+        return {
+            "tournament": "World Cup",
+            "home_league": "World Cup",
+            "away_league": "World Cup",
+            "neutral_venue": True,
+            "competition_stage": "world_cup",
+        }
     if sport_key == "soccer_uefa_champs_league":
         # M29 — heuristic auto-detect for UCL final.
         # UCL final is always a single match in late May / early June with

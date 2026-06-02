@@ -82,14 +82,24 @@ SCAN_PLAYER_PROPS_DEFAULT = os.getenv("WC_PLAYER_PROPS_CLUB_LEAGUES", "").lower(
 # extend further but the league's regular slate is done.
 
 LEAGUES: List[Tuple[str, str, date]] = [
-    # European Big 5 — most of WC's UEFA qualifier players are here
+    # European Big 5 — most of WC's UEFA qualifier players are here.
+    # NOTE: all club seasons end mid/late-May 2026; after that the only
+    # active soccer is the World Cup (kicks off June 11). Keep these in
+    # the list so the historical/feature data stays available, but they
+    # produce no live fixtures once past active_until.
     ("soccer_epl",                  "Premier League",  date(2026, 5, 25)),
     ("soccer_spain_la_liga",        "La Liga",          date(2026, 5, 25)),
     ("soccer_germany_bundesliga",   "Bundesliga",       date(2026, 5, 17)),
     ("soccer_italy_serie_a",        "Serie A",          date(2026, 5, 25)),
     ("soccer_france_ligue_one",     "Ligue 1",          date(2026, 5, 17)),
-    # UEFA Champions League — final June 1 (one-off; high signal density)
+    # UEFA Champions League — final was May 30 (one-off; high signal density)
     ("soccer_uefa_champs_league",   "UCL",              date(2026, 6, 7)),
+    # FIFA World Cup 2026 — June 11 → July 19. THE event. Once the club
+    # seasons end this is the only live soccer, so the pipeline must scan
+    # it to surface fixtures + a countdown instead of lingering on stale
+    # club data. (Model picks for national teams gated separately until
+    # WC squad data is verified — Phase 4.)
+    ("soccer_fifa_world_cup",       "World Cup",        date(2026, 7, 20)),
 ]
 
 
@@ -141,7 +151,17 @@ def fetch_league_odds(sport_key: str) -> List[Dict[str, Any]]:
     if resp.status_code == 401:
         raise EnvironmentError("ODDS_API_KEY invalid or expired.")
     if resp.status_code == 422:
-        return []  # off-season / unavailable
+        # 422 is ambiguous: it fires both when the sport is off-season
+        # AND when ONE of the requested markets isn't supported for this
+        # sport yet. The World Cup 9 days out only posts h2h — asking for
+        # spreads/btts/totals_corners 422s the whole request, which made
+        # us falsely treat the tournament as "off-season" and show stale
+        # club data instead. Retry with just h2h (the universally-posted
+        # market) before giving up, so we at least surface the fixtures.
+        retry = httpx.get(url, params={**params, "markets": "h2h"}, timeout=15)
+        if retry.status_code == 200:
+            return retry.json()
+        return []  # genuinely off-season / unavailable
     if resp.status_code == 429:
         raise RuntimeError("Odds API quota exceeded.")
     resp.raise_for_status()
