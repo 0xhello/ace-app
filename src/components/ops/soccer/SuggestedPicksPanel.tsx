@@ -226,8 +226,17 @@ export default function SuggestedPicksPanel() {
   const pickKey = (p: SuggestedPick) =>
     `${p.game_id}|${p.market}|${p.side}`;
 
+  // Only suggest picks for fixtures that haven't kicked off yet. The seed
+  // is currently the UCL final (now in the past), so once that's behind us
+  // this panel correctly shows nothing rather than pinning to a dead event.
+  // (P1.3 — no stale suggestions. The dynamic WC-fixture source lands with
+  // the WC model work; until then future-dated seeds are the only ones shown.)
   const visiblePicks = useMemo(
-    () => TODAYS_PICKS.filter((p) => !alreadyApproved.has(pickKey(p))),
+    () => TODAYS_PICKS.filter((p) => {
+      if (alreadyApproved.has(pickKey(p))) return false;
+      const ko = new Date(p.commence_time).getTime();
+      return Number.isFinite(ko) && ko > Date.now();
+    }),
     [alreadyApproved],
   );
 
@@ -289,18 +298,21 @@ export default function SuggestedPicksPanel() {
     );
   }
 
-  // Nothing left to publish — collapse to a small confirmation strip
+  // No upcoming fixtures to suggest picks for — honest empty state.
+  // (During the pre-WC dead zone there are no live games; this is the
+  // intended state, not an error. The dynamic WC-fixture source lands
+  // with the WC model work.)
   if (visiblePicks.length === 0) {
     return (
       <section className="mb-4 rounded-2xl bg-[#0d0f0d] border border-[#181c18] px-5 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.5} />
+          <CheckCircle2 className="h-3.5 w-3.5 text-[#6b7068]" strokeWidth={1.5} />
           <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#9ca39a]">
-            All model picks for today are already published
+            No upcoming picks to suggest right now
           </span>
         </div>
         <span className="text-[10px] text-[#6b7068]">
-          {alreadyApproved.size} in approved_picks
+          World Cup kicks off June 11
         </span>
       </section>
     );
