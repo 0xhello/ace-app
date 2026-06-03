@@ -19,6 +19,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 interface Explanation {
   headline: string;
@@ -124,9 +125,42 @@ export default function PerformancePage() {
   }, []);
 
   if (loading) {
+    // Mirror the real layout so the load reads as intentional, not blank.
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0a0b0a] text-[#6b7068]">
-        <p>Loading track record…</p>
+      <div className="min-h-screen bg-[#0a0b0a] text-white">
+        <div className="border-b border-[#1e2220]">
+          <div className="max-w-[1100px] mx-auto px-6 py-8 space-y-3">
+            <Skeleton className="h-3 w-40" />
+            <Skeleton className="h-9 w-[min(100%,520px)]" />
+            <Skeleton className="h-4 w-[min(100%,640px)]" />
+          </div>
+        </div>
+        <div className="max-w-[1100px] mx-auto px-6 py-8 space-y-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="ace-kpi space-y-2.5">
+                <Skeleton className="h-2.5 w-20" />
+                <Skeleton className="h-7 w-24" />
+                <Skeleton className="h-2.5 w-16" />
+              </div>
+            ))}
+          </div>
+          <div className="ace-panel-muted overflow-hidden">
+            <div className="px-3 py-3 border-b border-[#1e2220]">
+              <Skeleton className="h-3 w-32" />
+            </div>
+            <div className="divide-y divide-[#141714]">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-3 py-3">
+                  <Skeleton className="h-3 flex-1" />
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-3 w-12" />
+                  <Skeleton className="h-3 w-10" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

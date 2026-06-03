@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import type { PriceAlert } from "@/lib/alerts";
 import { requestNotificationPermission } from "@/lib/alerts";
 import { cn } from "@/lib/utils";
-import { Bell, BellOff, Plus, Trash2, CheckCircle2, Clock, X, RefreshCw, Star } from "lucide-react";
+import { Bell, BellOff, Plus, Trash2, CheckCircle2, Clock, X, Star } from "lucide-react";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 const MARKET_LABELS: Record<string, string> = { ml: "Moneyline", spread: "Spread", total: "Total" };
 const CONDITION_LABELS: Record<string, string> = { rises_above: "rises above", drops_below: "drops below" };
@@ -168,8 +169,28 @@ export default function AlertsPage() {
 
   if (loading) {
     return (
-      <div className="flex-1 overflow-y-auto bg-[#0a0b0a] flex items-center justify-center">
-        <RefreshCw className="h-4 w-4 text-[#3a4033] animate-spin" />
+      <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
+        <div className="max-w-3xl mx-auto px-6 py-6">
+          <div className="flex items-center justify-between gap-4 mb-6">
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-3 w-64" />
+            </div>
+            <Skeleton className="h-9 w-28 rounded-lg" />
+          </div>
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="rounded-xl border border-[#1b201a] bg-[#0d0f0d] p-4 flex items-center gap-3">
+                <Skeleton className="h-8 w-8 rounded-lg" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-3 w-40" />
+                  <Skeleton className="h-2.5 w-24" />
+                </div>
+                <Skeleton className="h-6 w-16 rounded-md" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }

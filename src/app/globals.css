@@ -58,6 +58,27 @@ body {
 .odds-flash-up   { animation: odds-flash-up   600ms ease-out forwards; }
 .odds-flash-down { animation: odds-flash-down 600ms ease-out forwards; }
 
+/* Skeleton shimmer — used by loading states so a slow fetch reads as
+   "intentionally loading the real layout" rather than a blank/spinner. */
+@keyframes ace-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.ace-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(124, 230, 170, 0.07) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-color: #121512;
+  background-size: 200% 100%;
+  animation: ace-shimmer 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ace-skeleton { animation: none; }
+}
+
 @keyframes ace-ticker {
   from { transform: translateX(0); }
   to   { transform: translateX(-50%); }

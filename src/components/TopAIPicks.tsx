@@ -1,7 +1,7 @@
 "use client";
 
 import { cn, teamAbbr } from "@/lib/utils";
-import { Sparkles, Plus, TrendingUp } from "lucide-react";
+import { Sparkles, Plus, TrendingUp, Radar } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 
@@ -81,8 +81,14 @@ export default function TopAIPicks({ onAddLeg, picks }: { onAddLeg?: (leg: SlipL
           </div>
 
           {resolvedPicks.length === 0 ? (
-            <div className="py-6 text-center">
-              <p className="text-[11px] text-[#3a4033]">No edge signals detected yet — check back closer to tip-off</p>
+            <div className="flex flex-col items-center justify-center py-9 text-center">
+              <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-[#3ee68a]/[0.06] border border-[#3ee68a]/12 mb-3">
+                <Radar className="h-4 w-4 text-[#3ee68a]/70" />
+              </div>
+              <p className="text-[12px] font-semibold text-[#c4c7c0]">No live edges right now</p>
+              <p className="mt-1.5 text-[11px] text-[#6b7068] max-w-[320px] leading-relaxed">
+                The model is scanning the board — signals surface here as games approach kickoff.
+              </p>
             </div>
           ) : (
           <div className="flex gap-3 pt-3 overflow-x-auto scrollbar-hide">
