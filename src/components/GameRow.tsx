@@ -3,11 +3,10 @@
 import { useState, useEffect, useRef } from "react";
 import { Game } from "@/types/game";
 import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
-import { Star, Sparkles, TrendingUp, TrendingDown } from "lucide-react";
+import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
 import { impliedProbability, edgePct } from "@/lib/edge";
-import { SignalChip, SignalSummaryLine } from "@/components/SignalBadge";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getTeamStyle } from "@/lib/team-style";
 
@@ -482,19 +481,23 @@ export default function GameRow({
                 )}
               </div>
 
-              <div className="flex items-center gap-2 mt-1.5 pl-[26px] flex-wrap">
-                <span className="text-[9px] text-[#6b7068] uppercase tracking-wider">{game.sport_title}</span>
-                {hookSignal && (
-                  <>
-                    <span className="text-[9px] text-[#2e332a]">·</span>
-                    <SignalChip signal={hookSignal} compact />
-                  </>
-                )}
+              <div className="mt-1.5 pl-[26px]">
+                <span className="text-[9px] text-[#5f655c] uppercase tracking-wider">{game.sport_title}</span>
               </div>
 
+              {/* The juicy hook — the standout line on the row. Readable, with a
+                  source icon, NOT a dim 9px footnote. News / lineup / weather
+                  (injuries get their own colored chips below, which rank above). */}
               {hookSignal && (
-                <div className="pl-[26px] mt-0.5">
-                  <SignalSummaryLine signal={hookSignal} />
+                <div className="pl-[26px] mt-1 flex items-start gap-1.5">
+                  {hookSignal.type === "weather"
+                    ? <Cloud className="h-3 w-3 text-[#7a8278] mt-[1.5px] shrink-0" />
+                    : hookSignal.type === "lineup"
+                    ? <Users className="h-3 w-3 text-[#3ee68a] mt-[1.5px] shrink-0" />
+                    : <Newspaper className="h-3 w-3 text-[#3ee68a] mt-[1.5px] shrink-0" />}
+                  <span className="text-[11px] text-[#c8cdc4] leading-snug line-clamp-1 font-medium">
+                    {hookSignal.summary}
+                  </span>
                 </div>
               )}
 
