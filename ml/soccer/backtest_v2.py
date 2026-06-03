@@ -71,6 +71,11 @@ EDGE_THRESHOLDS = [0.03, 0.05, 0.07]
 MIN_TEST_BETS = 30           # below this, a market can't earn "Proven"
 PROVEN_ROI_BAR = 0.0         # test ROI must beat break-even vs the close
 
+# Corners edge band — same discipline as the friendlies (drop sub-noise +
+# implausible-outlier edges).
+_CORNERS_MIN_EDGE_PP = 3.0
+_CORNERS_MAX_EDGE_PP = 25.0
+
 # Verdict edge threshold — the one we judge "Proven" on.
 VERDICT_EDGE = 0.05
 
@@ -401,6 +406,134 @@ def run_backtest_v2(leagues: Optional[List[str]] = None) -> Dict[str, Any]:
     return summary
 
 
+def _poisson_at_least(lam: float, k: int) -> float:
+    """P(X >= k) for X ~ Poisson(lam)."""
+    if k <= 0:
+        return 1.0
+    if lam <= 0:
+        return 0.0
+    cdf = math.exp(-lam)
+    term = cdf
+    for i in range(1, k):
+        term *= lam / i
+        cdf += term
+    return max(0.0, min(1.0, 1.0 - cdf))
+
+
+def _corners_matches(league: str, conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        """SELECT match_date, team_name AS home, opponent AS away,
+                  corners AS home_corners, corners_against AS away_corners
+             FROM soccer_team_form
+            WHERE league = ? AND venue = 'home'
+                  AND corners IS NOT NULL AND corners_against IS NOT NULL
+            ORDER BY match_date ASC""",
+        (league,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def run_corners_backtest(leagues: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Leakage-free corners backtest. The corners model is non-parametric
+    (rolling team corner rates), so there's no hyperparameter to tune on a
+    holdout — we just run it on the newest-20% test split and measure ROI
+    vs the Sportmonks closing corners line. Push handling on whole-number
+    lines (e.g. exactly 9 corners on an 'Over 9' line returns the stake).
+    """
+    from ml.soccer.match_intelligence import _team_corners_window
+    leagues = leagues or LEAGUES_TO_FIT
+    conn = get_db()
+    joiner = HistJoiner(conn)
+
+    # bets: list of (edge_pp, profit_if_bet, won_flag) at each threshold
+    bets: List[Dict[str, Any]] = []
+    fixtures_with_odds = 0
+
+    for league in leagues:
+        matches = _corners_matches(league, conn)
+        if len(matches) < 200:
+            continue
+        i_test = int(len(matches) * (TRAIN_FRAC + VAL_FRAC))
+        test = matches[i_test:]
+        for m in test:
+            actual = int(m["home_corners"]) + int(m["away_corners"])
+            hw = _team_corners_window(conn, m["home"], before_date=m["match_date"])
+            aw = _team_corners_window(conn, m["away"], before_date=m["match_date"])
+            if not hw or not aw:
+                continue
+            home_cor = (hw["corners_for_pg"] + aw["corners_against_pg"]) / 2.0
+            away_cor = (aw["corners_for_pg"] + hw["corners_against_pg"]) / 2.0
+            lam_total = home_cor + away_cor
+            odds = joiner.corners_odds(m["match_date"], m["home"], m["away"])
+            if not odds:
+                continue
+            fixtures_with_odds += 1
+            for line, sides in odds.items():
+                if "Over" not in sides or "Under" not in sides:
+                    continue
+                try:
+                    L = float(line)
+                    over_dec = float(sides["Over"]); under_dec = float(sides["Under"])
+                except (TypeError, ValueError):
+                    continue
+                if over_dec <= 1.0 or under_dec <= 1.0:
+                    continue
+                # model probs — over wins iff corners >= floor(L)+1 (works for
+                # whole and half lines)
+                thr = int(L) + 1
+                p_over = _poisson_at_least(lam_total, thr)
+                p_under = 1.0 - p_over
+                # de-vig consensus
+                raw_o, raw_u = 1.0 / over_dec, 1.0 / under_dec
+                s = raw_o + raw_u
+                cons_over, cons_under = (raw_o / s, raw_u / s) if s > 0 else (0.5, 0.5)
+                is_whole = abs(L - round(L)) < 1e-9
+                # grade each side (push on whole lines when actual == L)
+                for side, p_model, cons, dec in [
+                    ("over", p_over, cons_over, over_dec),
+                    ("under", p_under, cons_under, under_dec),
+                ]:
+                    edge = (p_model - cons) * 100.0
+                    if edge < _CORNERS_MIN_EDGE_PP or edge > _CORNERS_MAX_EDGE_PP:
+                        continue
+                    if is_whole and actual == int(L):
+                        result = "push"
+                    elif side == "over":
+                        result = "won" if actual > L else "lost"
+                    else:
+                        result = "won" if actual < L else "lost"
+                    if result == "push":
+                        continue                       # stake returned, no action
+                    profit = (dec - 1.0) if result == "won" else -1.0
+                    bets.append({"edge_pp": edge, "won": result == "won", "profit": profit})
+
+    conn.close()
+
+    def roi_at(thr_pp: float) -> Dict[str, Any]:
+        sel = [b for b in bets if b["edge_pp"] >= thr_pp]
+        if not sel:
+            return {"n_bets": 0, "roi": None}
+        wins = sum(1 for b in sel if b["won"])
+        ret = sum(b["profit"] for b in sel)
+        return {"n_bets": len(sel), "win_rate": round(wins / len(sel), 4),
+                "roi": round(ret / len(sel), 4), "units": round(ret, 2)}
+
+    by_edge = {f"{int(t*100)}pp": roi_at(t * 100) for t in EDGE_THRESHOLDS}
+    v = by_edge[f"{int(VERDICT_EDGE*100)}pp"]
+    roi3 = (by_edge.get("3pp") or {}).get("roi")
+    lower_ok = roi3 is None or roi3 >= -0.01
+    proven = (v.get("n_bets", 0) >= MIN_TEST_BETS and v.get("roi") is not None
+              and v["roi"] > PROVEN_ROI_BAR and lower_ok)
+    return {
+        "market": "corners",
+        "model": "rolling team corner rates (non-parametric, no tuning)",
+        "fixtures_with_corners_odds": fixtures_with_odds,
+        "total_bets_pool": len(bets),
+        "by_edge": by_edge,
+        "verdict": "PROVEN" if proven else "EXPERIMENTAL",
+    }
+
+
 def _print_report(s: Dict[str, Any]) -> None:
     print("\n" + "=" * 74)
     print("BACKTEST V2 — leakage-free 3-way split")
@@ -438,3 +571,15 @@ if __name__ == "__main__":
         else:
             print("No v2 backtest yet — run it first.", file=sys.stderr)
             sys.exit(1)
+    elif cmd == "corners":
+        s = run_corners_backtest()
+        print("\n" + "=" * 60)
+        print(f"CORNERS BACKTEST — [{s['verdict']}]")
+        print("=" * 60)
+        print(f"  {s['model']}")
+        print(f"  fixtures with corners odds: {s['fixtures_with_corners_odds']}")
+        print(f"  bet pool: {s['total_bets_pool']}")
+        for thr, r in s["by_edge"].items():
+            if r.get("n_bets"):
+                print(f"    edge>={thr:4s}: {r['n_bets']:4d} bets  "
+                      f"{r['win_rate']*100:5.1f}% win  ROI {r['roi']*100:+6.2f}%  ({r['units']:+.1f}u)")

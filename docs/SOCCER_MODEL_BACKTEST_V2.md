@@ -110,6 +110,38 @@ Honest caveats:
 
 ---
 
+## Corners (added 2026-06-02)
+
+The corners model is non-parametric (rolling team corner-for / corner-against
+rates → Poisson on the total), so there's no hyperparameter to tune on a
+holdout — clean by construction. Run on the newest-20% test split vs
+Sportmonks closing corners odds, with push handling on whole-number lines:
+
+| Edge | Bets | Win% | ROI |
+|---|---:|---:|---:|
+| ≥3pp | 17,528 | 59.6% | −4.51% |
+| ≥5pp | 13,337 | 59.7% | −4.72% |
+| ≥7pp | 9,368 | 58.0% | −5.22% |
+
+**Corners is NOT proven — conclusively.** A 17k-bet sample with a steady
+−4.5 to −5.2% ROI across every threshold says the rolling-rate model has
+no edge over the corners market (the ~60% win rate is favorite-bias on
+low lines; it still loses to the vig). Corners markets are efficient
+relative to our model. Verdict: **experimental / no edge.**
+
+## Anytime scorer — cannot be validated yet (data gap)
+
+A clean anytime-scorer backtest needs each player's scoring rate **as of
+each match date** (leakage-free). We don't have that feature:
+- `player_baselines` is cumulative with a single timestamp — leaky (M40.4
+  forbids using it for a backtest).
+- `soccer_source_player_stats` (Understat) is season-aggregated, no
+  match_date.
+We DO have the raw ingredients — 3,794 historical fixtures with goal
+scorers + 532k anytime-scorer odds rows — so it's buildable, but it
+requires engineering a leakage-free per-player as-of-date scoring feature
+first. Until then anytime scorer stays **experimental / unvalidated.**
+
 ## What this means for launch
 
 - **Over 2.5 over → the only "Proven" badge at launch.** Everything else
