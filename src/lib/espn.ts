@@ -11,6 +11,15 @@ const SPORT_MAP: Record<string, { sport: string; league: string }> = {
   americanfootball_nfl:  { sport: "football",    league: "nfl" },
   basketball_ncaab:      { sport: "basketball",  league: "mens-college-basketball" },
   americanfootball_ncaaf:{ sport: "football",    league: "college-football" },
+  // Soccer — ESPN serves rich per-league news with team tags (verified). The
+  // World Cup feed is the launch-critical one; majors cover club season.
+  soccer_fifa_world_cup:    { sport: "soccer", league: "fifa.world" },
+  soccer_uefa_champs_league:{ sport: "soccer", league: "uefa.champions" },
+  soccer_epl:               { sport: "soccer", league: "eng.1" },
+  soccer_spain_la_liga:     { sport: "soccer", league: "esp.1" },
+  soccer_germany_bundesliga:{ sport: "soccer", league: "ger.1" },
+  soccer_italy_serie_a:     { sport: "soccer", league: "ita.1" },
+  soccer_france_ligue_one:  { sport: "soccer", league: "fra.1" },
 };
 
 async function espnFetch(url: string): Promise<any> {
