@@ -659,6 +659,130 @@ def ingest_range(*, date_from: date, date_to: date,
     }
 
 
+# ── Per-fixture team pressure stats (R1 — corners pressure model) ──────────
+# Sportmonks statistic name → our column. These are the "pressure" drivers
+# that produce corners (shots, crosses, attacks) — far richer than the raw
+# corner counts the current model uses.
+_STAT_COLUMNS: Dict[str, str] = {
+    "Shots Total":        "shots_total",
+    "Shots On Target":    "shots_on_target",
+    "Shots Insidebox":    "shots_insidebox",
+    "Shots Outsidebox":   "shots_outsidebox",
+    "Shots Blocked":      "shots_blocked",
+    "Dangerous Attacks":  "dangerous_attacks",
+    "Attacks":            "attacks",
+    "Ball Possession %":  "possession",
+    "Total Crosses":      "total_crosses",
+    "Accurate Crosses":   "accurate_crosses",
+    "Key Passes":         "key_passes",
+    "Corners":            "corners",
+    "Big Chances Created":"big_chances_created",
+    "Successful Headers": "successful_headers",
+}
+
+
+def init_stats_table(path: Optional[Path] = None) -> None:
+    conn = _db(path)
+    try:
+        cols_sql = ",\n                ".join(f"{c} REAL" for c in _STAT_COLUMNS.values())
+        conn.executescript(
+            f"""
+            CREATE TABLE IF NOT EXISTS soccer_hist_team_stats (
+                fixture_id   INTEGER NOT NULL,
+                location     TEXT NOT NULL,        -- home | away
+                team_id      INTEGER,
+                team_name    TEXT,
+                {cols_sql},
+                ingested_at  TEXT NOT NULL,
+                PRIMARY KEY (fixture_id, location)
+            );
+            CREATE INDEX IF NOT EXISTS idx_histstats_fixture
+              ON soccer_hist_team_stats(fixture_id);
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def ingest_fixture_team_stats(fixture_id: int, *, path: Optional[Path] = None) -> Dict[str, Any]:
+    """Pull per-team pressure stats for one fixture and persist."""
+    init_stats_table(path)
+    payload = _get(f"/fixtures/{fixture_id}",
+                   {"include": "statistics.type;participants"})
+    data = payload.get("data") or {}
+    parts = {p["id"]: ((p.get("meta") or {}).get("location"), p.get("name"))
+             for p in data.get("participants") or []}
+    # team_location → {column: value}
+    by_loc: Dict[str, Dict[str, Any]] = {}
+    by_loc_meta: Dict[str, Tuple[int, str]] = {}
+    for s in data.get("statistics") or []:
+        t = (s.get("type") or {}).get("name")
+        col = _STAT_COLUMNS.get(t)
+        if not col:
+            continue
+        pid = s.get("participant_id")
+        loc_name = parts.get(pid)
+        if not loc_name or not loc_name[0]:
+            continue
+        loc = loc_name[0]
+        val = (s.get("data") or {}).get("value")
+        by_loc.setdefault(loc, {})[col] = val
+        by_loc_meta[loc] = (pid, loc_name[1])
+
+    if not by_loc:
+        return {"fixture_id": fixture_id, "ok": False, "reason": "no-stats"}
+
+    conn = _db(path)
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        for loc, statvals in by_loc.items():
+            pid, tname = by_loc_meta.get(loc, (None, None))
+            cols = ["fixture_id", "location", "team_id", "team_name"] + list(statvals.keys()) + ["ingested_at"]
+            vals = [fixture_id, loc, pid, tname] + list(statvals.values()) + [now]
+            placeholders = ",".join("?" for _ in cols)
+            updates = ",".join(f"{c}=excluded.{c}" for c in cols if c not in ("fixture_id", "location"))
+            conn.execute(
+                f"INSERT INTO soccer_hist_team_stats ({','.join(cols)}) VALUES ({placeholders}) "
+                f"ON CONFLICT(fixture_id, location) DO UPDATE SET {updates}",
+                vals,
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"fixture_id": fixture_id, "ok": True, "locations": list(by_loc.keys())}
+
+
+def backfill_team_stats(*, limit: Optional[int] = None, sleep_between: float = 0.08,
+                        path: Optional[Path] = None) -> Dict[str, Any]:
+    """Backfill pressure stats for every ingested fixture missing them.
+    Resumable — skips fixtures already in soccer_hist_team_stats."""
+    init_stats_table(path)
+    conn = _db(path)
+    try:
+        done = {r[0] for r in conn.execute(
+            "SELECT DISTINCT fixture_id FROM soccer_hist_team_stats").fetchall()}
+        todo = [r[0] for r in conn.execute(
+            "SELECT fixture_id FROM soccer_hist_fixtures WHERE home_score IS NOT NULL "
+            "ORDER BY starting_at DESC").fetchall() if r[0] not in done]
+    finally:
+        conn.close()
+    if limit:
+        todo = todo[:limit]
+    ok = 0
+    errors = 0
+    for fid in todo:
+        try:
+            res = ingest_fixture_team_stats(fid, path=path)
+            if res.get("ok"):
+                ok += 1
+            if sleep_between:
+                time.sleep(sleep_between)
+        except Exception:  # noqa: BLE001
+            errors += 1
+    return {"backfilled": ok, "errors": errors, "remaining_before": len(todo)}
+
+
 def coverage_report(path: Optional[Path] = None) -> Dict[str, Any]:
     """How much historical data do we have, per market?"""
     init_tables(path)
