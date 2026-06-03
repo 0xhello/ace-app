@@ -115,9 +115,33 @@ def _is_current(start_date: Optional[str], end_date: Optional[str]) -> bool:
     return True
 
 
+# Board (Odds-API) name → Sportmonks canonical name, for nations whose names
+# differ. WITHOUT this + exact-match-only, the search fallback picked garbage
+# (e.g. "USA" → "Beitar Jerusalem", the first unrelated result).
+_TEAM_ALIASES: Dict[str, str] = {
+    "usa": "United States",
+    "united states": "United States",
+    "ivory coast": "Côte d'Ivoire",
+    "turkey": "Türkiye",
+    "south korea": "Korea Republic",
+    "north korea": "Korea DPR",
+    "cape verde": "Cape Verde Islands",
+    "czechia": "Czech Republic",
+    "china": "China PR",
+    "drc": "Congo DR",
+    "dr congo": "Congo DR",
+}
+
+
 # ── team-id resolution (cached) ──────────────────────────────────────────────
 def resolve_team_id(name: str, *, path: Optional[str] = None) -> Optional[int]:
-    """Resolve a team name → Sportmonks team_id, caching the result."""
+    """Resolve a team name → Sportmonks team_id (EXACT match only), caching it.
+
+    Uses an alias map for nations Sportmonks spells differently, then requires
+    an exact normalized name match. NEVER falls back to the first search hit —
+    that produced false matches (USA → Beitar Jerusalem) which would surface
+    another club's injuries on the wrong game.
+    """
     init_tables(path)
     key = _norm(name)
     conn = _db(path)
@@ -128,15 +152,28 @@ def resolve_team_id(name: str, *, path: Optional[str] = None) -> Optional[int]:
     finally:
         conn.close()
 
+    search_term = _TEAM_ALIASES.get(key, name)
+    target = _norm(search_term)
+    # Sportmonks search is finicky: the full phrase matches some ("United
+    # States") but not others ("Bosnia Herzegovina" → []), while the first
+    # token matches those ("Bosnia") but is too generic for some ("United").
+    # So try both and accept only an EXACT normalized-name match.
+    folded = unicodedata.normalize("NFKD", search_term)
+    folded = "".join(c for c in folded if not unicodedata.combining(c)).replace("&", " ")
+    folded = " ".join(folded.split())
+    candidates: List[str] = []
+    for c in (folded, *(folded.split())):
+        if c and c not in candidates:
+            candidates.append(c)
     team_id, canonical = None, None
     try:
-        payload = _get(f"/teams/search/{name}", {})
-        results = payload.get("data") or []
-        # Prefer an exact normalized name match, else the first result.
-        exact = next((t for t in results if _norm(t.get("name", "")) == key), None)
-        chosen = exact or (results[0] if results else None)
-        if chosen:
-            team_id, canonical = chosen.get("id"), chosen.get("name")
+        for q in candidates:
+            payload = _get(f"/teams/search/{q}", {})
+            results = payload.get("data") or []
+            exact = next((t for t in results if _norm(t.get("name", "")) in (target, key)), None)
+            if exact:
+                team_id, canonical = exact.get("id"), exact.get("name")
+                break
     except Exception:  # noqa: BLE001
         pass
 
