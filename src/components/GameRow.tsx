@@ -369,22 +369,16 @@ export default function GameRow({
 
   const hasBackendIntel = !!boardIntel;
   const topSignal = boardIntel?.top_signal ?? null;
+  // Consumer hook: only "juicy" human signals (news / injury / lineup / weather)
+  // ever surface on the board — never model / no-vig / market jargon. The odds
+  // themselves already tell the favorite story.
+  const HOOK_TYPES = ["news", "injury", "lineup", "weather", "trade"];
+  const hookSignal = topSignal && HOOK_TYPES.includes(topSignal.type) ? topSignal : null;
   const isHighSeverity = boardIntel?.has_high_severity ?? false;
   const aiRecommendation = boardIntel?.recommendation ?? null;
   const marketMovement = boardIntel?.market_movement ?? {};
   const marketConfidence = boardIntel?.market_confidence ?? {};
   const injuryAlerts: Array<{ playerName: string; status: string; teamAffected: "home" | "away"; teamName: string }> = boardIntel?.injury_alerts ?? [];
-  const topModelSignal = boardIntel?.top_model_signal ?? null;
-  const topModelTeam = topModelSignal
-    ? (topModelSignal.bet_side === "home" ? home : away)
-    : null;
-  const topModelLine = topModelSignal?.line_at_signal != null
-    ? (topModelSignal.bet_side === "home" ? topModelSignal.line_at_signal : -topModelSignal.line_at_signal)
-    : null;
-  const topModelEdgePct = topModelSignal?.edge_vs_pinnacle != null
-    ? `${topModelSignal.edge_vs_pinnacle >= 0 ? "+" : ""}${(topModelSignal.edge_vs_pinnacle * 100).toFixed(1)}%`
-    : null;
-  const noVigHomeProb: number | null = boardIntel?.no_vig_home_prob ?? null;
   const scoreboard = boardIntel?.scoreboard || game.scoreboard;
   const awayScore = scoreboard?.away_score;
   const homeScore = scoreboard?.home_score;
@@ -490,25 +484,24 @@ export default function GameRow({
 
               <div className="flex items-center gap-2 mt-1.5 pl-[26px] flex-wrap">
                 <span className="text-[9px] text-[#6b7068] uppercase tracking-wider">{game.sport_title}</span>
-                {topSignal && (
+                {hookSignal && (
                   <>
                     <span className="text-[9px] text-[#2e332a]">·</span>
-                    <SignalChip signal={topSignal} compact />
+                    <SignalChip signal={hookSignal} compact />
                   </>
                 )}
               </div>
 
-              {topSignal && (
-                <div className="pl-[26px] mt-0.5 space-y-1">
-                  <SignalSummaryLine signal={topSignal} />
-                  {aiRecommendation?.reason && (
-                    <p className="text-[10px] text-[#8b9388] line-clamp-1">{aiRecommendation.reason}</p>
-                  )}
+              {hookSignal && (
+                <div className="pl-[26px] mt-0.5">
+                  <SignalSummaryLine signal={hookSignal} />
                 </div>
               )}
 
-              {/* Intelligence strip — injury alerts + model signal + no-vig prob */}
-              {(injuryAlerts.length > 0 || topModelSignal || noVigHomeProb != null) && (
+              {/* Injury / team-news chips — the #1 hook: a benched star shifts a
+                  whole game. (Model / no-vig jargon intentionally NOT shown — the
+                  odds already tell the favorite story.) */}
+              {injuryAlerts.length > 0 && (
                 <div className="pl-[26px] mt-1.5 flex flex-wrap items-center gap-1">
                   {injuryAlerts.slice(0, 3).map((a, i) => {
                     const isOut = a.status === "out" || a.status === "doubtful" || a.status === "suspended";
@@ -530,33 +523,6 @@ export default function GameRow({
                       </span>
                     );
                   })}
-
-                  {topModelSignal && (
-                    <span
-                      title={`ACE Model: ${topModelSignal.signal_type.replace(/_/g, " ")} · ${topModelTeam ?? topModelSignal.bet_side}${topModelLine != null ? ` ${topModelLine > 0 ? "+" : ""}${topModelLine}` : ""}${topModelEdgePct ? ` · edge ${topModelEdgePct}` : ""}`}
-                      className="inline-flex items-center gap-1 rounded-[3px] bg-[#0b1a0f] border border-[#3ee68a]/30 px-[5px] py-[2px] text-[9px] font-semibold leading-none text-[#3ee68a]"
-                    >
-                      ◆ ACE {topModelTeam ?? topModelSignal.bet_side.toUpperCase()}
-                      {topModelLine != null && (
-                        <span className="text-[#3ee68a]/70">
-                          {topModelLine > 0 ? "+" : ""}{topModelLine}
-                        </span>
-                      )}
-                      {topModelEdgePct && (
-                        <span className="text-[#3ee68a]/60">{topModelEdgePct}</span>
-                      )}
-                    </span>
-                  )}
-
-                  {noVigHomeProb != null && (
-                    <span
-                      title={`No-vig true probability: ${game.home_team} ${noVigHomeProb}% · ${game.away_team} ${(100 - noVigHomeProb).toFixed(1)}%`}
-                      className="inline-flex items-center gap-1 rounded-[3px] bg-[#111411] border border-[#2e332a] px-[5px] py-[2px] text-[9px] leading-none text-[#6b7068]"
-                    >
-                      <span className="text-[#4a5248]">prob</span>
-                      <span className="font-mono text-[#9ca39a]">HM {noVigHomeProb}%</span>
-                    </span>
-                  )}
                 </div>
               )}
             </div>
