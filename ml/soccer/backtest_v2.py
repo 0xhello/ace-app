@@ -351,15 +351,27 @@ def run_backtest_v2(leagues: Optional[List[str]] = None) -> Dict[str, Any]:
             verdict_roi = by_edge[f"{int(VERDICT_EDGE*100)}pp"]
             n_bets = verdict_roi.get("n_bets", 0)
             roi = verdict_roi.get("roi")
-            if n_bets >= MIN_TEST_BETS and roi is not None and roi > PROVEN_ROI_BAR:
+            # Robustness guard: a REAL edge shouldn't be losing money at the
+            # lower (larger-sample) 3pp threshold. If 5pp is positive but 3pp
+            # is clearly negative, the 5pp win is almost certainly noise from
+            # the smaller sample — not a durable edge. (This correctly demotes
+            # BTTS-No, which is +2.5% @5pp but -11% @3pp.)
+            roi_3pp = (by_edge.get("3pp") or {}).get("roi")
+            lower_ok = roi_3pp is None or roi_3pp >= -0.01  # tolerate tiny noise
+            if (n_bets >= MIN_TEST_BETS and roi is not None
+                    and roi > PROVEN_ROI_BAR and lower_ok):
                 verdict = "PROVEN"
-                # honest sample-size caveat
                 sample_note = "robust" if n_bets >= 60 else "small sample"
             else:
                 verdict = "EXPERIMENTAL"
-                sample_note = ("losing on test" if (roi is not None and roi <= 0)
-                               else "too few test bets" if n_bets < MIN_TEST_BETS
-                               else "n/a")
+                if roi is not None and roi <= 0:
+                    sample_note = "losing on test"
+                elif n_bets < MIN_TEST_BETS:
+                    sample_note = "too few test bets"
+                elif not lower_ok:
+                    sample_note = "positive @5pp but losing @3pp — likely noise"
+                else:
+                    sample_note = "n/a"
             markets_report[sel] = {
                 "group": group,
                 "shrink_factor": factor,

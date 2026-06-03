@@ -64,8 +64,26 @@ ever bets one side, so that's the granularity that matters.
 
 (parentheses = number of test bets at that edge threshold)
 
-**Verdict rule:** PROVEN = test ROI > 0 at the 5pp edge with ≥ 30 test
-bets. Everything else is EXPERIMENTAL (calibrated, but no proven edge).
+**Verdict rule:** PROVEN = test ROI > 0 at the 5pp edge, with ≥ 30 test
+bets, AND not losing at the lower 3pp threshold (a real edge shouldn't
+lose money at the larger-sample lower threshold — that guards against a
+single lucky threshold). Everything else is EXPERIMENTAL.
+
+## BTTS (added 2026-06-02, Sportmonks closing odds)
+
+With the M48 Sportmonks historical odds, BTTS got its first clean
+backtest (2,436 test-window odds rows):
+
+| Selection | 3pp | 5pp | 7pp | Verdict |
+|---|---:|---:|---:|---|
+| BTTS No  | −11.41% (59) | +2.48% (45) | +19.33% (23) | · experimental |
+| BTTS Yes | +19.55% (19) | +27.33% (12) | +9.00% (4) | · experimental |
+
+**BTTS is NOT proven.** BTTS-No clears the mechanical 5pp bar (+2.48%)
+but **loses 11% at 3pp** — single-threshold noise, not a durable edge
+(this is exactly why the verdict rule now requires the 3pp threshold to
+hold). BTTS-Yes looks positive but has only 12 test bets at 5pp — too
+thin to call. Treat both as Experimental / promising-but-unconfirmed.
 
 ---
 

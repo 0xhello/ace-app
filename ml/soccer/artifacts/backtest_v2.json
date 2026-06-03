@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-06-02T01:02:15.755487+00:00",
+  "ran_at": "2026-06-03T00:33:25.321981+00:00",
   "method": "3-way chronological split (60/20/20); shrink tuned on val by log-loss; ROI reported on held-out test",
   "split": {
     "train": 0.6,
@@ -124,6 +124,44 @@
         {
           "factor": 0.5,
           "val_logloss": 1.0727
+        }
+      ]
+    },
+    "btts": {
+      "best_factor": 0.5,
+      "val_logloss": 1.0471,
+      "sweep": [
+        {
+          "factor": 1.0,
+          "val_logloss": 1.0533
+        },
+        {
+          "factor": 0.92,
+          "val_logloss": 1.0519
+        },
+        {
+          "factor": 0.85,
+          "val_logloss": 1.0508
+        },
+        {
+          "factor": 0.78,
+          "val_logloss": 1.0499
+        },
+        {
+          "factor": 0.72,
+          "val_logloss": 1.0491
+        },
+        {
+          "factor": 0.65,
+          "val_logloss": 1.0483
+        },
+        {
+          "factor": 0.58,
+          "val_logloss": 1.0477
+        },
+        {
+          "factor": 0.5,
+          "val_logloss": 1.0471
         }
       ]
     }
@@ -273,10 +311,68 @@
       },
       "verdict": "EXPERIMENTAL",
       "sample_note": "losing on test"
+    },
+    "btts_no": {
+      "group": "btts",
+      "shrink_factor": 0.5,
+      "by_edge": {
+        "3pp": {
+          "n_bets": 59,
+          "wins": 25,
+          "win_rate": 0.4237,
+          "roi": -0.1141,
+          "units": -6.73
+        },
+        "5pp": {
+          "n_bets": 45,
+          "wins": 22,
+          "win_rate": 0.4889,
+          "roi": 0.0248,
+          "units": 1.12
+        },
+        "7pp": {
+          "n_bets": 23,
+          "wins": 13,
+          "win_rate": 0.5652,
+          "roi": 0.1933,
+          "units": 4.45
+        }
+      },
+      "verdict": "EXPERIMENTAL",
+      "sample_note": "positive @5pp but losing @3pp \u2014 likely noise"
+    },
+    "btts_yes": {
+      "group": "btts",
+      "shrink_factor": 0.5,
+      "by_edge": {
+        "3pp": {
+          "n_bets": 19,
+          "wins": 11,
+          "win_rate": 0.5789,
+          "roi": 0.1955,
+          "units": 3.71
+        },
+        "5pp": {
+          "n_bets": 12,
+          "wins": 7,
+          "win_rate": 0.5833,
+          "roi": 0.2733,
+          "units": 3.28
+        },
+        "7pp": {
+          "n_bets": 4,
+          "wins": 2,
+          "win_rate": 0.5,
+          "roi": 0.09,
+          "units": 0.36
+        }
+      },
+      "verdict": "EXPERIMENTAL",
+      "sample_note": "too few test bets"
     }
   },
   "pooled_counts": {
-    "val_rows": 4584,
-    "test_rows": 5230
+    "val_rows": 6240,
+    "test_rows": 7144
   }
 }
