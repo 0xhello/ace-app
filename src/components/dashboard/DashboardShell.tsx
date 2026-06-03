@@ -12,6 +12,7 @@ import AskAce from "@/components/AskAce";
 import { Search, Sparkles, AlertTriangle, RefreshCw, Star, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { checkAlertsAgainst, fireNotification, type PriceAlert } from "@/lib/alerts";
+import { sportTab } from "@/lib/sport-tab";
 
 type SportFilter = "ALL" | "SOCCER" | "NBA" | "NFL" | "MLB" | "NHL" | "NCAAB";
 type TimeFilter = "ALL" | "LIVE" | "TODAY";
@@ -157,17 +158,16 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   const sportCounts = useMemo(() => {
     const c: Record<string, number> = { ALL: games.length };
     for (const g of games) {
-      const s = g.sport_title.toUpperCase();
-      for (const sp of SPORTS.slice(1)) {
-        if (s.includes(sp)) c[sp] = (c[sp] || 0) + 1;
-      }
+      // Route on the reliable sport_key (game.sport), not the display title.
+      const tab = sportTab(g.sport, g.sport_title);
+      if (tab) c[tab] = (c[tab] || 0) + 1;
     }
     return c;
   }, [games]);
 
   const filtered = useMemo(() => {
     return games.filter((g) => {
-      const sportOk = sport === "ALL" || g.sport_title.toUpperCase().includes(sport);
+      const sportOk = sport === "ALL" || sportTab(g.sport, g.sport_title) === sport;
       const timeOk = time === "ALL"
         || (time === "LIVE" && g.status === "live")
         || (time === "TODAY" && new Date(g.commence_time).toDateString() === new Date().toDateString());
@@ -205,11 +205,11 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   // can't be resolved (don't show stray off-sport signals).
   const feedPicks = useMemo(() => {
     if (sport === "ALL") return topPicks;
-    const sportById = new Map(games.map((g) => [g.id, g.sport_title]));
-    return topPicks.filter((p) => {
-      const st = sportById.get(p?.gameId);
-      return !!st && st.toUpperCase().includes(sport);
-    });
+    // Resolve each pick's sport via its game's reliable sport_key, so a soccer
+    // pick (e.g. a "FIFA World Cup" game) routes to SOCCER and never leaks into
+    // another sport's tab.
+    const tabById = new Map(games.map((g) => [g.id, sportTab(g.sport, g.sport_title)]));
+    return topPicks.filter((p) => tabById.get(p?.gameId) === sport);
   }, [topPicks, games, sport]);
 
   const upcomingBySport = useMemo(() => {

@@ -17,8 +17,10 @@
  * the admin session cookie already attached (we're inside the dashboard
  * UI), so there's no auth ambiguity.
  *
- * Today's seed: 4 hardcoded UCL final picks. M44 generalizes this to
- * pull live model output for any upcoming fixture.
+ * Source: TODAYS_PICKS — currently empty. Soccer picks are paused until a
+ * market clears the V2 backtest bar (only Over 2.5 is proven). The old
+ * hardcoded UCL-final seed was removed so nothing stale can surface; when
+ * the WC model wires in it populates TODAYS_PICKS from live model output.
  *
  * Approved picks are filtered out so the panel doesn't keep showing
  * already-published recommendations.
@@ -53,129 +55,12 @@ interface ApprovedPickRow {
   side: string;
 }
 
-// ── M44 SEED — these become a live model fetch later ─────────────────
-// For the 2026-05-30 UCL final demo. Probabilities sourced from:
-//   - game-level (Over 2.5, BTTS): Sportmonks pre-match predictions
-//     cached via M38 fixture bundle
-//   - player props (Dembélé, Saka): ACE M38 lineup-aware pipeline
-//     (club_prop_context_cards in player_props.py)
-// Edges + capped stakes match the M40.6 leakage-aware ceilings.
-const TODAYS_PICKS: SuggestedPick[] = [
-  {
-    game_id: "ucl_final_2026_psg_arsenal",
-    market: "totals_2.5",
-    side: "over",
-    bet_label: "Over 2.5 goals",
-    model_prob: 0.597,
-    best_price: 120,
-    best_book: "betrivers",
-    fixture_label: "PSG vs Arsenal · UCL Final",
-    tournament: "UEFA Champions League",
-    commence_time: "2026-05-30T16:00:00Z",
-    lineup_status: "projected",
-    notes: "Validated market type. Sportmonks 60% vs market 46%.",
-    rationale: {
-      leakage_note:
-        "Per docs/SOCCER_LEAKAGE_AUDIT_2026-05-29.md, edges shown are upward-biased.",
-      model_version: "v2_post_m21",
-      sportmonks_fixture_id: 19683241,
-      model_prob_source: "Sportmonks Over/Under 2.5 yes",
-      primary_thesis:
-        "Goals-heavy attacking final. Both attacks elite, market under-pricing.",
-      cross_check: "Sportmonks agrees (60% vs market 46%)",
-      backtest_support:
-        "V1 doc +3.06% / M21 +9.1% — both upward-biased per audit.",
-      edge_pp_at_placement: 14.2,
-    },
-    expected_stake: 1.0,
-    expected_stake_reason: "validated market (leakage-aware cap)",
-  },
-  {
-    game_id: "ucl_final_2026_psg_arsenal",
-    market: "btts",
-    side: "yes",
-    bet_label: "Both teams to score — yes",
-    model_prob: 0.613,
-    best_price: -118,
-    best_book: "betmgm",
-    fixture_label: "PSG vs Arsenal · UCL Final",
-    tournament: "UEFA Champions League",
-    commence_time: "2026-05-30T16:00:00Z",
-    lineup_status: "projected",
-    notes: "Cross-check positive. Same goals thesis as Over 2.5.",
-    rationale: {
-      leakage_note: "Per audit, edges upward-biased.",
-      model_version: "v2_post_m21",
-      sportmonks_fixture_id: 19683241,
-      model_prob_source: "Sportmonks BTTS yes",
-      primary_thesis:
-        "Both teams averaging 1.7+ xG/match. Positively correlated with Over 2.5.",
-      cross_check: "Sportmonks 61% vs market 54%",
-      backtest_support: "BTTS not yet backtested.",
-      edge_pp_at_recommendation: 7.2,
-    },
-    expected_stake: 0.5,
-    expected_stake_reason: "cross-checked market (leakage-aware cap)",
-  },
-  {
-    game_id: "ucl_final_2026_psg_arsenal:dembele",
-    market: "anytime_scorer",
-    side: "yes",
-    bet_label: "Ousmane Dembélé to score anytime",
-    model_prob: 0.451,
-    best_price: 210,
-    best_book: "draftkings",
-    fixture_label: "PSG vs Arsenal · UCL Final",
-    tournament: "UEFA Champions League",
-    commence_time: "2026-05-30T16:00:00Z",
-    lineup_status: "projected",
-    notes:
-      "Lineup-confirmed in PSG XI as #9. Untested market — exposure only.",
-    rationale: {
-      leakage_note:
-        "Anytime scorer never backtested. Edges upward-biased per audit.",
-      model_version: "v2_post_m21",
-      sportmonks_fixture_id: 19683241,
-      model_prob_source: "ACE M38 lineup-aware (Sportmonks XI as PSG #9)",
-      primary_thesis:
-        "Primary PSG attacker, top xG/90, confirmed in projected XI.",
-      lineup_status: "projected_starting",
-      cross_check: "Sportmonks does not price player markets",
-      backtest_support: "NONE",
-      edge_pp_at_recommendation: 12.8,
-    },
-    expected_stake: 0.25,
-    expected_stake_reason: "untested market (leakage-aware cap)",
-  },
-  {
-    game_id: "ucl_final_2026_psg_arsenal:saka",
-    market: "anytime_scorer",
-    side: "yes",
-    bet_label: "Bukayo Saka to score anytime",
-    model_prob: 0.308,
-    best_price: 380,
-    best_book: "betrivers",
-    fixture_label: "PSG vs Arsenal · UCL Final",
-    tournament: "UEFA Champions League",
-    commence_time: "2026-05-30T16:00:00Z",
-    lineup_status: "projected",
-    notes: "Arsenal top attacker. Untested market — exposure only.",
-    rationale: {
-      leakage_note: "Anytime scorer never backtested. Edges upward-biased.",
-      model_version: "v2_post_m21",
-      sportmonks_fixture_id: 19683241,
-      model_prob_source: "ACE M38 lineup-aware",
-      primary_thesis:
-        "Arsenal's primary attacking threat vs PSG defense, in projected XI.",
-      lineup_status: "projected_starting",
-      cross_check: "Sportmonks does not price player markets",
-      backtest_support: "NONE",
-      edge_pp_at_recommendation: 10.0,
-    },
-    expected_stake: 0.25,
-    expected_stake_reason: "untested market (leakage-aware cap)",
-  },
-];
+// ── Live model fetch (no hardcoded seed) ───────────────────────────────
+// Soccer picks are PAUSED until a market clears the V2 backtest bar (only
+// Over 2.5 is proven). There is no hardcoded demo seed here: the old UCL
+// final seed was removed so nothing stale can ever surface. When the WC
+// model wires in, populate TODAYS_PICKS from the live model output.
+const TODAYS_PICKS: SuggestedPick[] = [];
 
 function fmtAmerican(p: number): string {
   return p > 0 ? `+${p}` : `${p}`;

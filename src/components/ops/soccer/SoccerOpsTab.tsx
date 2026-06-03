@@ -856,36 +856,28 @@ function ApprovedPicksDashboard() {
 
 function FeaturedPickPanel() {
   const [fixture, setFixture] = useState<FeaturedFixture | null>(null);
+  const [fixtureResolved, setFixtureResolved] = useState(false);
   const [data, setData] = useState<MatchIntelResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [approved, setApproved] = useState<Record<string, ApprovedPick>>({});
   const [approving, setApproving] = useState<string | null>(null);
   const [approveError, setApproveError] = useState<string | null>(null);
 
-  const _FALLBACK_FIXTURE: FeaturedFixture = {
-    home: "Paris Saint Germain",
-    away: "Arsenal",
-    commence_time: "2026-05-30T16:00:00Z",
-    game_id: _UCL_FINAL_GAME_ID,
-    sport_key: "soccer_uefa_champs_league",
-    tournament: "UCL",
-    home_league: "Ligue 1",
-    away_league: "Premier League",
-    neutral_venue: true,
-    competition_stage: "ucl_final",
-  };
-
-  const activeGameId = fixture?.game_id ?? _UCL_FINAL_GAME_ID;
+  // No hardcoded fallback fixture. When the live scan finds no upcoming
+  // fixture we show an honest empty state instead of resurrecting the
+  // long-settled UCL final. `fixtureResolved` distinguishes "still loading"
+  // from "loaded, nothing to feature".
+  const activeGameId = fixture?.game_id ?? "";
 
   // 1. Fixture
   useEffect(() => {
     void fetch("/api/ops/featured-fixture")
       .then((r) => r.json())
       .then((json: { ok?: boolean; fixture?: FeaturedFixture }) => {
-        setFixture(json.ok && json.fixture ? json.fixture : _FALLBACK_FIXTURE);
+        setFixture(json.ok && json.fixture ? json.fixture : null);
       })
-      .catch(() => setFixture(_FALLBACK_FIXTURE));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch(() => setFixture(null))
+      .finally(() => setFixtureResolved(true));
   }, []);
 
   // 2. Match intelligence
@@ -989,6 +981,18 @@ function FeaturedPickPanel() {
     }
   }
 
+  // Honest empty state — no upcoming fixture to feature (between slates).
+  if (fixtureResolved && !fixture) {
+    return (
+      <Panel>
+        <SectionHead icon={Brain} title="Featured pick" />
+        <p className="text-[11px] text-[#6b7068] py-4 leading-relaxed">
+          No upcoming fixture to feature right now. The board is between slates —
+          the World Cup kicks off June 11.
+        </p>
+      </Panel>
+    );
+  }
   if (loading || !data || !data.fixture || !data.model) {
     return (
       <Panel>
@@ -1296,31 +1300,31 @@ interface MatchIntelResponse {
   error?: string;
 }
 
-// Real Odds API game_id for the UCL final — verified live in the prop cards
-// table on prod (Saka shots / Ramos shots all reference this same game_id).
-// Pinning lets the approve flow target the right game_id every time.
-const _UCL_FINAL_GAME_ID = "a54f22aca3be31d95f13eac0aeac62cf";
 
-// Per-market calibration verdict from the M21 backtest (420 Big-5 matches,
-// 5pp tier-A threshold). Drives the badge on each market row so the bettor
-// knows which buckets are backtested-positive vs unvalidated vs losing.
-// Updated by running `python3 -m ml.soccer.calibration --n-per-league 100`
-// and reading the table.
+// Per-market verdict from the leakage-free V2 backtest — the single citable
+// source is docs/SOCCER_MODEL_BACKTEST_V2.md. Drives the badge on each market
+// row AND gates one-click approval: ONLY "bet" (proven) markets are approvable.
+// ROI numbers are held-out test-set ROI at the 5pp edge tier.
+//   bet          → proven profitable on a clean held-out test
+//   experimental → tested, NOT proven (promising-but-noise / thin sample)
+//   loses        → tested, loses to the market — not a bet
+//   untested     → not yet backtested
 type MarketVerdict =
   | { status: "bet"; roi: number; n: number; note?: string }
   | { status: "loses"; roi: number; n: number; note?: string }
+  | { status: "experimental"; note?: string }
   | { status: "untested"; note?: string };
 
 const MARKET_VERDICTS: Record<string, MarketVerdict> = {
-  "1X2|home":         { status: "loses", roi: -0.092, n: 138, note: "Model over-confident; predicted 39% wins actual 25%" },
-  "1X2|draw":         { status: "loses", roi: -0.357, n:  71, note: "Worst-calibrated bucket" },
-  "1X2|away":         { status: "bet",   roi:  0.129, n: 152, note: "Profitable for non-neutral fixtures only" },
-  "Totals 2.5|over":  { status: "bet",   roi:  0.091, n: 198, note: "198-bet sample, consistent ROI across runs" },
-  "Totals 2.5|under": { status: "loses", roi: -0.363, n:  38, note: "Small-sample loss but consistent direction" },
-  "BTTS|yes":         { status: "untested",            note: "BTTS closing odds not in our backfill — extending form ingestor is the fix" },
-  "BTTS|no":          { status: "untested",            note: "BTTS closing odds not in our backfill" },
-  "Corners 9.5|over": { status: "untested",            note: "Corners market shipped in M23; backtest pipeline pending" },
-  "Corners 9.5|under":{ status: "untested",            note: "Corners market shipped in M23; backtest pipeline pending" },
+  "Totals 2.5|over":  { status: "bet",   roi:  0.0883, n: 36, note: "The ONLY proven market. Leakage-free V2 backtest; ROI rises monotonically with edge — the signature of a real edge." },
+  "Totals 2.5|under": { status: "loses", roi: -0.0997, n: 37, note: "V2: loses across thresholds." },
+  "1X2|home":         { status: "loses", roi: -0.1525, n: 59, note: "V2: model not bettable on the moneyline." },
+  "1X2|draw":         { status: "loses", roi: -0.2778, n:  9, note: "V2: worst bucket, tiny sample." },
+  "1X2|away":         { status: "loses", roi: -0.2121, n: 19, note: "V2: loses — NOT a bet (corrects a prior stale +12.9% claim)." },
+  "BTTS|yes":         { status: "experimental", note: "Tested on Sportmonks closing odds (M48): positive but thin sample — not proven." },
+  "BTTS|no":          { status: "experimental", note: "Tested: clears 5pp but loses at 3pp = single-threshold noise, not proven." },
+  "Corners 9.5|over": { status: "loses", roi: -0.045, n: 17528, note: "Conclusively not proven (R1): rolling + pressure models both lose to the corners market." },
+  "Corners 9.5|under":{ status: "loses", roi: -0.045, n: 17528, note: "Conclusively not proven (R1)." },
 };
 
 function getVerdict(market: string, side: string): MarketVerdict | null {
@@ -1383,29 +1387,16 @@ function MatchIntelligencePanel() {
   // (M28). Falls back to PSG vs Arsenal UCL final if the endpoint fails
   // OR the selected fixture is the UCL final itself.
   const [fixture, setFixture] = useState<FeaturedFixture | null>(null);
+  const [fixtureResolved, setFixtureResolved] = useState(false);
   const [data, setData] = useState<MatchIntelResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [approved, setApproved] = useState<Record<string, ApprovedPick>>({});
   const [approving, setApproving] = useState<string | null>(null);
   const [approveError, setApproveError] = useState<string | null>(null);
 
-  // Fallback: hardcoded UCL final (the pilot fixture). Used when
-  // /api/ops/featured-fixture returns no candidates yet — e.g. between-
-  // seasons gap before WC kicks off.
-  const _FALLBACK_FIXTURE: FeaturedFixture = {
-    home: "Paris Saint Germain",
-    away: "Arsenal",
-    commence_time: "2026-05-30T16:00:00Z",
-    game_id: _UCL_FINAL_GAME_ID,
-    sport_key: "soccer_uefa_champs_league",
-    tournament: "UCL",
-    home_league: "Ligue 1",
-    away_league: "Premier League",
-    neutral_venue: true,
-    competition_stage: "ucl_final",
-  };
-
-  const activeGameId = fixture?.game_id ?? _UCL_FINAL_GAME_ID;
+  // No hardcoded fallback fixture — when the live scan finds nothing we show
+  // an honest empty state, never the long-settled UCL final.
+  const activeGameId = fixture?.game_id ?? "";
 
   const reloadApproved = useCallback(() => {
     void fetch(`/api/ops/approved-picks?game_id=${activeGameId}&limit=20`)
@@ -1439,10 +1430,10 @@ function MatchIntelligencePanel() {
     void fetch("/api/ops/featured-fixture")
       .then((r) => r.json())
       .then((json: { ok?: boolean; fixture?: FeaturedFixture }) => {
-        setFixture(json.ok && json.fixture ? json.fixture : _FALLBACK_FIXTURE);
+        setFixture(json.ok && json.fixture ? json.fixture : null);
       })
-      .catch(() => setFixture(_FALLBACK_FIXTURE));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch(() => setFixture(null))
+      .finally(() => setFixtureResolved(true));
   }, []);
 
   // Step 2: once we have a fixture, load match intelligence + approved picks
@@ -1504,6 +1495,18 @@ function MatchIntelligencePanel() {
     }
   }
 
+  // Honest empty state — no upcoming fixture to analyze (between slates).
+  if (fixtureResolved && !fixture) {
+    return (
+      <Panel>
+        <SectionHead icon={Brain} title="Match Intelligence" />
+        <p className="text-[11px] text-[#6b7068] py-4 leading-relaxed">
+          No upcoming fixture to analyze right now. The board is between slates —
+          the World Cup kicks off June 11.
+        </p>
+      </Panel>
+    );
+  }
   if (loading) {
     return (
       <Panel>
@@ -1669,11 +1672,14 @@ function MatchIntelligencePanel() {
                   isNeutralFixture && verdict.status === "bet" &&
                   (verdict.note ?? "").toLowerCase().includes("non-neutral")
                 );
+                // Only PROVEN ("bet") markets are one-click approvable. Experimental
+                // / losing / untested markets are shown with an honest badge but
+                // cannot be approved as real picks.
                 const canApprove = !!(
                   s.edge &&
                   s.edge.best_price !== null &&
                   s.edge.tier !== "pass" &&
-                  (!verdict || verdict.status === "bet" || verdict.status === "untested")
+                  verdict?.status === "bet"
                 );
                 // Build the human bet label for the approval row — e.g.
                 // "Paris Saint Germain to win" / "Over 2.5 goals" / "BTTS yes"
@@ -1730,6 +1736,11 @@ function MatchIntelligencePanel() {
                             {verdict.status === "loses" && (
                               <span style={{ color: "#ef4444" }}>
                                 ✗ backtest {((verdict.roi ?? 0) * 100).toFixed(1)}% ROI ({verdict.n}b) · no bet
+                              </span>
+                            )}
+                            {verdict.status === "experimental" && (
+                              <span style={{ color: "#f5c062" }}>
+                                ⚡ tested · not proven · no bet
                               </span>
                             )}
                             {verdict.status === "untested" && (
