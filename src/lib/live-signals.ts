@@ -78,6 +78,21 @@ function teamNickname(name: string): string {
   return name.split(" ").pop()!.toLowerCase();
 }
 
+// Reconcile nation-name differences between the board (Odds API) and ESPN —
+// e.g. board "USA" vs ESPN "United States" — so news still attaches. Both
+// variants map to one canonical key. (normTeam is hoisted, defined below.)
+const NEWS_ALIASES: Record<string, string> = {
+  "usa": "usa", "united states": "usa",
+  "south korea": "korea republic", "korea republic": "korea republic",
+  "ivory coast": "cote d'ivoire", "cote d'ivoire": "cote d'ivoire",
+  "turkey": "turkiye", "turkiye": "turkiye",
+  "czechia": "czech republic", "czech republic": "czech republic",
+};
+function newsAlias(name: string): string {
+  const k = normTeam(name);
+  return NEWS_ALIASES[k] ?? k;
+}
+
 // Match ESPN news items to a game using team nicknames, not word fragments.
 // Word-fragment matching ("york" from "New York X") leaks across same-city teams.
 function matchNewsToGame(game: Game, items: ESPNNewsItem[]): ESPNNewsItem[] {
@@ -85,16 +100,21 @@ function matchNewsToGame(game: Game, items: ESPNNewsItem[]): ESPNNewsItem[] {
   const awayFull = game.away_team.toLowerCase();
   const homeNick = teamNickname(game.home_team);
   const awayNick = teamNickname(game.away_team);
+  const homeAlias = newsAlias(game.home_team);
+  const awayAlias = newsAlias(game.away_team);
 
   return items.filter((item) => {
     if (game.sport.split("_")[0] !== item.sport_key.split("_")[0]) return false;
 
-    // Primary: match via ESPN's team category tags (full name or unique nickname)
+    // Primary: match via ESPN's team category tags (full name, nickname, or
+    // reconciled nation alias).
     if (item.teams.length > 0) {
       return item.teams.some((t) => {
         const full = t.toLowerCase();
         const nick = teamNickname(t);
-        return full === homeFull || full === awayFull || nick === homeNick || nick === awayNick;
+        const al = newsAlias(t);
+        return full === homeFull || full === awayFull || nick === homeNick || nick === awayNick
+            || al === homeAlias || al === awayAlias;
       });
     }
 
