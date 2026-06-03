@@ -12,7 +12,7 @@ import { fetchModelSignals } from "@/lib/model-signals";
 // collection. Re-import when soccer picks pass the model bar.
 // import { fetchWCSignals } from "@/lib/wc-signals";
 import { fetchMLBSignals } from "@/lib/mlb-signals";
-import { fetchWCInjuries } from "@/lib/wc-injuries";
+import { fetchSoccerInjuries } from "@/lib/soccer-injuries";
 import { getMockGames } from "@/lib/mock-games";
 import * as serverCache from "@/lib/server-cache";
 
@@ -102,12 +102,14 @@ export default async function GamesFeed() {
   // subscribers until the model-driven intelligence layer is ready. Soccer
   // games still appear in the feed (they come from the `games` array, not
   // from signals); they just don't get an ACE pick chip yet.
-  const [newsItems, weatherMap, nbaSignals, mlbSignals, wcInjuryMap] = await Promise.all([
+  const [newsItems, weatherMap, nbaSignals, mlbSignals, soccerInjuryMap] = await Promise.all([
     withTimeout(fetchAllESPNNews(), 5_000, []),
     withTimeout(fetchWeatherForGames(games), 6_000, new Map()),
     withTimeout(Promise.resolve(fetchModelSignals()), 5_000, []),
     withTimeout(Promise.resolve(fetchMLBSignals()),   4_000, []),
-    withTimeout(fetchWCInjuries(), 4_000, new Map()),
+    // General Sportmonks injury feed (all soccer — WC nations + clubs).
+    // Read-only; populated by /api/ops/soccer/refresh-injuries.
+    withTimeout(Promise.resolve(fetchSoccerInjuries()), 8_000, new Map()),
   ]);
   // Cross-sport signal stream — soccer intentionally excluded until model ships.
   const modelSignals = [...nbaSignals, ...mlbSignals];
@@ -117,7 +119,7 @@ export default async function GamesFeed() {
   const movementMap: Record<string, Record<string, "up" | "down" | null>> =
     cachedEntry?.data?.movementMap ?? {};
 
-  const intelMap = generateIntelMap(games, newsItems, weatherMap, movementMap, modelSignals, wcInjuryMap);
+  const intelMap = generateIntelMap(games, newsItems, weatherMap, movementMap, modelSignals, soccerInjuryMap);
   const topPicks = generateLivePicks(games, 5);
 
   return (

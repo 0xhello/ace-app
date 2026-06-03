@@ -302,21 +302,34 @@ function buildInjuryAlerts(matched: ESPNNewsItem[], game: Game): InjuryAlert[] {
 
 // ── WC injury merge ───────────────────────────────────────────────────────────
 
-function isWCGame(game: Game): boolean {
-  return (game.sport_title || "").toLowerCase().includes("world cup");
+function isSoccerGame(game: Game): boolean {
+  return (game.sport || "").toLowerCase().startsWith("soccer")
+    || (game.sport_title || "").toLowerCase().includes("world cup");
 }
 
-function mergeWCInjuries(
+// Normalize a team name the same way ml/soccer/injuries.py `_norm` does, so
+// loader keys (name_norm) line up with the board's team names regardless of
+// accents / casing / ampersands.
+function normTeam(s: string): string {
+  return (s || "")
+    .normalize("NFKD").replace(new RegExp("[\\u0300-\\u036f]", "g"), "")
+    .toLowerCase().replace(/&/g, "and")
+    .split(/\s+/).filter(Boolean).join(" ");
+}
+
+// Merge the general soccer injury feed (Sportmonks `sidelined`, any soccer
+// team — WC nations + clubs) onto a soccer game's injury alerts.
+function mergeSoccerInjuries(
   base: InjuryAlert[],
   game: Game,
-  wcInjuryMap: Map<string, Array<{ team_name: string; player_name: string; status: "out" | "suspended" | "questionable"; reason: string | null }>> | null,
+  soccerInjuryMap: Map<string, Array<{ team_name: string; player_name: string; status: "out" | "suspended" | "questionable"; reason: string | null }>> | null,
 ): InjuryAlert[] {
-  if (!wcInjuryMap || !isWCGame(game)) return base;
+  if (!soccerInjuryMap || !isSoccerGame(game)) return base;
 
-  const home = (game.home_team || "").trim().toLowerCase();
-  const away = (game.away_team || "").trim().toLowerCase();
-  const homeInj = wcInjuryMap.get(home) || [];
-  const awayInj = wcInjuryMap.get(away) || [];
+  const home = normTeam(game.home_team);
+  const away = normTeam(game.away_team);
+  const homeInj = soccerInjuryMap.get(home) || [];
+  const awayInj = soccerInjuryMap.get(away) || [];
 
   const wcAlerts: InjuryAlert[] = [];
   for (const i of homeInj) {
@@ -350,7 +363,7 @@ export function generateIntelMap(
   weatherMap: Map<string, WeatherData>,
   movementMap: Record<string, Record<string, "up" | "down" | null>>,
   modelSignals: ModelSignal[] = [],
-  wcInjuryMap: Map<string, Array<{ team_name: string; player_name: string; status: "out" | "suspended" | "questionable"; reason: string | null }>> | null = null,
+  soccerInjuryMap: Map<string, Array<{ team_name: string; player_name: string; status: "out" | "suspended" | "questionable"; reason: string | null }>> | null = null,
 ): Record<string, GameIntel> {
   const result: Record<string, GameIntel> = {};
 
@@ -449,7 +462,7 @@ export function generateIntelMap(
       has_new_signal: hasNew || recentNews.length > 0,
       signals,
       top_signal: topGs ? gameSignalToSignal(topGs, game.id, 0) : null,
-      injury_alerts: mergeWCInjuries(buildInjuryAlerts(matched, game), game, wcInjuryMap),
+      injury_alerts: mergeSoccerInjuries(buildInjuryAlerts(matched, game), game, soccerInjuryMap),
       top_model_signal: topModelSignal,
       no_vig_home_prob: computeNoVigHomeProb(game),
       confidence,
