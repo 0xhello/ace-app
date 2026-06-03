@@ -75,7 +75,17 @@ Everything else stays **Experimental** and is labeled as such to subscribers.
 
 ---
 
-## Phase 1 — Corners pressure model (START HERE)
+## Phase 1 — Corners pressure model — DONE, RESULT: NEGATIVE (2026-06-02)
+
+> **Outcome:** built (`ml/soccer/corners_pressure.py`, pressure stats in
+> `soccer_hist_team_stats`), backtested leakage-free on 3,540 fixtures.
+> The pressure model does **not** beat the corners market or the rolling
+> baseline (both lose ~7–10%), and predicts corner totals *worse than a
+> constant*. Match-level corners are near-random (model corr 0.08 vs
+> market 0.19). **Corners is a dead end as a model target.** Full write-up:
+> `SOCCER_MODEL_BACKTEST_V2.md` → "Corners pressure model". Cost: ~one day,
+> exactly as "cheap to kill" intended. This tempers the thesis below —
+> derivatives may be efficient; demand the clean bar on every future market.
 
 Corners are the cleanest game-flow derivative and we already have most
 inputs. This is the first milestone; it proves the *approach* before we

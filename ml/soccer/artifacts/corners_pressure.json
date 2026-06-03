@@ -1,0 +1,102 @@
+{
+  "market": "corners (pressure model)",
+  "generated": "2026-06-03T01:33:40.346101",
+  "dataset": {
+    "total_fixtures": 3540,
+    "train": 2124,
+    "val": 708,
+    "test": 708,
+    "features": [
+      "h_shots_total",
+      "h_shots_on_target",
+      "h_shots_insidebox",
+      "h_total_crosses",
+      "h_accurate_crosses",
+      "h_dangerous_attacks",
+      "h_attacks",
+      "h_possession",
+      "h_key_passes",
+      "h_corners",
+      "h_corners_against",
+      "a_shots_total",
+      "a_shots_on_target",
+      "a_shots_insidebox",
+      "a_total_crosses",
+      "a_accurate_crosses",
+      "a_dangerous_attacks",
+      "a_attacks",
+      "a_possession",
+      "a_key_passes",
+      "a_corners",
+      "a_corners_against",
+      "exp_home_corners",
+      "exp_away_corners",
+      "roll_lambda",
+      "tot_shots",
+      "tot_crosses",
+      "tot_dang_att",
+      "p_home",
+      "p_away",
+      "mismatch",
+      "p_decisive"
+    ]
+  },
+  "model": {
+    "type": "HistGradientBoostingRegressor(loss=poisson)",
+    "cfg": {
+      "max_iter": 150,
+      "learning_rate": 0.05,
+      "max_leaf_nodes": 15,
+      "min_samples_leaf": 40,
+      "l2_regularization": 1.0
+    },
+    "val_deviance": 1.18948
+  },
+  "pressure_model": {
+    "by_edge": {
+      "3pp": {
+        "n_bets": 4392,
+        "win_rate": 0.6127,
+        "roi": -0.0744,
+        "units": -326.61
+      },
+      "5pp": {
+        "n_bets": 3259,
+        "win_rate": 0.6134,
+        "roi": -0.0813,
+        "units": -264.9
+      },
+      "7pp": {
+        "n_bets": 2224,
+        "win_rate": 0.6052,
+        "roi": -0.0976,
+        "units": -216.95
+      }
+    },
+    "pool": 4392
+  },
+  "rolling_baseline": {
+    "by_edge": {
+      "3pp": {
+        "n_bets": 4468,
+        "win_rate": 0.6318,
+        "roi": -0.0694,
+        "units": -310.22
+      },
+      "5pp": {
+        "n_bets": 3222,
+        "win_rate": 0.6331,
+        "roi": -0.0855,
+        "units": -275.37
+      },
+      "7pp": {
+        "n_bets": 2138,
+        "win_rate": 0.623,
+        "roi": -0.0949,
+        "units": -202.9
+      }
+    },
+    "pool": 4468
+  },
+  "verdict": "EXPERIMENTAL"
+}

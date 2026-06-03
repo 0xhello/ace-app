@@ -129,6 +129,57 @@ no edge over the corners market (the ~60% win rate is favorite-bias on
 low lines; it still loses to the vig). Corners markets are efficient
 relative to our model. Verdict: **experimental / no edge.**
 
+### Corners pressure model (R1 — Phase 1 of MODEL_R&D_ROADMAP) — TESTED, NEGATIVE
+
+The roadmap's first R&D milestone asked: do *pressure-driven* features
+(shots by location, crosses, dangerous attacks, possession, game script)
+predict corners well enough to beat the market, where raw rolling counts
+fail? We ingested per-fixture pressure stats for all 4,063 fixtures
+(`soccer_hist_team_stats`) and built `ml/soccer/corners_pressure.py`: rolling
+pre-match pressure features → `HistGradientBoostingRegressor(loss=poisson)`
+→ expected corner λ → Poisson → graded vs the Sportmonks closing line, with
+the rolling-rate baseline run on the **same** test fixtures for an honest A/B.
+
+Full multi-season test (3,540 fixtures, 708 in the held-out test set):
+
+| Edge | Pressure model | Rolling baseline |
+|---|---:|---:|
+| ≥3pp | 61.3% · −7.44% | 63.2% · −6.94% |
+| ≥5pp | 61.3% · −8.13% | 63.3% · −8.55% |
+| ≥7pp | 60.5% · −9.76% | 62.3% · −9.49% |
+
+**The pressure model does NOT beat the market and does NOT beat the
+baseline — it's a wash, both lose ~7–10%.** The diagnostic explains why:
+
+| Predictor of a match's corner total | MAE | corr(pred, actual) |
+|---|---:|---:|
+| Market (book's ~50/50 pivot line)  | 2.717 | 0.189 |
+| Rolling baseline                    | 2.776 | 0.083 |
+| Naive (always predict the mean 9.62)| 2.779 | ~0 |
+| Pressure GBM                        | 2.805 | 0.077 |
+
+The pressure model — rich features, gradient-boosted — is **worse than
+predicting the constant mean every match**. Both our models have ~zero
+correlation with actual corners (0.08); the market gets 0.19. Match-level
+corner totals are dominated by **irreducible in-game variance** (std 3.5 on
+a mean of 9.7), and the thin structure that exists, the book already prices
+better than our features capture.
+
+**Process note (why we don't ship on previews):** a preliminary run on the
+first-loaded 20% (recent-only window, 114 test fixtures) showed the pressure
+model beating the baseline by +4 to +15pp with a textbook rising-ROI-with-edge
+curve. It was **small-sample noise** — it evaporated completely on the full
+test set. This is the leakage/verify-before-you-show discipline working as
+designed: the preliminary was shown with heavy caveats and never gated a
+product decision; the full data corrected it.
+
+**Implication for the roadmap.** Corners are a *dead end* as a model target —
+not because the build was wrong, but because corner totals are near-random at
+the match level. This tempers (does not doom) the broader game-flow thesis:
+every future market (BTTS, scorers) must clear the **same** clean bar before
+we believe it, and we should be skeptical that the unified simulation would
+find edge here. The one market that has cleared the bar remains Over 2.5.
+
 ## Anytime scorer — cannot be validated yet (data gap)
 
 A clean anytime-scorer backtest needs each player's scoring rate **as of

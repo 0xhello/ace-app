@@ -705,20 +705,14 @@ def init_stats_table(path: Optional[Path] = None) -> None:
         conn.close()
 
 
-def ingest_fixture_team_stats(fixture_id: int, *, path: Optional[Path] = None) -> Dict[str, Any]:
-    """Pull per-team pressure stats for one fixture and persist."""
-    init_stats_table(path)
-    payload = _get(f"/fixtures/{fixture_id}",
-                   {"include": "statistics.type;participants"})
-    data = payload.get("data") or {}
+def _parse_fixture_stats(data: Dict[str, Any]) -> Dict[str, Tuple[Optional[int], Optional[str], Dict[str, Any]]]:
+    """One fixture's API dict → {location: (team_id, team_name, {col: value})}."""
     parts = {p["id"]: ((p.get("meta") or {}).get("location"), p.get("name"))
              for p in data.get("participants") or []}
-    # team_location → {column: value}
     by_loc: Dict[str, Dict[str, Any]] = {}
-    by_loc_meta: Dict[str, Tuple[int, str]] = {}
+    by_loc_meta: Dict[str, Tuple[Optional[int], Optional[str]]] = {}
     for s in data.get("statistics") or []:
-        t = (s.get("type") or {}).get("name")
-        col = _STAT_COLUMNS.get(t)
+        col = _STAT_COLUMNS.get((s.get("type") or {}).get("name"))
         if not col:
             continue
         pid = s.get("participant_id")
@@ -726,31 +720,87 @@ def ingest_fixture_team_stats(fixture_id: int, *, path: Optional[Path] = None) -
         if not loc_name or not loc_name[0]:
             continue
         loc = loc_name[0]
-        val = (s.get("data") or {}).get("value")
-        by_loc.setdefault(loc, {})[col] = val
+        by_loc.setdefault(loc, {})[col] = (s.get("data") or {}).get("value")
         by_loc_meta[loc] = (pid, loc_name[1])
+    return {loc: (by_loc_meta[loc][0], by_loc_meta[loc][1], sv) for loc, sv in by_loc.items()}
 
-    if not by_loc:
+
+def _store_fixture_stats(conn: sqlite3.Connection, fixture_id: int,
+                         parsed: Dict[str, Tuple[Optional[int], Optional[str], Dict[str, Any]]],
+                         now: str) -> None:
+    for loc, (pid, tname, statvals) in parsed.items():
+        cols = ["fixture_id", "location", "team_id", "team_name"] + list(statvals.keys()) + ["ingested_at"]
+        vals = [fixture_id, loc, pid, tname] + list(statvals.values()) + [now]
+        placeholders = ",".join("?" for _ in cols)
+        updates = ",".join(f"{c}=excluded.{c}" for c in cols if c not in ("fixture_id", "location"))
+        conn.execute(
+            f"INSERT INTO soccer_hist_team_stats ({','.join(cols)}) VALUES ({placeholders}) "
+            f"ON CONFLICT(fixture_id, location) DO UPDATE SET {updates}",
+            vals,
+        )
+
+
+def ingest_fixture_team_stats(fixture_id: int, *, path: Optional[Path] = None) -> Dict[str, Any]:
+    """Pull per-team pressure stats for one fixture and persist."""
+    init_stats_table(path)
+    payload = _get(f"/fixtures/{fixture_id}",
+                   {"include": "statistics.type;participants"})
+    parsed = _parse_fixture_stats(payload.get("data") or {})
+    if not parsed:
         return {"fixture_id": fixture_id, "ok": False, "reason": "no-stats"}
-
     conn = _db(path)
-    now = datetime.now(timezone.utc).isoformat()
     try:
-        for loc, statvals in by_loc.items():
-            pid, tname = by_loc_meta.get(loc, (None, None))
-            cols = ["fixture_id", "location", "team_id", "team_name"] + list(statvals.keys()) + ["ingested_at"]
-            vals = [fixture_id, loc, pid, tname] + list(statvals.values()) + [now]
-            placeholders = ",".join("?" for _ in cols)
-            updates = ",".join(f"{c}=excluded.{c}" for c in cols if c not in ("fixture_id", "location"))
-            conn.execute(
-                f"INSERT INTO soccer_hist_team_stats ({','.join(cols)}) VALUES ({placeholders}) "
-                f"ON CONFLICT(fixture_id, location) DO UPDATE SET {updates}",
-                vals,
-            )
+        _store_fixture_stats(conn, fixture_id, parsed, datetime.now(timezone.utc).isoformat())
         conn.commit()
     finally:
         conn.close()
-    return {"fixture_id": fixture_id, "ok": True, "locations": list(by_loc.keys())}
+    return {"fixture_id": fixture_id, "ok": True, "locations": list(parsed.keys())}
+
+
+def backfill_team_stats_fast(*, batch: int = 20, path: Optional[Path] = None) -> Dict[str, Any]:
+    """Backfill pressure stats using the /fixtures/multi endpoint — many
+    fixtures per API call (~20x fewer calls than the per-fixture crawl).
+    Resumable: skips fixtures already in soccer_hist_team_stats."""
+    init_stats_table(path)
+    conn = _db(path)
+    try:
+        done = {r[0] for r in conn.execute(
+            "SELECT DISTINCT fixture_id FROM soccer_hist_team_stats").fetchall()}
+        todo = [r[0] for r in conn.execute(
+            "SELECT fixture_id FROM soccer_hist_fixtures WHERE home_score IS NOT NULL "
+            "ORDER BY starting_at DESC").fetchall() if r[0] not in done]
+    finally:
+        conn.close()
+
+    ok = 0
+    no_stats = 0
+    errors = 0
+    for i in range(0, len(todo), batch):
+        chunk = todo[i:i + batch]
+        ids = ",".join(str(x) for x in chunk)
+        try:
+            payload = _get(f"/fixtures/multi/{ids}",
+                           {"include": "statistics.type;participants"})
+        except Exception:  # noqa: BLE001
+            errors += len(chunk)
+            continue
+        fixtures = payload.get("data") or []
+        conn = _db(path)
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            for fx in fixtures:
+                fid = fx.get("id")
+                parsed = _parse_fixture_stats(fx)
+                if not parsed or fid is None:
+                    no_stats += 1
+                    continue
+                _store_fixture_stats(conn, fid, parsed, now)
+                ok += 1
+            conn.commit()
+        finally:
+            conn.close()
+    return {"backfilled": ok, "no_stats": no_stats, "errors": errors,
+            "remaining_before": len(todo)}
 
 
 def backfill_team_stats(*, limit: Optional[int] = None, sleep_between: float = 0.08,
