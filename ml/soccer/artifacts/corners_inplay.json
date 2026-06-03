@@ -1,0 +1,45 @@
+{
+  "experiment": "in-play corners \u2014 does observed H1 pressure predict H2 corners?",
+  "target": "2nd-half total corners",
+  "dataset": {
+    "fixtures": 2685,
+    "train": 2148,
+    "test": 537,
+    "h2_mean": 5.33,
+    "h2_std": 2.62
+  },
+  "raw_persistence_corr_h1corners_vs_h2corners": 0.091,
+  "models": {
+    "naive": {
+      "mae": 1.958,
+      "rmse": 2.487,
+      "corr": null,
+      "mean_pred": 5.378
+    },
+    "pre_match": {
+      "mae": 2.1139,
+      "rmse": 2.6936,
+      "corr": -0.0596,
+      "deviance": 1.48333,
+      "mean_pred": 5.212
+    },
+    "in_play": {
+      "mae": 2.038,
+      "rmse": 2.6031,
+      "corr": 0.0516,
+      "deviance": 1.39339,
+      "mean_pred": 5.062
+    },
+    "both": {
+      "mae": 2.0331,
+      "rmse": 2.5802,
+      "corr": 0.0534,
+      "deviance": 1.38421,
+      "mean_pred": 4.92
+    }
+  },
+  "lift_inplay_over_prematch": {
+    "corr_gain": 0.113,
+    "mae_reduction": 0.0808
+  }
+}

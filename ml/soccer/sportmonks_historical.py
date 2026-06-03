@@ -757,6 +757,110 @@ def ingest_fixture_team_stats(fixture_id: int, *, path: Optional[Path] = None) -
     return {"fixture_id": fixture_id, "ok": True, "locations": list(parsed.keys())}
 
 
+def init_period_stats_table(path: Optional[Path] = None) -> None:
+    conn = _db(path)
+    try:
+        cols_sql = ",\n                ".join(f"{c} REAL" for c in _STAT_COLUMNS.values())
+        conn.executescript(
+            f"""
+            CREATE TABLE IF NOT EXISTS soccer_hist_period_stats (
+                fixture_id   INTEGER NOT NULL,
+                period       TEXT NOT NULL,        -- 1st-half | 2nd-half
+                location     TEXT NOT NULL,        -- home | away
+                team_id      INTEGER,
+                {cols_sql},
+                ingested_at  TEXT NOT NULL,
+                PRIMARY KEY (fixture_id, period, location)
+            );
+            CREATE INDEX IF NOT EXISTS idx_histpstats_fixture
+              ON soccer_hist_period_stats(fixture_id);
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _parse_period_stats(data: Dict[str, Any]) -> Dict[Tuple[str, str], Tuple[Optional[int], Dict[str, Any]]]:
+    """One fixture's API dict → {(period_desc, location): (team_id, {col: value})}."""
+    parts = {p["id"]: (p.get("meta") or {}).get("location")
+             for p in data.get("participants") or []}
+    out: Dict[Tuple[str, str], Tuple[Optional[int], Dict[str, Any]]] = {}
+    for period in data.get("periods") or []:
+        desc = period.get("description")
+        if desc not in ("1st-half", "2nd-half"):
+            continue
+        for s in period.get("statistics") or []:
+            col = _STAT_COLUMNS.get((s.get("type") or {}).get("name"))
+            if not col:
+                continue
+            pid = s.get("participant_id")
+            loc = parts.get(pid)
+            if not loc:
+                continue
+            key = (desc, loc)
+            if key not in out:
+                out[key] = (pid, {})
+            out[key][1][col] = (s.get("data") or {}).get("value")
+    return out
+
+
+def backfill_period_stats_fast(*, batch: int = 20, path: Optional[Path] = None) -> Dict[str, Any]:
+    """Backfill per-HALF pressure stats (1st-half / 2nd-half) via the
+    /fixtures/multi endpoint. Powers the in-play corners experiment:
+    does observed first-half pressure predict second-half corners?
+    Resumable: skips fixtures already in soccer_hist_period_stats."""
+    init_period_stats_table(path)
+    conn = _db(path)
+    try:
+        done = {r[0] for r in conn.execute(
+            "SELECT DISTINCT fixture_id FROM soccer_hist_period_stats").fetchall()}
+        todo = [r[0] for r in conn.execute(
+            "SELECT fixture_id FROM soccer_hist_fixtures WHERE home_score IS NOT NULL "
+            "ORDER BY starting_at DESC").fetchall() if r[0] not in done]
+    finally:
+        conn.close()
+
+    ok = 0
+    no_stats = 0
+    errors = 0
+    for i in range(0, len(todo), batch):
+        chunk = todo[i:i + batch]
+        ids = ",".join(str(x) for x in chunk)
+        try:
+            payload = _get(f"/fixtures/multi/{ids}",
+                           {"include": "periods.statistics.type;participants"})
+        except Exception:  # noqa: BLE001
+            errors += len(chunk)
+            continue
+        conn = _db(path)
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            for fx in payload.get("data") or []:
+                fid = fx.get("id")
+                parsed = _parse_period_stats(fx)
+                if not parsed or fid is None:
+                    no_stats += 1
+                    continue
+                for (period, loc), (pid, statvals) in parsed.items():
+                    cols = ["fixture_id", "period", "location", "team_id"] + list(statvals.keys()) + ["ingested_at"]
+                    vals = [fid, period, loc, pid] + list(statvals.values()) + [now]
+                    placeholders = ",".join("?" for _ in cols)
+                    updates = ",".join(f"{c}=excluded.{c}" for c in cols
+                                       if c not in ("fixture_id", "period", "location"))
+                    conn.execute(
+                        f"INSERT INTO soccer_hist_period_stats ({','.join(cols)}) VALUES ({placeholders}) "
+                        f"ON CONFLICT(fixture_id, period, location) DO UPDATE SET {updates}",
+                        vals,
+                    )
+                ok += 1
+            conn.commit()
+        finally:
+            conn.close()
+    return {"backfilled": ok, "no_stats": no_stats, "errors": errors,
+            "remaining_before": len(todo)}
+
+
 def backfill_team_stats_fast(*, batch: int = 20, path: Optional[Path] = None) -> Dict[str, Any]:
     """Backfill pressure stats using the /fixtures/multi endpoint — many
     fixtures per API call (~20x fewer calls than the per-fixture crawl).

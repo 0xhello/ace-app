@@ -180,6 +180,39 @@ every future market (BTTS, scorers) must clear the **same** clean bar before
 we believe it, and we should be skeptical that the unified simulation would
 find edge here. The one market that has cleared the bar remains Over 2.5.
 
+### In-play corners (R1b) — does watching H1 predict H2 corners? NO.
+
+Follow-up hypothesis: maybe the edge isn't pregame — maybe *observed* early
+pressure predicts the *rest* of the match. We ingested per-half pressure
+stats (`soccer_hist_period_stats`) and built `ml/soccer/corners_inplay.py`:
+predict true 2nd-half corners from observed first-half pressure (shots,
+dangerous attacks, possession, crosses, H1 corners), vs pre-match info and a
+constant baseline. H1 is the *strongest* version of the "first 10–20 min"
+idea — a full 45 minutes of observed play.
+
+Result (test set, 537 fixtures, target = remaining corners, mean 5.33):
+
+| Model | MAE | corr(pred, actual) |
+|---|---:|---:|
+| Naive (constant mean) | **1.958** | ~0 |
+| Pre-match | 2.114 | −0.060 |
+| In-play (H1 observed) | 2.038 | +0.052 |
+
+**Directionally the hypothesis holds — in-play beats pre-match** (corr flips
+−0.06 → +0.05; pre-match info is useless for H2 corners). **But the signal is
+unbettable:** the in-play model can't even beat predicting the constant mean,
+and corr 0.05 ≈ 0.25% of variance explained. Corners don't *persist* within a
+match (H1→H2 persistence corr 0.09). A 15-minute window has less info than 45,
+so it can only be weaker. **Corners is closed — pre-match AND in-play.**
+
+**Data caveat (matters for any future in-play work):** Sportmonks reports
+*cumulative* full-match values in the **2nd-half** period stat row for ~41% of
+fixtures (verified: H1+H2 = full only 56% of the time; H2 alone = full 41% of
+the time). Never read a 2nd-half target straight from `soccer_hist_period_stats`
+— derive it as (reliable full-match aggregate) − (1st-half, which is clean).
+The first in-play run missed this and showed a fake 18% error drop (the target
+contained the H1 features); the corrected run is above.
+
 ## Anytime scorer — cannot be validated yet (data gap)
 
 A clean anytime-scorer backtest needs each player's scoring rate **as of

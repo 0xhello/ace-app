@@ -86,6 +86,16 @@ Everything else stays **Experimental** and is labeled as such to subscribers.
 > `SOCCER_MODEL_BACKTEST_V2.md` → "Corners pressure model". Cost: ~one day,
 > exactly as "cheap to kill" intended. This tempers the thesis below —
 > derivatives may be efficient; demand the clean bar on every future market.
+>
+> **Follow-up (R1b) — in-play also tested, also negative.** Hypothesis: maybe
+> the edge is in-play, not pregame. Built `corners_inplay.py` (per-half stats
+> in `soccer_hist_period_stats`): does observed H1 pressure predict H2 corners?
+> Directionally yes (in-play beats pre-match), but the signal is far too weak
+> to bet — it can't beat a constant mean (corr 0.05). Corners don't persist
+> within a match. **Corners closed: pre-match AND in-play.** A leakage bug
+> (Sportmonks 2nd-half stats are cumulative for ~41% of fixtures) faked an 18%
+> lift on the first run — caught and corrected. Caveat recorded for future
+> in-play work on other markets.
 
 Corners are the cleanest game-flow derivative and we already have most
 inputs. This is the first milestone; it proves the *approach* before we
