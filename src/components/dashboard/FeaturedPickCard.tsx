@@ -27,6 +27,8 @@
  */
 import { useEffect, useState } from "react";
 import { Crosshair, Activity, BarChart3, Clock } from "lucide-react";
+import { TierBadge } from "@/components/ui/TierBadge";
+import { pickTier } from "@/lib/market-tier";
 
 interface FeaturedPickResponse {
   featured: null | {
@@ -120,7 +122,7 @@ function fmtCheckedAt(iso: string | null | undefined): string {
 
 // ── component ───────────────────────────────────────────────────────────────
 
-export default function FeaturedPickCard() {
+export default function FeaturedPickCard({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
   const [data, setData] = useState<FeaturedPickResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +149,10 @@ export default function FeaturedPickCard() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  // When hideWhenEmpty is set, render nothing until there's a real pick — so
+  // the dashboard isn't cluttered with a "not betting" card pre-launch (the
+  // feed already covers the empty state).
+  if (hideWhenEmpty && (loading || error || !data || !data.featured)) return null;
   if (loading) return <SkeletonCard />;
   if (error)   return <ErrorCard message={error} />;
   if (!data)   return <ErrorCard message="no response" />;
@@ -196,11 +202,15 @@ function FilledCard({
           border-b border-[#181c18]/50
         "
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Crosshair className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.5} />
           <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#3ee68a]">
             ACE pick · live
           </span>
+          {(() => {
+            const t = pickTier("soccer", bet.market, bet.side);
+            return t ? <TierBadge tier={t} /> : null;
+          })()}
         </div>
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-[#6b7068] font-mono">
           <Activity className="h-3 w-3 text-[#3ee68a]" strokeWidth={1.5} />
@@ -295,12 +305,12 @@ function FilledCard({
               Why we trust this market
             </p>
             <p className="text-[13px] text-white leading-relaxed mb-1">
-              Across <span className="font-mono font-bold">{backtest.n}</span> historical Big-5 matches, flat-betting every tier-A edge in this market beat the Pinnacle closing line by
+              On a leakage-free held-out test of <span className="font-mono font-bold">{backtest.n}</span> bets in this market, flat-betting every qualifying edge beat the closing line by
               {" "}
               <span className="font-mono font-bold text-[#3ee68a]">
                 +{(backtest.roi * 100).toFixed(1)}% ROI
               </span>
-              {" "}per pick.
+              {" "}per pick — and ROI rose with edge, the signature of a real edge.
             </p>
             {backtest.note && (
               <p className="text-[10px] text-[#6b7068] italic mt-1.5 leading-relaxed">
@@ -308,7 +318,7 @@ function FilledCard({
               </p>
             )}
             <p className="text-[10px] text-[#4a524a] mt-2 font-mono tracking-wide">
-              — ACE calibration framework, M21
+              — SOCCER_MODEL_BACKTEST_V2 · leakage-free 3-way split
             </p>
           </div>
         </div>

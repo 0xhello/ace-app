@@ -24,17 +24,21 @@ import path from "path";
 
 export const dynamic = "force-dynamic";
 
-// MARKET_VERDICTS hardcoded server-side. Mirrors the SoccerOpsTab map so
-// the subscriber view shows the same gating logic as ops. Update both
-// places when the calibration backtest verdict for a bucket changes.
-const VERDICTS: Record<string, { status: "bet" | "loses" | "untested"; roi?: number; n?: number; note?: string }> = {
-  "1X2|home":         { status: "loses", roi: -0.092, n: 138 },
-  "1X2|draw":         { status: "loses", roi: -0.357, n:  71 },
-  "1X2|away":         { status: "bet",   roi:  0.129, n: 152, note: "non-neutral only" },
-  "Totals 2.5|over":  { status: "bet",   roi:  0.091, n: 198 },
-  "Totals 2.5|under": { status: "loses", roi: -0.363, n:  38 },
-  "BTTS|yes":         { status: "untested" },
-  "BTTS|no":          { status: "untested" },
+// Server-side verdict gate for the PUBLIC featured pick. Values match the
+// single source of truth — docs/SOCCER_MODEL_BACKTEST_V2.md — and agree with
+// SoccerOpsTab MARKET_VERDICTS + src/lib/market-tier.ts. ONLY "bet" markets
+// can be featured to subscribers. If the backtest verdict changes, update all
+// three together (tracked in PICKS_SOURCE_OF_TRUTH.md).
+const VERDICTS: Record<string, { status: "bet" | "loses" | "experimental" | "untested"; roi?: number; n?: number; note?: string }> = {
+  "Totals 2.5|over":  { status: "bet",   roi:  0.0883, n: 36, note: "only proven market" },
+  "Totals 2.5|under": { status: "loses", roi: -0.0997, n: 37 },
+  "1X2|home":         { status: "loses", roi: -0.1525, n: 59 },
+  "1X2|draw":         { status: "loses", roi: -0.2778, n:  9 },
+  "1X2|away":         { status: "loses", roi: -0.2121, n: 19 },
+  "BTTS|yes":         { status: "experimental" },
+  "BTTS|no":          { status: "experimental" },
+  "Corners 9.5|over": { status: "loses", roi: -0.045, n: 17528 },
+  "Corners 9.5|under":{ status: "loses", roi: -0.045, n: 17528 },
 };
 
 function isValidatedAtFixture(market: string, side: string, neutralVenue: boolean): {

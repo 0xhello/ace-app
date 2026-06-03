@@ -5,6 +5,7 @@ import { Game } from "@/types/game";
 import GameRow from "@/components/GameRow";
 import TopAIPicks from "@/components/TopAIPicks";
 import WCBanner from "@/components/dashboard/WCBanner";
+import FeaturedPickCard from "@/components/dashboard/FeaturedPickCard";
 import BetSlip from "@/components/BetSlip";
 import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
@@ -364,12 +365,16 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
         <div className="flex-1 overflow-y-auto scrollbar-hide">
           <WCBanner />
+          {/* M47 — the one proven pick (Over 2.5), surfaced prominently on the
+              All + Soccer tabs. hideWhenEmpty: renders nothing until a real
+              validated pick exists, so it never shows a "not betting" card as
+              clutter pre-launch (the feed already covers the empty state). */}
+          {(sport === "ALL" || sport === "SOCCER") && <FeaturedPickCard hideWhenEmpty />}
           {/* P1.2 — ONE Signal Feed that respects the sport filter. The old
               separate "Soccer Picks" section (SoccerPicksPanel) was removed
               here: it was redundant with the feed and confusing. Soccer
               signals now flow through the same Signal Feed as every other
-              sport, filtered by the active tab. SoccerPicksPanel.tsx stays
-              in the repo for future re-use but is no longer double-rendered. */}
+              sport, filtered by the active tab. */}
           <TopAIPicks onAddLeg={toggleLeg} picks={feedPicks} />
 
           <div
