@@ -20,6 +20,8 @@
 
 import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { TierBadge } from "@/components/ui/TierBadge";
+import { pickTier } from "@/lib/market-tier";
 
 interface Explanation {
   headline: string;
@@ -251,7 +253,7 @@ export default function PerformancePage() {
 
         {/* Recent picks ledger */}
         <div>
-          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
             <h2 className="text-[10px] font-bold text-[#3ee68a] uppercase tracking-[0.22em]">
               Recent picks · last {data.recent.length}
             </h2>
@@ -270,6 +272,22 @@ export default function PerformancePage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Honest tiering legend — what the badges on soccer picks mean. */}
+          <div className="flex items-center gap-4 mb-3 text-[10px] text-[#6b7068] flex-wrap">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded px-1.5 py-[2px] text-[9px] font-bold uppercase tracking-[0.12em] border bg-[#3ee68a]/12 text-[#3ee68a] border-[#3ee68a]/25">
+                <span className="h-1 w-1 rounded-full bg-[#3ee68a]" />Proven
+              </span>
+              positive on a leakage-free backtest
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center rounded px-1.5 py-[2px] text-[9px] font-bold uppercase tracking-[0.12em] border bg-[#f5c062]/12 text-[#f5c062] border-[#f5c062]/25">
+                Experimental
+              </span>
+              tracking live — not yet proven
+            </span>
           </div>
 
           <div className="rounded-xl border border-[#181c18] bg-[#0d0f0d] overflow-hidden">
@@ -419,11 +437,19 @@ function PickRow({ pick }: { pick: Pick }) {
       </td>
       <td className="py-2 px-3 truncate max-w-[200px]">{pick.matchup}</td>
       <td className="py-2 px-3 text-white">
-        <span className="text-[#6b7068]">{marketLabel(pick.market)} </span>
-        {pick.bet_side.toUpperCase()}
-        {pick.line != null && (
-          <span className="text-[#9ca39a]"> {pick.line > 0 ? `+${pick.line}` : pick.line}</span>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span>
+            <span className="text-[#6b7068]">{marketLabel(pick.market)} </span>
+            {pick.bet_side.toUpperCase()}
+            {pick.line != null && (
+              <span className="text-[#9ca39a]"> {pick.line > 0 ? `+${pick.line}` : pick.line}</span>
+            )}
+          </span>
+          {(() => {
+            const t = pickTier(pick.sport, pick.market, pick.bet_side, pick.line);
+            return t && t.tier !== "avoid" ? <TierBadge tier={t} /> : null;
+          })()}
+        </div>
       </td>
       <td className="py-2 px-3">
         {pick.book ? (
