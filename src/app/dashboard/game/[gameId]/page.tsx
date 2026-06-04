@@ -166,7 +166,7 @@ function deriveMeetings(home: string, away: string, homeForm?: TeamRecentForm, a
 type LiveCenterStory = { title: string; detail?: string; time: string };
 type LiveCenterInjury = { playerName: string; status: string; teamName: string };
 
-function LiveCenter({
+function GameCommandStack({
   game,
   away,
   home,
@@ -203,15 +203,21 @@ function LiveCenter({
     })),
   ];
   const readiness = [
-    { label: "Market", value: awayLine && homeLine ? "Live odds" : "Odds pending" },
+    { label: "Market", value: awayLine && homeLine ? "Current odds" : "Odds pending" },
     { label: "Form", value: awayForm || homeForm ? "Loaded" : "Warming" },
     { label: "Team news", value: injuries.length ? `${injuries.length} flagged` : "No flags" },
   ];
 
   return (
-    <section className="mt-7">
-      <Label icon={Radio} accent={false}>Live Center</Label>
-      <div className="relative overflow-hidden rounded-3xl border border-[#1d241b] bg-[#080a08]">
+    <section className="mt-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <Label icon={Radio} accent={false}>Match Desk</Label>
+        <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#1b241a] bg-[#0d110d] px-2.5 py-1 text-[9px] font-mono uppercase tracking-[0.14em] text-[#7f867c]">
+          <span className={`h-1.5 w-1.5 rounded-full ${isLive ? "bg-[#ef4444] animate-pulse" : "bg-[#3ee68a]"}`} />
+          {isLive ? "Side-by-side betting companion" : "Alpha runway"}
+        </span>
+      </div>
+      <div className="relative overflow-hidden rounded-3xl border border-[#24311f] bg-[#080a08] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
         <div className="pointer-events-none absolute inset-0 opacity-[0.06] bg-[repeating-linear-gradient(0deg,transparent,transparent_3px,#3ee68a_3px,#3ee68a_4px)]" />
         <div className="relative grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="border-b border-[#151b14] lg:border-b-0 lg:border-r px-5 py-5">
@@ -222,20 +228,20 @@ function LiveCenter({
                     {isLive && <span className="absolute inline-flex h-full w-full rounded-full bg-[#ef4444]/50 animate-ping" />}
                     <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${isLive ? "bg-[#ef4444]" : isFinal ? "bg-[#6b7068]" : "bg-[#3ee68a]"}`} />
                   </span>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#8a9286]">
-                    {isLive ? "Live feed active" : isFinal ? "Final state" : "Pregame command center"}
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#aab0a4]">
+                    {isLive ? "Scoreboard + market state" : isFinal ? "Final state" : "At a glance"}
                   </p>
                 </div>
-                <p className="mt-2 text-[22px] font-black tracking-tight text-white">
-                  {isLive && awayScore != null ? <>{awayScore}<span className="text-[#3a4033] mx-2">-</span>{homeScore}</> : countdown(game.commence_time)}
+                <p className="mt-2 text-[24px] md:text-[28px] font-black tracking-tight text-white">
+                  {isLive && awayScore != null ? <>{away}<span className="text-[#3a4033] mx-2">{awayScore}</span><span className="text-[#3a4033] mx-2">/</span><span className="text-[#3a4033] mx-2">{homeScore}</span>{home}</> : "Market + intel ready"}
                 </p>
                 <p className="mt-1 text-[12px] text-[#9ca39a]">
                   {isLive ? (game.scoreboard?.clock ?? "Clock updating") : kickoff(game.commence_time)}
                 </p>
               </div>
               <div className="rounded-2xl border border-[#202820] bg-[#0d110d] px-4 py-3 text-right">
-                <p className="text-[9px] uppercase tracking-[0.18em] text-[#565c52]">Match state</p>
-                <p className="mt-1 text-[12px] font-semibold text-[#dfe4dc]">{isLive ? "Tracking now" : isFinal ? "Closed" : "Armed for kickoff"}</p>
+                <p className="text-[9px] uppercase tracking-[0.18em] text-[#565c52]">State</p>
+                <p className="mt-1 text-[12px] font-semibold text-[#dfe4dc]">{isLive ? "Betting watch" : isFinal ? "Closed" : "Upcoming"}</p>
               </div>
             </div>
 
@@ -251,7 +257,7 @@ function LiveCenter({
             <div className="mt-4 rounded-2xl border border-[#171d16] bg-[#0b0e0b] p-4">
               <div className="flex items-center gap-2 mb-3">
                 <TrendingUp className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.7} />
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a9286]">Live market board</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">Market state now</p>
               </div>
               <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-[12px]">
                 <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286] truncate">{away}</span><span className="font-mono font-bold text-[#3ee68a]">{awayLine ? formatAmericanOdds(awayLine.price) : "-"}</span></div>
@@ -265,7 +271,7 @@ function LiveCenter({
           <div className="relative px-5 py-5">
             <div className="flex items-center gap-2 mb-4">
               <Clock3 className="h-3.5 w-3.5 text-[#7a8278]" strokeWidth={1.7} />
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a9286]">Update tape</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">What changed / what matters</p>
             </div>
             {updates.length ? (
               <div className="space-y-2.5">
@@ -372,6 +378,16 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
             </div>
           </div>
         </header>
+
+        <GameCommandStack
+          game={game}
+          away={away}
+          home={home}
+          stories={stories}
+          injuries={injuries}
+          awayForm={awayForm}
+          homeForm={homeForm}
+        />
 
         {/* ── What the line says (market read) ──────────────────────────── */}
         {read && (
@@ -524,15 +540,6 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           </div>
         </section>
 
-        <LiveCenter
-          game={game}
-          away={away}
-          home={home}
-          stories={stories}
-          injuries={injuries}
-          awayForm={awayForm}
-          homeForm={homeForm}
-        />
 
       </div>
     </div>
