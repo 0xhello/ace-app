@@ -11,7 +11,7 @@
  * flex-1 overflow-y-auto root.
  */
 import { notFound } from "next/navigation";
-import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio } from "lucide-react";
+import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3, TrendingUp, ShieldCheck } from "lucide-react";
 import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
 import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
@@ -161,6 +161,140 @@ function deriveMeetings(home: string, away: string, homeForm?: TeamRecentForm, a
     if (normTeamKey(r.opponent) === hkey && !byDate.has(r.date))
       byDate.set(r.date, { date: r.date, competition: r.competition, homeName: home, homeGoals: r.ga, awayName: away, awayGoals: r.gf });
   return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+type LiveCenterStory = { title: string; detail?: string; time: string };
+type LiveCenterInjury = { playerName: string; status: string; teamName: string };
+
+function LiveCenter({
+  game,
+  away,
+  home,
+  stories,
+  injuries,
+  awayForm,
+  homeForm,
+}: {
+  game: Game;
+  away: string;
+  home: string;
+  stories: LiveCenterStory[];
+  injuries: LiveCenterInjury[];
+  awayForm?: TeamRecentForm;
+  homeForm?: TeamRecentForm;
+}) {
+  const isLive = game.status === "live";
+  const isFinal = game.status === "final";
+  const awayScore = game.scoreboard?.away_score;
+  const homeScore = game.scoreboard?.home_score;
+  const total = best(game, "totals", "Over")?.point;
+  const awayLine = best(game, "h2h", away);
+  const homeLine = best(game, "h2h", home);
+  const updates = [
+    ...injuries.slice(0, 2).map((i) => ({
+      label: `${i.playerName} ${i.status}`,
+      detail: i.teamName,
+      tone: "alert" as const,
+    })),
+    ...stories.slice(0, 3).map((s) => ({
+      label: s.title,
+      detail: s.detail || s.time,
+      tone: "news" as const,
+    })),
+  ];
+  const readiness = [
+    { label: "Market", value: awayLine && homeLine ? "Live odds" : "Odds pending" },
+    { label: "Form", value: awayForm || homeForm ? "Loaded" : "Warming" },
+    { label: "Team news", value: injuries.length ? `${injuries.length} flagged` : "No flags" },
+  ];
+
+  return (
+    <section className="mt-7">
+      <Label icon={Radio} accent={false}>Live Center</Label>
+      <div className="relative overflow-hidden rounded-3xl border border-[#1d241b] bg-[#080a08]">
+        <div className="pointer-events-none absolute inset-0 opacity-[0.06] bg-[repeating-linear-gradient(0deg,transparent,transparent_3px,#3ee68a_3px,#3ee68a_4px)]" />
+        <div className="relative grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
+          <div className="border-b border-[#151b14] lg:border-b-0 lg:border-r px-5 py-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5 shrink-0">
+                    {isLive && <span className="absolute inline-flex h-full w-full rounded-full bg-[#ef4444]/50 animate-ping" />}
+                    <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${isLive ? "bg-[#ef4444]" : isFinal ? "bg-[#6b7068]" : "bg-[#3ee68a]"}`} />
+                  </span>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#8a9286]">
+                    {isLive ? "Live feed active" : isFinal ? "Final state" : "Pregame command center"}
+                  </p>
+                </div>
+                <p className="mt-2 text-[22px] font-black tracking-tight text-white">
+                  {isLive && awayScore != null ? <>{awayScore}<span className="text-[#3a4033] mx-2">-</span>{homeScore}</> : countdown(game.commence_time)}
+                </p>
+                <p className="mt-1 text-[12px] text-[#9ca39a]">
+                  {isLive ? (game.scoreboard?.clock ?? "Clock updating") : kickoff(game.commence_time)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-[#202820] bg-[#0d110d] px-4 py-3 text-right">
+                <p className="text-[9px] uppercase tracking-[0.18em] text-[#565c52]">Match state</p>
+                <p className="mt-1 text-[12px] font-semibold text-[#dfe4dc]">{isLive ? "Tracking now" : isFinal ? "Closed" : "Armed for kickoff"}</p>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-3 gap-2">
+              {readiness.map((r) => (
+                <div key={r.label} className="rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-3 py-3">
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-[#4f574d]">{r.label}</p>
+                  <p className="mt-1 text-[12px] font-semibold text-[#d6dbd2] truncate">{r.value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-[#171d16] bg-[#0b0e0b] p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.7} />
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a9286]">Live market board</p>
+              </div>
+              <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-[12px]">
+                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286] truncate">{away}</span><span className="font-mono font-bold text-[#3ee68a]">{awayLine ? formatAmericanOdds(awayLine.price) : "-"}</span></div>
+                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286] truncate">{home}</span><span className="font-mono font-bold text-[#3ee68a]">{homeLine ? formatAmericanOdds(homeLine.price) : "-"}</span></div>
+                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Goals line</span><span className="font-mono font-bold text-[#dfe4dc]">{total ?? "-"}</span></div>
+                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Books</span><span className="font-mono font-bold text-[#dfe4dc]">{game.bookmakers.length}</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative px-5 py-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock3 className="h-3.5 w-3.5 text-[#7a8278]" strokeWidth={1.7} />
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8a9286]">Update tape</p>
+            </div>
+            {updates.length ? (
+              <div className="space-y-2.5">
+                {updates.map((u, i) => (
+                  <div key={i} className="rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-3.5 py-3">
+                    <div className="flex items-start gap-2.5">
+                      <span className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${u.tone === "alert" ? "bg-[#ef6666]" : "bg-[#3ee68a]"}`} />
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-semibold text-[#e4e8df] leading-snug line-clamp-2">{u.label}</p>
+                        <p className="mt-1 text-[11px] text-[#9ca39a] leading-relaxed line-clamp-2">{u.detail}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-4 py-5">
+                <p className="text-[12px] text-[#9ca39a] leading-relaxed">No verified live updates cached yet. The tape fills with team news, lineup notes and relevant storylines as kickoff gets closer.</p>
+              </div>
+            )}
+            <div className="mt-4 flex items-center gap-2 rounded-2xl border border-[#172117] bg-[#0c120d] px-3.5 py-3">
+              <ShieldCheck className="h-4 w-4 text-[#3ee68a] shrink-0" strokeWidth={1.7} />
+              <p className="text-[11px] text-[#9ca39a] leading-relaxed">No fake play-by-play: score, clock and key moments only appear when a provider feed has them.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export default async function GamePage({ params }: { params: Promise<{ gameId: string }> }) {
@@ -390,23 +524,15 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           </div>
         </section>
 
-        {/* ── Live Center (intentional future module) + lineups note ────── */}
-        <section className="mt-7">
-          <Label icon={Radio} accent={false}>Live Center</Label>
-          <div className="relative overflow-hidden rounded-2xl border border-[#1a1f18] bg-[#0a0c0a] px-5 py-4">
-            <div className="pointer-events-none absolute inset-0 opacity-[0.05] bg-[repeating-linear-gradient(0deg,transparent,transparent_3px,#3ee68a_3px,#3ee68a_4px)]" />
-            <div className="relative flex items-center gap-3">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="absolute inline-flex h-full w-full rounded-full bg-[#3ee68a]/40 animate-ping" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#3ee68a]/70" />
-              </span>
-              <div>
-                <p className="text-[12.5px] text-[#c4c7c0] font-medium">Opens at kickoff</p>
-                <p className="text-[11px] text-[#6b7068] mt-0.5">Live score, win-probability and key moments will stream here in real time. Projected lineups land ~1 hour before kickoff.</p>
-              </div>
-            </div>
-          </div>
-        </section>
+        <LiveCenter
+          game={game}
+          away={away}
+          home={home}
+          stories={stories}
+          injuries={injuries}
+          awayForm={awayForm}
+          homeForm={homeForm}
+        />
 
       </div>
     </div>
