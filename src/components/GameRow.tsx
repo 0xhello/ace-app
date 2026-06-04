@@ -434,7 +434,7 @@ export default function GameRow({
         style={{ gridTemplateColumns: "minmax(240px,1.2fr) repeat(3, 84px) 28px" }}
       >
         <button
-          onClick={() => { onSelectGame?.(game); router.push(`/dashboard/game/${game.id}`); }}
+          onClick={() => router.push(`/dashboard/game/${game.id}`)}
           className="min-w-0 flex items-center gap-3 text-left cursor-pointer"
         >
           <div className="w-[56px] shrink-0 text-center">

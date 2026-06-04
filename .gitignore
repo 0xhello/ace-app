@@ -17,3 +17,6 @@ ml/world_cup/data/
 
 # Model binary is committed — it needs to ship with the Railway image.
 # Revisit only if it grows beyond ~50MB.
+# Visual workflow artifacts
+.auth/
+artifacts/

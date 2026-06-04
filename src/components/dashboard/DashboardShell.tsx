@@ -7,7 +7,6 @@ import TopAIPicks from "@/components/TopAIPicks";
 import WCBanner from "@/components/dashboard/WCBanner";
 import FeaturedPickCard from "@/components/dashboard/FeaturedPickCard";
 import BetSlip from "@/components/BetSlip";
-import GameDetailPanel from "@/components/GameDetailPanel";
 import NotificationBell from "@/components/NotificationBell";
 import AskAce from "@/components/AskAce";
 import { Search, Sparkles, AlertTriangle, RefreshCw, Star, X } from "lucide-react";
@@ -85,7 +84,6 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
   // Keep a ref in sync so poll() always sees the latest alerts without stale closure
   useEffect(() => { serverAlertsRef.current = serverAlerts; }, [serverAlerts]);
-  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [watchlistOnly, setWatchlistOnly] = useState(false);
   const [signalFilter, setSignalFilter] = useState<"none" | "high" | "volatile" | "new">("none");
   const [movementMap, setMovementMap] = useState<Record<string, Record<string, "up" | "down">>>({});
@@ -483,7 +481,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
                 <span className="text-[9px] text-[#ef4444]/40 font-mono">{liveGames.length}</span>
               </div>
               {liveGames.map((g) => (
-                <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} onSelectGame={setSelectedGame} realMovement={movementMap[g.id]} />
+                <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} realMovement={movementMap[g.id]} />
               ))}
             </>
           )}
@@ -506,12 +504,12 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
                         <span className="text-[9px] text-[#3a4033] font-mono">{sportGames.length}</span>
                       </div>
                       {sportGames.map((g) => (
-                        <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} onSelectGame={setSelectedGame} realMovement={movementMap[g.id]} />
+                        <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} realMovement={movementMap[g.id]} />
                       ))}
                     </div>
                   ))
                 : upcomingGames.map((g) => (
-                    <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} onSelectGame={setSelectedGame} realMovement={movementMap[g.id]} />
+                    <GameRow key={g.id} game={g} boardIntel={intelMap[g.id]} onToggleLeg={toggleLeg} selectedIds={selectedIds} watchlisted={watchlist.has(g.id)} onToggleWatch={toggleWatch} realMovement={movementMap[g.id]} />
                   ))}
             </>
           )}
@@ -527,17 +525,9 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
 
       <div className={cn(
         "shrink-0 border-l border-[#1b201a] overflow-hidden transition-all duration-300 bg-[#090a09]",
-        selectedGame ? "w-[500px] xl:w-[540px]" : slip.length > 0 ? "w-[300px] xl:w-[340px]" : "w-11"
+        slip.length > 0 ? "w-[300px] xl:w-[340px]" : "w-11"
       )}>
-        {selectedGame ? (
-          <GameDetailPanel
-            game={selectedGame}
-            onClose={() => setSelectedGame(null)}
-            onToggleLeg={toggleLeg}
-            selectedIds={selectedIds}
-            boardIntel={intelMap[selectedGame.id]}
-          />
-        ) : slip.length === 0 ? (
+        {slip.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-2 select-none">
             <div className="[writing-mode:vertical-rl] rotate-180 text-[9px] font-bold tracking-widest text-[#2e332a] uppercase">Betslip</div>
           </div>
