@@ -11,6 +11,7 @@ const password = env('ACE_VISUAL_PASSWORD');
 const storageState = env('ACE_STORAGE_STATE', DEFAULT_STORAGE_STATE);
 const out = env('ACE_SCREENSHOT_OUT', 'artifacts/board-rows.png');
 const tab = env('ACE_TAB', 'Soccer');
+const targetPath = env('ACE_PATH', '');   // e.g. /dashboard/game/<id> — skips tab logic
 
 await mkdirForFile(out);
 const browser = await launchBrowser();
@@ -25,20 +26,25 @@ try {
   await context.storageState({ path: storageState });
 }
 
-// Filter to the requested sport tab so rows render from the top.
-try {
-  await page.getByRole('button', { name: new RegExp(`\\b${tab}\\b`, 'i') }).first().click({ timeout: 8_000 });
-  await page.waitForTimeout(1000);
-} catch (e) {
-  console.warn(`tab "${tab}" click skipped: ${e.message}`);
+if (targetPath) {
+  // Direct page capture (e.g. a game research page).
+  await page.goto(`${baseURL}${targetPath}`, { waitUntil: 'networkidle', timeout: 30_000 });
+  await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
+  await page.waitForTimeout(2500);
+} else {
+  // Board: filter to the requested sport tab so rows render from the top.
+  try {
+    await page.getByRole('button', { name: new RegExp(`\\b${tab}\\b`, 'i') }).first().click({ timeout: 8_000 });
+    await page.waitForTimeout(1000);
+  } catch (e) {
+    console.warn(`tab "${tab}" click skipped: ${e.message}`);
+  }
+  // Next dev serves CSS via JS and can flash unstyled. Reload so CSS caches +
+  // applies, wait for network idle, confirm stylesheets present before capture.
+  await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
+  await page.getByRole('button', { name: new RegExp(`\\b${tab}\\b`, 'i') }).first().click({ timeout: 8_000 }).catch(() => {});
+  await page.waitForTimeout(2500);
 }
-
-// Next dev serves CSS via JS and can flash unstyled. Reload so CSS is cached +
-// applied, wait for network idle, and confirm stylesheets are actually present
-// before capturing — otherwise the screenshot is useless for design review.
-await page.reload({ waitUntil: 'networkidle', timeout: 30_000 });
-await page.getByRole('button', { name: new RegExp(`\\b${tab}\\b`, 'i') }).first().click({ timeout: 8_000 }).catch(() => {});
-await page.waitForTimeout(2500);
 const diag = await page.evaluate(() => ({
   sheets: document.styleSheets.length,
   bodyBg: getComputedStyle(document.body).backgroundImage.slice(0, 40),

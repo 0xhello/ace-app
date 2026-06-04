@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Game } from "@/types/game";
 import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
 import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users } from "lucide-react";
@@ -362,6 +363,7 @@ export default function GameRow({
   onSelectGame?: (g: Game) => void;
   realMovement?: Record<string, "up" | "down" | null>;
 }) {
+  const router = useRouter();
   const isLive = game.status === "live";
   const away = game.away_team;
   const home = game.home_team;
@@ -432,7 +434,7 @@ export default function GameRow({
         style={{ gridTemplateColumns: "minmax(240px,1.2fr) repeat(3, 84px) 28px" }}
       >
         <button
-          onClick={() => onSelectGame?.(game)}
+          onClick={() => { onSelectGame?.(game); router.push(`/dashboard/game/${game.id}`); }}
           className="min-w-0 flex items-center gap-3 text-left cursor-pointer"
         >
           <div className="w-[56px] shrink-0 text-center">
