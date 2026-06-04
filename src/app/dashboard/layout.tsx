@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import Sidebar from "@/components/Sidebar";
+import { devSession, isLocalAuthBypassEnabled } from "@/lib/dev-auth";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth();
+  const session = isLocalAuthBypassEnabled ? devSession : await auth();
   if (!session) redirect("/login");
 
   const role = (session.user as { role?: string }).role ?? "user";

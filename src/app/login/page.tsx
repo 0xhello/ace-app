@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -11,6 +11,12 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      router.replace("/dashboard");
+    }
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
