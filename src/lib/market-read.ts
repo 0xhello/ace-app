@@ -83,29 +83,30 @@ export function marketRead(game: Game): MarketRead | null {
   const goalsLean: MarketRead["goalsLean"] =
     totalLine == null ? null : totalLine <= 2.0 ? "low" : totalLine >= 3.0 ? "high" : "moderate";
 
-  const pct = (p: number) => `${Math.round(p * 100)}%`;
-  // Headline — what the market is basically saying about the result.
+  // Headline — what it MEANS (qualitative; the bar below carries the numbers, so
+  // never restate percentages here).
+  const drawLive = drawProb != null && drawProb >= 0.24;
   let headline: string;
   if (favStrength === "pick'em") {
-    headline = drawProb != null
-      ? `The market sees this near even — ${fav.name} ${pct(fav.prob)}, ${dog.name} ${pct(dog.prob)}, draw ${pct(drawProb)}.`
-      : `The market sees this near even — ${fav.name} ${pct(fav.prob)} vs ${dog.name} ${pct(dog.prob)}.`;
+    headline = `Too close to call — the market doesn't separate ${fav.name} and ${dog.name}${drawLive ? ", and a draw is firmly in play" : ""}.`;
+  } else if (favStrength === "heavy") {
+    headline = `${fav.name} are strong favorites here. A ${dog.name} win would be a genuine upset${drawLive ? ", though a draw isn't a stretch" : ""}.`;
+  } else if (favStrength === "clear") {
+    headline = `${fav.name} are favored, but it's no lock — ${dog.name}${drawLive ? " and the draw are" : " is"} live.`;
   } else {
-    const word = favStrength === "heavy" ? "a heavy favorite" : favStrength === "clear" ? "a clear favorite" : "a slight favorite";
-    headline = `${fav.name} is ${word} — the market gives them about ${pct(fav.prob)}${drawProb != null ? `, with ${dog.name} at ${pct(dog.prob)} and a draw around ${pct(drawProb)}` : ` vs ${pct(dog.prob)} for ${dog.name}`}.`;
+    headline = `A slight lean to ${fav.name}, but this one's wide open${drawLive ? " — draw included" : ""}.`;
   }
-  // Detail — goals / total context.
+  // Detail — goals expectation (the bar doesn't show this, so it adds, not repeats).
   let detail: string;
   if (totalLine == null) {
-    detail = "No goals total is posted yet — books usually set it closer to kickoff.";
+    detail = "No goals line is posted yet — books usually set it closer to kickoff.";
   } else {
     const leanWord = goalsLean === "high" ? "an open, higher-scoring game" : goalsLean === "low" ? "a tight, low-scoring game" : "a moderate-scoring game";
     const over = overProb != null && overProb > 0.5;
-    const dirProb = overProb != null ? (over ? overProb : 1 - overProb) : 0;
     const tilt = overProb != null && Math.abs(overProb - 0.5) >= 0.04
-      ? ` Pricing tilts ${over ? "over" : "under"} (about ${pct(dirProb)} chance the goals land ${over ? "above" : "below"} it).`
+      ? `, leaning ${over ? "over" : "under"}`
       : "";
-    detail = `Books set the goals line at ${totalLine}, pointing to ${leanWord}.${tilt}`;
+    detail = `On goals, books expect ${leanWord} — the line sits at ${totalLine}${tilt}.`;
   }
 
   return { fav, dog, draw: drawProb, favStrength, totalLine, goalsLean, overProb, headline, detail };

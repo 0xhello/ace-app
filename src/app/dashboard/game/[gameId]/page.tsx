@@ -260,7 +260,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
                 {read.draw != null && <span className="text-[#b8b06a]">Draw {pct(read.draw)}</span>}
                 <span className="text-[#8a93a3]">{read.dog.name} {pct(read.dog.prob)}</span>
               </div>
-              <p className="mt-2.5 text-[9.5px] text-[#4a524a] uppercase tracking-wide">Implied from current prices, vig removed · not a prediction</p>
+              <p className="mt-2.5 text-[10px] text-[#5f655c]">Each result&apos;s chance, read from the current betting odds — not an ACE prediction.</p>
             </div>
           </section>
         )}
