@@ -394,8 +394,23 @@ export function generateIntelMap(
     const weather = weatherMap.get(game.id) ?? null;
     const movement = movementMap[game.id];
 
-    // 1. ESPN news signals — enriched with player name extraction
+    // 1. ESPN news signals — enriched with player name extraction.
+    // Rank for the hook: SPECIFIC, recent stories win. A story tagged to many
+    // teams ("Squad lists for all 48 teams" = 48 tags) is generic/league-wide —
+    // demote it and never let it become the hook. Verified: ~29/40 WC articles
+    // are specific (1-2 teams); only the few generic ones blanket the board.
     const matched = matchNewsToGame(game, newsItems);
+    const GENERIC_NEWS_TEAMS = 4;
+    const genericHeadlines = new Set(
+      matched.filter((m) => (m.teams?.length ?? 0) >= GENERIC_NEWS_TEAMS).map((m) => m.headline),
+    );
+    matched.sort((a, b) => {
+      const ta = a.teams?.length || 99, tb = b.teams?.length || 99;
+      const ga = ta >= GENERIC_NEWS_TEAMS ? 1 : 0, gb = tb >= GENERIC_NEWS_TEAMS ? 1 : 0;
+      if (ga !== gb) return ga - gb;                 // non-generic first
+      if (ta !== tb) return ta - tb;                 // fewer teams = more specific
+      return new Date(b.published).getTime() - new Date(a.published).getTime(); // then most recent
+    });
     for (const item of matched) {
       const isInjury = item.type === "injury";
       const injCtx = isInjury ? extractInjuryContext(item.headline, item.description) : null;
@@ -465,13 +480,17 @@ export function generateIntelMap(
     const hasNew = signals.some((s) => s.time === "now" || (s.time.endsWith("m") && parseInt(s.time) < 120));
     const recentNews = matched.filter((n) => isRecent(n.published, 6));
 
-    // Prefer non-injury signals for top_signal — injuries are already shown as badges
-    const nonInjury = signals.filter((s) => s.type !== "injury");
+    // Prefer non-injury signals for the hook — injuries are shown as badges.
+    // Never let a generic league-wide news article be the hook (better to show
+    // nothing than "Squad lists for all 48 teams" on every game). Signals are
+    // already ordered specific-first by the news ranking above.
+    const eligible = signals.filter((s) => !(s.type === "news" && genericHeadlines.has(s.title)));
+    const nonInjury = eligible.filter((s) => s.type !== "injury");
     const topGs = nonInjury.find((s) => s.severity === "high")
       ?? nonInjury.find((s) => s.severity === "medium")
       ?? nonInjury[0]
-      ?? signals.find((s) => s.severity === "high")
-      ?? signals[0]
+      ?? eligible.find((s) => s.severity === "high")
+      ?? eligible[0]
       ?? null;
 
     result[game.id] = {
