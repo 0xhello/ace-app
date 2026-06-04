@@ -428,8 +428,8 @@ export default function GameRow({
       {!isLive && isHighSeverity && <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[#f59e0b]/50" />}
 
       <div
-        className="grid items-center gap-2 px-5 py-3"
-        style={{ gridTemplateColumns: "minmax(220px,1fr) repeat(3, 84px) 28px" }}
+        className="grid items-center gap-2 px-5 py-4"
+        style={{ gridTemplateColumns: "minmax(240px,1.2fr) repeat(3, 84px) 28px" }}
       >
         <button
           onClick={() => onSelectGame?.(game)}
@@ -466,46 +466,28 @@ export default function GameRow({
 
           <div className="min-w-0 flex-1 grid grid-cols-[minmax(0,1fr)_74px] gap-4 items-center">
             <div className="min-w-0">
-              <div className="flex items-center gap-2.5 mb-[3px] min-w-0">
+              {/* Matchup — the primary anchor. Larger, bolder than before. */}
+              <div className="flex items-center gap-2 mb-[5px] min-w-0">
                 <TeamIcon team={away} sport={game.sport} />
-                <span className="text-[12px] font-medium text-[#d4d7d0] truncate">{away}</span>
+                <span className="text-[14px] font-semibold text-[#e7eae4] truncate tracking-[-0.01em]">{away}</span>
                 {awayRecord && (
-                  <span className="text-[10px] text-[#9ca39a]/60 font-mono tracking-tight shrink-0">{awayRecord}</span>
+                  <span className="text-[10px] text-[#9ca39a]/50 font-mono shrink-0">{awayRecord}</span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <TeamIcon team={home} sport={game.sport} />
-                <span className="text-[12px] font-medium text-[#d4d7d0] truncate">{home}</span>
+                <span className="text-[14px] font-semibold text-[#e7eae4] truncate tracking-[-0.01em]">{home}</span>
                 {homeRecord && (
-                  <span className="text-[10px] text-[#9ca39a]/60 font-mono tracking-tight shrink-0">{homeRecord}</span>
+                  <span className="text-[10px] text-[#9ca39a]/50 font-mono shrink-0">{homeRecord}</span>
                 )}
               </div>
 
-              <div className="mt-1.5 pl-[26px]">
-                <span className="text-[9px] text-[#5f655c] uppercase tracking-wider">{game.sport_title}</span>
-              </div>
-
-              {/* The juicy hook — the standout line on the row. Readable, with a
-                  source icon, NOT a dim 9px footnote. News / lineup / weather
-                  (injuries get their own colored chips below, which rank above). */}
-              {hookSignal && (
-                <div className="pl-[26px] mt-1 flex items-start gap-1.5">
-                  {hookSignal.type === "weather"
-                    ? <Cloud className="h-3 w-3 text-[#7a8278] mt-[1.5px] shrink-0" />
-                    : hookSignal.type === "lineup"
-                    ? <Users className="h-3 w-3 text-[#3ee68a] mt-[1.5px] shrink-0" />
-                    : <Newspaper className="h-3 w-3 text-[#3ee68a] mt-[1.5px] shrink-0" />}
-                  <span className="text-[11px] text-[#c8cdc4] leading-snug line-clamp-1 font-medium">
-                    {hookSignal.summary}
-                  </span>
-                </div>
-              )}
-
-              {/* Injury / team-news chips — the #1 hook: a benched star shifts a
-                  whole game. (Model / no-vig jargon intentionally NOT shown — the
-                  odds already tell the favorite story.) */}
+              {/* Signal strip — the reason to care, right under the matchup.
+                  Injuries rank #1 (a benched star shifts the game), then the top
+                  news storyline. No model / no-vig jargon — the odds already tell
+                  the favorite story. */}
               {injuryAlerts.length > 0 && (
-                <div className="pl-[26px] mt-1.5 flex flex-wrap items-center gap-1">
+                <div className="mt-2 pl-[26px] flex flex-wrap items-center gap-1.5">
                   {injuryAlerts.slice(0, 3).map((a, i) => {
                     const isOut = a.status === "out" || a.status === "doubtful" || a.status === "suspended";
                     const statusLabel = a.status === "out" ? "OUT" : a.status === "suspended" ? "SUSP" : a.status === "doubtful" ? "DBTF" : a.status === "questionable" ? "QUES" : a.status === "game-time" ? "GTD" : "D2D";
@@ -515,19 +497,36 @@ export default function GameRow({
                         key={i}
                         title={`${a.playerName} — ${a.status} (${a.teamName})`}
                         className={cn(
-                          "inline-flex items-center gap-1 rounded-[3px] px-[5px] py-[2px] text-[9px] font-semibold leading-none",
+                          "inline-flex items-center gap-1 rounded px-1.5 py-[2.5px] text-[10px] font-semibold leading-none",
                           isOut
-                            ? "bg-[#1a0d0d] border border-[#ef4444]/30 text-[#ef8080]"
-                            : "bg-[#1a1508] border border-[#f59e0b]/30 text-[#d4a84b]"
+                            ? "bg-[#1f0e0e] border border-[#ef4444]/35 text-[#ef8f8f]"
+                            : "bg-[#1d1608] border border-[#f59e0b]/35 text-[#dcab55]"
                         )}
                       >
-                        <span className={cn("h-1 w-1 rounded-full shrink-0", isOut ? "bg-[#ef4444]" : "bg-[#f59e0b]")} />
+                        <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", isOut ? "bg-[#ef4444]" : "bg-[#f59e0b]")} />
                         {lastName} {statusLabel}
                       </span>
                     );
                   })}
                 </div>
               )}
+
+              {hookSignal && (
+                <div className="mt-2 pl-[26px] flex items-center gap-2">
+                  {hookSignal.type === "weather"
+                    ? <Cloud className="h-3.5 w-3.5 text-[#7a8278] shrink-0" />
+                    : hookSignal.type === "lineup"
+                    ? <Users className="h-3.5 w-3.5 text-[#3ee68a] shrink-0" />
+                    : <Newspaper className="h-3.5 w-3.5 text-[#3ee68a] shrink-0" />}
+                  <span className="text-[12.5px] text-[#d7dbd2] leading-snug line-clamp-1">
+                    {hookSignal.summary}
+                  </span>
+                </div>
+              )}
+
+              <div className="mt-1.5 pl-[26px]">
+                <span className="text-[9px] text-[#565c52] uppercase tracking-[0.14em]">{game.sport_title}</span>
+              </div>
             </div>
 
             <div className="h-full flex items-center justify-center">
