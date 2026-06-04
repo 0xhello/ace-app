@@ -1,13 +1,14 @@
 /**
- * /api/ops/soccer/refresh-injuries — populate the general soccer_injuries
- * table (Sportmonks `sidelined`) for the soccer teams currently on the board.
+ * /api/ops/soccer/refresh-recent-form — populate the soccer_team_recent_results
+ * table (Sportmonks last-N results) for the soccer teams currently on the board.
  *
- * Injuries move over days, so this is meant to run periodically (worker /
- * cron) or on demand — NOT on every board render. The board reads the table
- * read-only via fetchSoccerInjuries().
+ * National sides have no rows in our club-only soccer_team_form table, so the
+ * game match-center pulls last-5 form from Sportmonks. Results move slowly, so
+ * run this periodically (worker / cron) or on demand — NOT per render. The game
+ * page reads the table read-only via fetchSoccerRecentForm().
  *
- *   GET /api/ops/soccer/refresh-injuries              → scan cached board for soccer teams
- *   GET /api/ops/soccer/refresh-injuries?teams=Brazil,France,Liverpool
+ *   GET /api/ops/soccer/refresh-recent-form              → scan cached board for soccer teams
+ *   GET /api/ops/soccer/refresh-recent-form?teams=Mexico,Brazil
  *
  * Read-token gated through middleware.
  */
@@ -21,7 +22,6 @@ export const dynamic = "force-dynamic";
 const CACHE_KEY = "board-games";   // must match src/app/api/board/route.ts
 
 export async function GET(req: NextRequest) {
-  // 1. Resolve the team list: explicit param, else soccer teams off the cached board.
   let teams: string[] = (req.nextUrl.searchParams.get("teams") || "")
     .split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
   const script = `
 import json, sys
-from ml.soccer.injuries import refresh_for_teams
+from ml.soccer.recent_results import refresh_for_teams
 names = json.loads(${JSON.stringify(JSON.stringify(teams))})
 try:
     print(json.dumps(refresh_for_teams(names)))
@@ -59,7 +59,7 @@ except Exception as e:
 `;
   const r = spawnSync("python3", ["-c", script], {
     encoding: "utf-8",
-    timeout: 60_000,
+    timeout: 120_000,
     cwd: appRoot,
   });
   try {
