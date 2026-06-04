@@ -70,6 +70,33 @@ function best(game: Game, market: "h2h" | "spreads" | "totals", name: string) {
   return top;
 }
 
+type OddsQuote = { price: number; book: string; point?: number; lastUpdate?: string };
+function allQuotes(game: Game, market: "h2h" | "spreads" | "totals", name: string): OddsQuote[] {
+  const rows: OddsQuote[] = [];
+  for (const b of game.bookmakers) for (const o of (b.markets[market] ?? [])) {
+    if (o.name === name) rows.push({ price: o.price, book: b.sportsbook, point: o.point, lastUpdate: b.last_update });
+  }
+  return rows.sort((a, b) => b.price - a.price);
+}
+function implied(price?: number): number | null {
+  if (price == null || price === 0) return null;
+  return price > 0 ? 100 / (price + 100) : Math.abs(price) / (Math.abs(price) + 100);
+}
+function fmtProb(price?: number): string {
+  const p = implied(price);
+  return p == null ? "-" : `${Math.round(p * 100)}%`;
+}
+function bookName(book?: string): string {
+  return book ? (bookMeta(book as any)?.name ?? book) : "-";
+}
+function lineGap(bestQuote?: OddsQuote, worstQuote?: OddsQuote): number | null {
+  if (!bestQuote || !worstQuote) return null;
+  return Math.abs(bestQuote.price - worstQuote.price);
+}
+function totalLabel(point?: number): string {
+  return point == null ? "-" : `${point}`;
+}
+
 function TeamCrest({ team, sport, size = 38 }: { team: string; sport: string; size?: number }) {
   const isSoccer = sport.startsWith("soccer");
   const flag = isSoccer ? getNationFlagUrl(team) : null;
@@ -187,9 +214,31 @@ function GameCommandStack({
   const isFinal = game.status === "final";
   const awayScore = game.scoreboard?.away_score;
   const homeScore = game.scoreboard?.home_score;
-  const total = best(game, "totals", "Over")?.point;
+  const overLine = best(game, "totals", "Over");
+  const underLine = best(game, "totals", "Under");
+  const total = overLine?.point ?? underLine?.point;
   const awayLine = best(game, "h2h", away);
   const homeLine = best(game, "h2h", home);
+  const awayQuotes = allQuotes(game, "h2h", away);
+  const homeQuotes = allQuotes(game, "h2h", home);
+  const awayWorst = awayQuotes.at(-1);
+  const homeWorst = homeQuotes.at(-1);
+  const awayGap = lineGap(awayQuotes[0], awayWorst);
+  const homeGap = lineGap(homeQuotes[0], homeWorst);
+  const biggestGap = (awayGap ?? 0) >= (homeGap ?? 0)
+    ? { team: away, best: awayQuotes[0], worst: awayWorst, gap: awayGap }
+    : { team: home, best: homeQuotes[0], worst: homeWorst, gap: homeGap };
+  const awayImp = implied(awayLine?.price) ?? 0;
+  const homeImp = implied(homeLine?.price) ?? 0;
+  const favorite = awayImp >= homeImp
+    ? { team: away, line: awayLine, prob: awayImp }
+    : { team: home, line: homeLine, prob: homeImp };
+  const dog = awayImp < homeImp ? { team: away, line: awayLine } : { team: home, line: homeLine };
+  const watchItem = injuries.length
+    ? `${injuries.length} team-news flag${injuries.length === 1 ? "" : "s"} live on this page`
+    : biggestGap.gap && biggestGap.gap >= 30
+      ? `${biggestGap.team} is split by ${biggestGap.gap} odds points across books`
+      : stories[0]?.title ?? "Market board is stable; waiting on sharper news";
   const updates = [
     ...injuries.slice(0, 2).map((i) => ({
       label: `${i.playerName} ${i.status}`,
@@ -203,9 +252,9 @@ function GameCommandStack({
     })),
   ];
   const readiness = [
-    { label: "Market", value: awayLine && homeLine ? "Current odds" : "Odds pending" },
-    { label: "Form", value: awayForm || homeForm ? "Loaded" : "Warming" },
-    { label: "Team news", value: injuries.length ? `${injuries.length} flagged` : "No flags" },
+    { label: "Fav implied", value: favorite.line ? `${favorite.team} ${fmtProb(favorite.line.price)}` : "Pending" },
+    { label: "Book gap", value: biggestGap.gap ? `${biggestGap.team} ${biggestGap.gap} pts` : "Tight" },
+    { label: "Watch", value: injuries.length ? `${injuries.length} news flag${injuries.length === 1 ? "" : "s"}` : stories.length ? `${stories.length} updates` : "Quiet" },
   ];
 
   return (
@@ -255,15 +304,50 @@ function GameCommandStack({
             </div>
 
             <div className="mt-4 rounded-2xl border border-[#171d16] bg-[#0b0e0b] p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.7} />
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">Market state now</p>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.7} />
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">Market state now</p>
+                </div>
+                <p className="text-[9px] font-mono uppercase tracking-[0.14em] text-[#596156]">{game.bookmakers.length} books</p>
               </div>
-              <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-[12px]">
-                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286] truncate">{away}</span><span className="font-mono font-bold text-[#3ee68a]">{awayLine ? formatAmericanOdds(awayLine.price) : "-"}</span></div>
-                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286] truncate">{home}</span><span className="font-mono font-bold text-[#3ee68a]">{homeLine ? formatAmericanOdds(homeLine.price) : "-"}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Goals line</span><span className="font-mono font-bold text-[#dfe4dc]">{total ?? "-"}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Books</span><span className="font-mono font-bold text-[#dfe4dc]">{game.bookmakers.length}</span></div>
+              <div className="grid gap-3 md:grid-cols-[1.2fr_0.8fr]">
+                <div className="rounded-xl border border-[#151b14] bg-[#080a08] px-3 py-3">
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-[#596156]">Biggest book disagreement</p>
+                  {biggestGap.best && biggestGap.worst ? (
+                    <>
+                      <div className="mt-2 flex items-baseline justify-between gap-3">
+                        <p className="truncate text-[13px] font-semibold text-[#e4e8df]">{biggestGap.team}</p>
+                        <p className="font-mono text-[18px] font-black text-[#3ee68a]">{formatAmericanOdds(biggestGap.best.price)}</p>
+                      </div>
+                      <p className="mt-1 text-[10.5px] text-[#8a9286] leading-relaxed">
+                        Best at <span className="text-[#c7cdc2]">{bookName(biggestGap.best.book)}</span>; worst is <span className="text-[#c7cdc2]">{formatAmericanOdds(biggestGap.worst.price)}</span> at {bookName(biggestGap.worst.book)}.
+                      </p>
+                    </>
+                  ) : <p className="mt-2 text-[12px] text-[#8a9286]">Waiting on multi-book pricing.</p>}
+                </div>
+                <div className="rounded-xl border border-[#151b14] bg-[#080a08] px-3 py-3">
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-[#596156]">Market favorite</p>
+                  <p className="mt-2 truncate text-[13px] font-semibold text-[#e4e8df]">{favorite.team}</p>
+                  <div className="mt-1 flex items-baseline justify-between gap-3">
+                    <p className="font-mono text-[18px] font-black text-[#dfe4dc]">{favorite.line ? formatAmericanOdds(favorite.line.price) : "-"}</p>
+                    <p className="font-mono text-[12px] font-bold text-[#8a9286]">{fmtProb(favorite.line?.price)}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-[11.5px]">
+                <div className="rounded-xl border border-[#151b14] bg-[#080a08] px-3 py-2.5">
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-[#596156]">Dog price</p>
+                  <p className="mt-1 truncate font-semibold text-[#dfe4dc]">{dog.team} <span className="font-mono text-[#3ee68a]">{dog.line ? formatAmericanOdds(dog.line.price) : "-"}</span></p>
+                </div>
+                <div className="rounded-xl border border-[#151b14] bg-[#080a08] px-3 py-2.5">
+                  <p className="text-[9px] uppercase tracking-[0.18em] text-[#596156]">Total board</p>
+                  <p className="mt-1 font-semibold text-[#dfe4dc]">{totalLabel(total)} <span className="font-mono text-[#7f867c]">O {overLine ? formatAmericanOdds(overLine.price) : "-"} / U {underLine ? formatAmericanOdds(underLine.price) : "-"}</span></p>
+                </div>
+              </div>
+              <div className="mt-3 rounded-xl border border-[#1a2618] bg-[#0a100b] px-3 py-2.5">
+                <p className="text-[9px] uppercase tracking-[0.18em] text-[#596156]">Watch item</p>
+                <p className="mt-1 text-[12px] font-semibold leading-snug text-[#dfe4dc]">{watchItem}</p>
               </div>
             </div>
           </div>
