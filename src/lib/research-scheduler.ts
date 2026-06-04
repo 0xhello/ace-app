@@ -8,10 +8,13 @@
  * redeploy) and then every few hours. Non-blocking + fully guarded.
  */
 import { refreshSoccerResearch } from "@/lib/research-refresh";
+import { warmGameIntelCache } from "@/lib/game-intel-cache";
 
-const REFRESH_EVERY = 3 * 60 * 60 * 1000; // 3 hours
-const FIRST_DELAY = 120_000;              // let the board cache populate first
-const RETRY_DELAY = 15 * 60 * 1000;       // if the board wasn't ready yet
+const REFRESH_EVERY = 3 * 60 * 60 * 1000;      // 3 hours
+const GAME_INTEL_EVERY = 10 * 60 * 1000;       // 10 minutes — keeps click path fast/fresh
+const FIRST_DELAY = 120_000;                   // let the board cache populate first
+const GAME_INTEL_FIRST_DELAY = 150_000;        // after research boot attempt
+const RETRY_DELAY = 15 * 60 * 1000;            // if the board wasn't ready yet
 
 async function kick(label: string) {
   try {
@@ -24,11 +27,28 @@ async function kick(label: string) {
   }
 }
 
+async function warmIntel(label: string) {
+  try {
+    const r = await warmGameIntelCache(label);
+    console.log(`[game-intel:${label}]`, JSON.stringify(r));
+    return r;
+  } catch (e) {
+    console.error("[game-intel] failed:", e);
+    return null;
+  }
+}
+
 // Initial run after boot; if the board wasn't cached yet (0 teams), retry once.
 setTimeout(async () => {
   const r = await kick("boot");
   if (r && r.refreshed === 0) setTimeout(() => void kick("retry"), RETRY_DELAY);
 }, FIRST_DELAY);
 
+setTimeout(async () => {
+  const r = await warmIntel("boot");
+  if (r && r.refreshed === 0) setTimeout(() => void warmIntel("retry"), RETRY_DELAY);
+}, GAME_INTEL_FIRST_DELAY);
+
 setInterval(() => { void kick("interval"); }, REFRESH_EVERY);
-console.log("[research-refresh] scheduler armed (boot + every 3h)");
+setInterval(() => { void warmIntel("interval"); }, GAME_INTEL_EVERY);
+console.log("[research-refresh] scheduler armed (research: boot + every 3h, game-intel: boot + every 10m)");

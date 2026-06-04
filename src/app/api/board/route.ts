@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchAllGames } from "@/lib/odds-api";
 import * as cache from "@/lib/server-cache";
 import type { OddsSnapshot } from "@/lib/server-cache";
+import { warmGameIntelCacheSoon } from "@/lib/game-intel-cache";
 import { Game } from "@/types/game";
 
 const CACHE_KEY = "board-games";
@@ -77,6 +78,7 @@ export async function GET() {
       movementMap,
     };
     await cache.set(CACHE_KEY, payload, result.games);
+    warmGameIntelCacheSoon("fresh-board");
     return NextResponse.json({ ...payload, cached: false, cacheAge: 0 });
   } catch (e: any) {
     if (entry) {

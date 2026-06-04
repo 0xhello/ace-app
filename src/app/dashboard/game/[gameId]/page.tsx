@@ -11,14 +11,12 @@
  * flex-1 overflow-y-auto root.
  */
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft, Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio } from "lucide-react";
+import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio } from "lucide-react";
+import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
-import { fetchAllESPNNews } from "@/lib/espn";
-import { fetchSoccerInjuries } from "@/lib/soccer-injuries";
-import { fetchSoccerRecentForm, normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
+import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
 import { marketRead } from "@/lib/market-read";
-import { generateIntelMap } from "@/lib/live-signals";
+import { getPreparedGameIntel, warmGameIntelCacheSoon } from "@/lib/game-intel-cache";
 import { getMockGames } from "@/lib/mock-games";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
@@ -170,23 +168,24 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
   const game = await getGame(gameId);
   if (!game) notFound();
 
-  const [news, injuryMap, formMap] = await Promise.all([
-    fetchAllESPNNews().catch(() => [] as any[]),
-    Promise.resolve(fetchSoccerInjuries()),
-    Promise.resolve(fetchSoccerRecentForm()),
-  ]);
-  const intel = generateIntelMap([game], news, new Map(), {}, [], injuryMap)[game.id];
+  // Fast path: the match page reads prepared research only. Expensive ESPN +
+  // Sportmonks/Python work runs in background via game-intel cache warming.
+  // If the cache is cold, render a good partial page immediately and trigger a
+  // non-blocking warm for the next load.
+  const prepared = await getPreparedGameIntel(game.id);
+  if (!prepared) warmGameIntelCacheSoon(`cold-game-page:${game.id}`);
 
-  const stories = (intel?.signals ?? []).filter((s) => s.type === "news").slice(0, 6);
-  const injuries = intel?.injury_alerts ?? [];
+  const researchLoaded = !!prepared;
+  const stories = prepared?.stories ?? [];
+  const injuries = prepared?.injuryAlerts ?? [];
   const away = game.away_team, home = game.home_team;
   const isSoccer = game.sport.startsWith("soccer");
   const awayML = best(game, "h2h", away), homeML = best(game, "h2h", home);
   const isLive = game.status === "live";
   const read = marketRead(game);
 
-  const awayForm = isSoccer ? formMap.get(normTeamKey(away)) : undefined;
-  const homeForm = isSoccer ? formMap.get(normTeamKey(home)) : undefined;
+  const awayForm = isSoccer ? prepared?.awayForm ?? undefined : undefined;
+  const homeForm = isSoccer ? prepared?.homeForm ?? undefined : undefined;
   const hasForm = !!(awayForm || homeForm);
   const meetings = hasForm ? deriveMeetings(home, away, homeForm, awayForm) : [];
 
@@ -206,9 +205,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a] text-white">
       <div className="max-w-[920px] mx-auto px-4 md:px-6 py-5 pb-24">
 
-        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-[11px] text-[#6b7068] hover:text-[#c4c7c0] transition-colors mb-4">
-          <ArrowLeft className="h-3.5 w-3.5" /> Board
-        </Link>
+        <GamePageBackButton />
 
         {/* ── Match-center hero ─────────────────────────────────────────── */}
         <header className="relative overflow-hidden rounded-3xl border border-[#1f261d] bg-[#0c0e0c] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
@@ -260,7 +257,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
                 {read.draw != null && <span className="text-[#b8b06a]">Draw {pct(read.draw)}</span>}
                 <span className="text-[#8a93a3]">{read.dog.name} {pct(read.dog.prob)}</span>
               </div>
-              <p className="mt-2.5 text-[10px] text-[#5f655c]">Each result&apos;s chance, read from the current betting odds — not an ACE prediction.</p>
+              <p className="mt-2.5 text-[10px] text-[#5f655c]">Implied from current market prices.</p>
             </div>
           </section>
         )}
@@ -315,7 +312,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
         <section className="mt-7">
           <Label icon={Newspaper}>Storylines{stories.length ? ` · ${stories.length}` : ""}</Label>
           {stories.length === 0 ? (
-            <p className="text-[12.5px] text-[#6b7068] leading-relaxed">No notable storylines yet — coverage builds as kickoff nears.</p>
+            <p className="text-[12.5px] text-[#6b7068] leading-relaxed">{researchLoaded ? "No useful storylines yet — coverage builds as kickoff nears." : "Storylines are warming in the background; the page stays fast while research catches up."}</p>
           ) : (
             <div className="space-y-4">
               {lead && (
@@ -332,6 +329,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
                       <Newspaper className="h-3.5 w-3.5 text-[#3ee68a]/70 mt-0.5 shrink-0" strokeWidth={1.6} />
                       <div className="min-w-0">
                         <p className="text-[13px] text-[#e0e3dc] font-medium leading-snug">{s.title}</p>
+                        {s.detail && <p className="text-[11.5px] text-[#8a9286] mt-1 leading-relaxed line-clamp-2">{s.detail}</p>}
                         <p className="text-[10px] text-[#4a524a] mt-1 font-mono uppercase tracking-wide">{s.time}</p>
                       </div>
                     </div>
@@ -348,7 +346,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           {injuries.length === 0 ? (
             <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4 flex items-center gap-2.5">
               <span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]/50" />
-              <p className="text-[12.5px] text-[#9ca39a]">No injuries or suspensions reported. National-team squad news firms up closer to kickoff.</p>
+              <p className="text-[12.5px] text-[#9ca39a]">{researchLoaded ? "No injuries or suspensions reported. National-team squad news firms up closer to kickoff." : "Team news is warming in the background; this page no longer waits on the slow research pull."}</p>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">

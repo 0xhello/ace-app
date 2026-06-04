@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Game } from "@/types/game";
 import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
 import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users } from "lucide-react";
@@ -363,7 +363,6 @@ export default function GameRow({
   onSelectGame?: (g: Game) => void;
   realMovement?: Record<string, "up" | "down" | null>;
 }) {
-  const router = useRouter();
   const isLive = game.status === "live";
   const away = game.away_team;
   const home = game.home_team;
@@ -433,8 +432,9 @@ export default function GameRow({
         className="grid items-center gap-2 px-5 py-4"
         style={{ gridTemplateColumns: "minmax(240px,1.2fr) repeat(3, 84px) 28px" }}
       >
-        <button
-          onClick={() => router.push(`/dashboard/game/${game.id}`)}
+        <Link
+          href={`/dashboard/game/${game.id}`}
+          prefetch
           className="min-w-0 flex items-center gap-3 text-left cursor-pointer"
         >
           <div className="w-[56px] shrink-0 text-center">
@@ -543,7 +543,7 @@ export default function GameRow({
               )}
             </div>
           </div>
-        </button>
+        </Link>
 
         <div className="flex flex-col gap-[4px]">
           <OddsCell leg={awayMLLeg} selected={awayMLLeg ? selectedIds.includes(awayMLLeg.id) : false} onToggle={onToggleLeg} bookKey={awayML?.book} recommended={aiRecommendation?.market === "ml-away"} recommendationReason={aiRecommendation?.reason} recommendationConfidence={aiRecommendation?.confidence} recEdge={aiRecommendation?.market === "ml-away" ? (recEdge ?? undefined) : undefined} movement={realMovement?.["ml-away"] ?? (hasBackendIntel ? marketMovement["ml-away"] : null)} marketConfidence={marketConfidence?.ml} isBest={!!awayML} alertMeta={awayML ? { gameId: game.id, team: away, market: "ml", side: "away" } : undefined} />
