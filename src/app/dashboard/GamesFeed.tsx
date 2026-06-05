@@ -17,7 +17,20 @@ import { getMockGames } from "@/lib/mock-games";
 import * as serverCache from "@/lib/server-cache";
 
 const CACHE_KEY = "board-games";
+const BOARD_INTEL_KEY = "board-generated-intel-v1";
 const IS_DEV = process.env.NODE_ENV === "development";
+
+function gameIdsKey(games: Game[]): string {
+  return games.map((g) => g.id).sort().join("|");
+}
+
+interface BoardGeneratedIntelCache {
+  gameIdsKey: string;
+  intelMap: any;
+  topPicks: any[];
+  generatedAt: string;
+}
+
 
 async function getGames(): Promise<{
   games: Game[];
@@ -95,32 +108,37 @@ export default async function GamesFeed() {
     );
   }
 
-  // Fetch ESPN news, weather, signals across all sports, and WC injuries in parallel.
-  // wcSignals is intentionally NOT pulled into modelSignals right now — the
-  // CLV-divergence engine still runs and writes to wc_signal_log.db in the
-  // background as data collection, but we don't surface those picks to
-  // subscribers until the model-driven intelligence layer is ready. Soccer
-  // games still appear in the feed (they come from the `games` array, not
-  // from signals); they just don't get an ACE pick chip yet.
-  const [newsItems, weatherMap, nbaSignals, mlbSignals, soccerInjuryMap] = await Promise.all([
-    withTimeout(fetchAllESPNNews(), 5_000, []),
-    withTimeout(fetchWeatherForGames(games), 6_000, new Map()),
-    withTimeout(Promise.resolve(fetchModelSignals()), 5_000, []),
-    withTimeout(Promise.resolve(fetchMLBSignals()),   4_000, []),
-    // General Sportmonks injury feed (all soccer — WC nations + clubs).
-    // Read-only; populated by /api/ops/soccer/refresh-injuries.
-    withTimeout(Promise.resolve(fetchSoccerInjuries()), 8_000, new Map()),
-  ]);
-  // Cross-sport signal stream — soccer intentionally excluded until model ships.
-  const modelSignals = [...nbaSignals, ...mlbSignals];
-
   // Pull server-side movement map from cache (populated by /api/board on each refresh)
   const cachedEntry = await serverCache.get(CACHE_KEY);
   const movementMap: Record<string, Record<string, "up" | "down" | null>> =
     cachedEntry?.data?.movementMap ?? {};
 
-  const intelMap = generateIntelMap(games, newsItems, weatherMap, movementMap, modelSignals, soccerInjuryMap);
-  const topPicks = generateLivePicks(games, 5);
+  const idsKey = gameIdsKey(games);
+  const cachedIntelEntry = await serverCache.get(BOARD_INTEL_KEY);
+  const cachedIntel = cachedIntelEntry?.data as BoardGeneratedIntelCache | undefined;
+  let intelMap = cachedIntel?.gameIdsKey === idsKey ? cachedIntel.intelMap : null;
+  let topPicks = cachedIntel?.gameIdsKey === idsKey ? cachedIntel.topPicks : null;
+
+  if (!intelMap || !topPicks) {
+    // Fetch ESPN news, weather, signals across all sports, and WC injuries in parallel.
+    // This is expensive enough that it should be cached for navigation. The board
+    // remains usable from odds cache immediately while this layer refreshes on TTL.
+    const [newsItems, weatherMap, nbaSignals, mlbSignals, soccerInjuryMap] = await Promise.all([
+      withTimeout(fetchAllESPNNews(), 5_000, []),
+      withTimeout(fetchWeatherForGames(games), 6_000, new Map()),
+      withTimeout(Promise.resolve(fetchModelSignals()), 5_000, []),
+      withTimeout(Promise.resolve(fetchMLBSignals()),   4_000, []),
+      // General Sportmonks injury feed (all soccer — WC nations + clubs).
+      // Read-only; populated by /api/ops/soccer/refresh-injuries.
+      withTimeout(Promise.resolve(fetchSoccerInjuries()), 8_000, new Map()),
+    ]);
+    // Cross-sport signal stream — soccer intentionally excluded until model ships.
+    const modelSignals = [...nbaSignals, ...mlbSignals];
+
+    intelMap = generateIntelMap(games, newsItems, weatherMap, movementMap, modelSignals, soccerInjuryMap);
+    topPicks = generateLivePicks(games, 5);
+    await serverCache.set(BOARD_INTEL_KEY, { gameIdsKey: idsKey, intelMap, topPicks, generatedAt: new Date().toISOString() }, games);
+  }
 
   return (
     <DashboardShell

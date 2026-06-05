@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Game } from "@/types/game";
 import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
-import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users } from "lucide-react";
+import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users, ArrowUpRight, Loader2 } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
 import { impliedProbability, edgePct } from "@/lib/edge";
@@ -363,6 +363,7 @@ export default function GameRow({
   onSelectGame?: (g: Game) => void;
   realMovement?: Record<string, "up" | "down" | null>;
 }) {
+  const [opening, setOpening] = useState(false);
   const isLive = game.status === "live";
   const away = game.away_team;
   const home = game.home_team;
@@ -435,7 +436,9 @@ export default function GameRow({
         <Link
           href={`/dashboard/game/${game.id}`}
           prefetch
-          className="min-w-0 flex items-center gap-3 text-left cursor-pointer"
+          onClick={() => setOpening(true)}
+          className="min-w-0 flex items-center gap-3 text-left cursor-pointer rounded-xl -mx-2 px-2 py-1 transition-colors hover:bg-[#101410] active:translate-y-[1px]"
+          aria-label={`Expand view for ${away} at ${home}`}
         >
           <div className="w-[56px] shrink-0 text-center">
             {isLive ? (
@@ -526,8 +529,12 @@ export default function GameRow({
                 </div>
               )}
 
-              <div className="mt-1.5 pl-[26px]">
+              <div className="mt-1.5 pl-[26px] flex items-center gap-2">
                 <span className="text-[9px] text-[#565c52] uppercase tracking-[0.14em]">{game.sport_title}</span>
+                <span className="inline-flex items-center gap-1 rounded-md border border-[#253022] bg-[#0d110d] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-[0.12em] text-[#7f867c] transition-colors group-hover/row:border-[#3ee68a]/25 group-hover/row:text-[#3ee68a]">
+                  {opening ? <Loader2 className="h-2.5 w-2.5 animate-spin" strokeWidth={1.7} /> : <ArrowUpRight className="h-2.5 w-2.5" strokeWidth={1.7} />}
+                  {opening ? "Opening" : "Expand view"}
+                </span>
               </div>
             </div>
 
