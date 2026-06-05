@@ -8,7 +8,7 @@
  * redeploy) and then every few hours. Non-blocking + fully guarded.
  */
 import { refreshSoccerResearch } from "@/lib/research-refresh";
-import { warmGameIntelCache } from "@/lib/game-intel-cache";
+import { warmGameViewBundles } from "@/lib/game-view-bundle";
 
 const REFRESH_EVERY = 3 * 60 * 60 * 1000;      // 3 hours
 const GAME_INTEL_EVERY = 10 * 60 * 1000;       // 10 minutes — keeps click path fast/fresh
@@ -29,7 +29,7 @@ async function kick(label: string) {
 
 async function warmIntel(label: string) {
   try {
-    const r = await warmGameIntelCache(label);
+    const r = await warmGameViewBundles(label);
     console.log(`[game-intel:${label}]`, JSON.stringify(r));
     return r;
   } catch (e) {
@@ -51,4 +51,4 @@ setTimeout(async () => {
 
 setInterval(() => { void kick("interval"); }, REFRESH_EVERY);
 setInterval(() => { void warmIntel("interval"); }, GAME_INTEL_EVERY);
-console.log("[research-refresh] scheduler armed (research: boot + every 3h, game-intel: boot + every 10m)");
+console.log("[research-refresh] scheduler armed (research: boot + every 3h, game-view bundles: boot + every 10m)");

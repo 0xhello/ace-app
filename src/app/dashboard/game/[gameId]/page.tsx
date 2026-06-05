@@ -16,10 +16,9 @@ import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3 } fro
 import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
 import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
-import { marketRead } from "@/lib/market-read";
-import { getPreparedGameIntel, warmGameIntelCacheSoon } from "@/lib/game-intel-cache";
-import { getMatchAlphaDigest, type MatchAlphaDigest } from "@/lib/match-alpha";
-import { buildSoccerMatchRead, type MatchRead } from "@/lib/match-read";
+import { type MatchAlphaDigest } from "@/lib/match-alpha";
+import { type MatchRead } from "@/lib/match-read";
+import { getGameViewBundle, warmGameViewBundlesSoon } from "@/lib/game-view-bundle";
 import { getMockGames } from "@/lib/mock-games";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
@@ -336,14 +335,14 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
   const game = await getGame(gameId);
   if (!game) notFound();
 
-  // Fast path: the match page reads prepared research only. Expensive ESPN +
-  // Sportmonks/Python work runs in background via game-intel cache warming.
-  // If the cache is cold, render a good partial page immediately and trigger a
-  // non-blocking warm for the next load.
+  // Fast path: the match page reads a precomputed game-view bundle. Expensive
+  // ESPN + Sportmonks/Python work belongs to the worker/ops route, not the click
+  // path. If the bundle is cold, render a partial page and warm asynchronously.
   const isFriendlyRehearsal = game.id.startsWith("friendly_");
-  const prepared = isFriendlyRehearsal ? null : await getPreparedGameIntel(game.id);
-  if (!prepared && !isFriendlyRehearsal) warmGameIntelCacheSoon(`cold-game-page:${game.id}`);
+  const bundle = isFriendlyRehearsal ? null : await getGameViewBundle(game);
+  if ((!bundle || !bundle.complete) && !isFriendlyRehearsal) warmGameViewBundlesSoon(`cold-game-page:${game.id}`);
 
+  const prepared = bundle?.prepared ?? null;
   const researchLoaded = !!prepared;
   const stories = prepared?.stories ?? [];
   const injuries = prepared?.injuryAlerts ?? [];
@@ -351,10 +350,10 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
   const isSoccer = game.sport.startsWith("soccer");
   const awayML = best(game, "h2h", away), homeML = best(game, "h2h", home);
   const isLive = game.status === "live";
-  const read = marketRead(game);
+  const read = bundle?.read ?? null;
 
-  const alpha = isSoccer ? await getMatchAlphaDigest(game, prepared) : null;
-  const matchRead = isSoccer && alpha ? buildSoccerMatchRead(game, prepared, alpha) : null;
+  const alpha = bundle?.alpha ?? null;
+  const matchRead = bundle?.matchRead ?? null;
   const liveUnavailable: LiveCenterInjury[] = (alpha?.coverage.unavailable ?? []).map((p) => ({
     playerName: p.playerName,
     teamName: p.teamName,
