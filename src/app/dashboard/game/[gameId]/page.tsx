@@ -18,6 +18,7 @@ import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
 import { marketRead } from "@/lib/market-read";
 import { getPreparedGameIntel, warmGameIntelCacheSoon } from "@/lib/game-intel-cache";
 import { getMatchAlphaDigest, type MatchAlphaDigest } from "@/lib/match-alpha";
+import { buildSoccerMatchRead, type MatchRead } from "@/lib/match-read";
 import { getMockGames } from "@/lib/mock-games";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
@@ -176,6 +177,7 @@ function GameCommandStack({
   awayForm,
   homeForm,
   alpha,
+  read,
 }: {
   game: Game;
   away: string;
@@ -185,6 +187,7 @@ function GameCommandStack({
   awayForm?: TeamRecentForm;
   homeForm?: TeamRecentForm;
   alpha: MatchAlphaDigest;
+  read: MatchRead | null;
 }) {
   const isLive = game.status === "live";
   const isFinal = game.status === "final";
@@ -221,7 +224,7 @@ function GameCommandStack({
                   </p>
                 </div>
                 <p className="mt-2 text-[24px] md:text-[28px] font-black tracking-tight text-white">
-                  {isLive && awayScore != null ? <>{away}<span className="text-[#3a4033] mx-2">{awayScore}</span><span className="text-[#3a4033] mx-2">/</span><span className="text-[#3a4033] mx-2">{homeScore}</span>{home}</> : alpha.cards[0]?.title ?? "No clear angle yet"}
+                  {isLive && awayScore != null ? <>{away}<span className="text-[#3a4033] mx-2">{awayScore}</span><span className="text-[#3a4033] mx-2">/</span><span className="text-[#3a4033] mx-2">{homeScore}</span>{home}</> : read?.headline ?? "No clear angle yet"}
                 </p>
                 <p className="mt-1 text-[12px] text-[#9ca39a]">
                   {isLive ? (game.scoreboard?.clock ?? "Clock updating") : kickoff(game.commence_time)}
@@ -268,19 +271,32 @@ function GameCommandStack({
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">What matters</p>
             </div>
             <div className="space-y-2.5">
-              {alpha.cards.map((card, i) => (
-                <div key={`${card.label}-${i}`} className="rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-3.5 py-3">
+              {(read?.moments ?? alpha.cards).map((item: any, i: number) => (
+                <div key={`${item.label}-${i}`} className="rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-3.5 py-3">
                   <div className="flex items-start gap-2.5">
-                    <span className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${card.tone === "alert" ? "bg-[#ef6666]" : card.tone === "warn" ? "bg-[#d8bd5f]" : card.tone === "good" ? "bg-[#3ee68a]" : "bg-[#6f766d]"}`} />
+                    <span className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${item.importance === "high" || item.tone === "alert" ? "bg-[#ef6666]" : item.importance === "medium" || item.tone === "good" ? "bg-[#3ee68a]" : item.tone === "warn" ? "bg-[#d8bd5f]" : "bg-[#6f766d]"}`} />
                     <div className="min-w-0">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#596156]">{card.label}</p>
-                      <p className="mt-1 text-[12.5px] font-semibold text-[#e4e8df] leading-snug">{card.title}</p>
-                      <p className="mt-1 text-[11px] text-[#9ca39a] leading-relaxed line-clamp-2">{card.detail}</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#596156]">{item.label}</p>
+                      <p className="mt-1 text-[12.5px] font-semibold text-[#e4e8df] leading-snug">{item.title}</p>
+                      <p className="mt-1 text-[11px] text-[#9ca39a] leading-relaxed line-clamp-2">{item.detail}</p>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
+            {read?.nextWindows?.length ? (
+              <div className="mt-3 rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-3.5 py-3">
+                <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#596156]">Next up</p>
+                <div className="mt-2 space-y-1.5">
+                  {read.nextWindows.map((w) => (
+                    <div key={w.label} className="flex items-start justify-between gap-3 text-[11px]">
+                      <span className="font-semibold text-[#dfe4dc]">{w.label}</span>
+                      <span className="text-right font-mono text-[#8a9286]">{w.time}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -309,7 +325,8 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
   const isLive = game.status === "live";
   const read = marketRead(game);
 
-  const alpha = getMatchAlphaDigest(game, prepared);
+  const alpha = isSoccer ? getMatchAlphaDigest(game, prepared) : null;
+  const matchRead = isSoccer && alpha ? buildSoccerMatchRead(game, prepared, alpha) : null;
   const awayForm = isSoccer ? prepared?.awayForm ?? undefined : undefined;
   const homeForm = isSoccer ? prepared?.homeForm ?? undefined : undefined;
   const hasForm = !!(awayForm || homeForm);
@@ -365,16 +382,19 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           </div>
         </header>
 
-        <GameCommandStack
-          game={game}
-          away={away}
-          home={home}
-          stories={stories}
-          injuries={injuries}
-          awayForm={awayForm}
-          homeForm={homeForm}
-          alpha={alpha}
-        />
+        {isSoccer && alpha && (
+          <GameCommandStack
+            game={game}
+            away={away}
+            home={home}
+            stories={stories}
+            injuries={injuries}
+            awayForm={awayForm}
+            homeForm={homeForm}
+            alpha={alpha}
+            read={matchRead}
+          />
+        )}
 
         {/* ── What the line says (market read) ──────────────────────────── */}
         {read && (
