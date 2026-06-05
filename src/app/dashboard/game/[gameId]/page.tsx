@@ -11,12 +11,13 @@
  * flex-1 overflow-y-auto root.
  */
 import { notFound } from "next/navigation";
-import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3, TrendingUp, ShieldCheck } from "lucide-react";
+import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3, ShieldCheck, Database, AlertTriangle } from "lucide-react";
 import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
 import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
 import { marketRead } from "@/lib/market-read";
 import { getPreparedGameIntel, warmGameIntelCacheSoon } from "@/lib/game-intel-cache";
+import { getMatchAlphaDigest, type MatchAlphaDigest } from "@/lib/match-alpha";
 import { getMockGames } from "@/lib/mock-games";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
@@ -174,6 +175,7 @@ function GameCommandStack({
   injuries,
   awayForm,
   homeForm,
+  alpha,
 }: {
   game: Game;
   away: string;
@@ -182,30 +184,16 @@ function GameCommandStack({
   injuries: LiveCenterInjury[];
   awayForm?: TeamRecentForm;
   homeForm?: TeamRecentForm;
+  alpha: MatchAlphaDigest;
 }) {
   const isLive = game.status === "live";
   const isFinal = game.status === "final";
   const awayScore = game.scoreboard?.away_score;
   const homeScore = game.scoreboard?.home_score;
-  const total = best(game, "totals", "Over")?.point;
-  const awayLine = best(game, "h2h", away);
-  const homeLine = best(game, "h2h", home);
-  const updates = [
-    ...injuries.slice(0, 2).map((i) => ({
-      label: `${i.playerName} ${i.status}`,
-      detail: i.teamName,
-      tone: "alert" as const,
-    })),
-    ...stories.slice(0, 3).map((s) => ({
-      label: s.title,
-      detail: s.detail || s.time,
-      tone: "news" as const,
-    })),
-  ];
   const readiness = [
-    { label: "Market", value: awayLine && homeLine ? "Current odds" : "Odds pending" },
-    { label: "Form", value: awayForm || homeForm ? "Loaded" : "Warming" },
-    { label: "Team news", value: injuries.length ? `${injuries.length} flagged` : "No flags" },
+    { label: "Lineups", value: alpha.coverage.lineups ? `${alpha.coverage.lineups} cached` : "Missing" },
+    { label: "Events", value: alpha.coverage.events ? `${alpha.coverage.events} events` : "Not live" },
+    { label: "Source", value: alpha.coverage.sportmonksBundle ? "Sportmonks" : "Cache miss" },
   ];
 
   return (
@@ -233,7 +221,7 @@ function GameCommandStack({
                   </p>
                 </div>
                 <p className="mt-2 text-[24px] md:text-[28px] font-black tracking-tight text-white">
-                  {isLive && awayScore != null ? <>{away}<span className="text-[#3a4033] mx-2">{awayScore}</span><span className="text-[#3a4033] mx-2">/</span><span className="text-[#3a4033] mx-2">{homeScore}</span>{home}</> : "Market + intel ready"}
+                  {isLive && awayScore != null ? <>{away}<span className="text-[#3a4033] mx-2">{awayScore}</span><span className="text-[#3a4033] mx-2">/</span><span className="text-[#3a4033] mx-2">{homeScore}</span>{home}</> : alpha.coverage.sportmonksBundle ? "Source intel loaded" : "Waiting on source pull"}
                 </p>
                 <p className="mt-1 text-[12px] text-[#9ca39a]">
                   {isLive ? (game.scoreboard?.clock ?? "Clock updating") : kickoff(game.commence_time)}
@@ -256,45 +244,46 @@ function GameCommandStack({
 
             <div className="mt-4 rounded-2xl border border-[#171d16] bg-[#0b0e0b] p-4">
               <div className="flex items-center gap-2 mb-3">
-                <TrendingUp className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.7} />
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">Market state now</p>
+                <Database className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.7} />
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">Source coverage</p>
               </div>
               <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-[12px]">
-                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286] truncate">{away}</span><span className="font-mono font-bold text-[#3ee68a]">{awayLine ? formatAmericanOdds(awayLine.price) : "-"}</span></div>
-                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286] truncate">{home}</span><span className="font-mono font-bold text-[#3ee68a]">{homeLine ? formatAmericanOdds(homeLine.price) : "-"}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Goals line</span><span className="font-mono font-bold text-[#dfe4dc]">{total ?? "-"}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Books</span><span className="font-mono font-bold text-[#dfe4dc]">{game.bookmakers.length}</span></div>
+                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286]">Fixture</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.fixtureId ?? "-"}</span></div>
+                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286]">State</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.stateName ?? game.status}</span></div>
+                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Sidelined</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.sidelined || "-"}</span></div>
+                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Predictions</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.predictions || "-"}</span></div>
               </div>
+              {alpha.gaps[0] && (
+                <div className="mt-3 flex gap-2 rounded-xl border border-[#3a3216] bg-[#171407] px-3 py-2.5">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#d8bd5f]" strokeWidth={1.7} />
+                  <p className="text-[11px] leading-relaxed text-[#b9ad79]">{alpha.gaps[0]}</p>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="relative px-5 py-5">
             <div className="flex items-center gap-2 mb-4">
               <Clock3 className="h-3.5 w-3.5 text-[#7a8278]" strokeWidth={1.7} />
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">What changed / what matters</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">Alpha digest</p>
             </div>
-            {updates.length ? (
-              <div className="space-y-2.5">
-                {updates.map((u, i) => (
-                  <div key={i} className="rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-3.5 py-3">
-                    <div className="flex items-start gap-2.5">
-                      <span className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${u.tone === "alert" ? "bg-[#ef6666]" : "bg-[#3ee68a]"}`} />
-                      <div className="min-w-0">
-                        <p className="text-[12px] font-semibold text-[#e4e8df] leading-snug line-clamp-2">{u.label}</p>
-                        <p className="mt-1 text-[11px] text-[#9ca39a] leading-relaxed line-clamp-2">{u.detail}</p>
-                      </div>
+            <div className="space-y-2.5">
+              {alpha.cards.map((card, i) => (
+                <div key={`${card.label}-${i}`} className="rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-3.5 py-3">
+                  <div className="flex items-start gap-2.5">
+                    <span className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${card.tone === "alert" ? "bg-[#ef6666]" : card.tone === "warn" ? "bg-[#d8bd5f]" : card.tone === "good" ? "bg-[#3ee68a]" : "bg-[#6f766d]"}`} />
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-[#596156]">{card.label}</p>
+                      <p className="mt-1 text-[12.5px] font-semibold text-[#e4e8df] leading-snug">{card.title}</p>
+                      <p className="mt-1 text-[11px] text-[#9ca39a] leading-relaxed line-clamp-2">{card.detail}</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-4 py-5">
-                <p className="text-[12px] text-[#9ca39a] leading-relaxed">No verified live updates cached yet. The tape fills with team news, lineup notes and relevant storylines as kickoff gets closer.</p>
-              </div>
-            )}
+                </div>
+              ))}
+            </div>
             <div className="mt-4 flex items-center gap-2 rounded-2xl border border-[#172117] bg-[#0c120d] px-3.5 py-3">
               <ShieldCheck className="h-4 w-4 text-[#3ee68a] shrink-0" strokeWidth={1.7} />
-              <p className="text-[11px] text-[#9ca39a] leading-relaxed">No fake play-by-play: score, clock and key moments only appear when a provider feed has them.</p>
+              <p className="text-[11px] text-[#9ca39a] leading-relaxed">No fake play-by-play: lineup, score, clock and key moments only appear when a provider feed has them.</p>
             </div>
           </div>
         </div>
@@ -324,6 +313,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
   const isLive = game.status === "live";
   const read = marketRead(game);
 
+  const alpha = getMatchAlphaDigest(game, prepared);
   const awayForm = isSoccer ? prepared?.awayForm ?? undefined : undefined;
   const homeForm = isSoccer ? prepared?.homeForm ?? undefined : undefined;
   const hasForm = !!(awayForm || homeForm);
@@ -387,6 +377,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           injuries={injuries}
           awayForm={awayForm}
           homeForm={homeForm}
+          alpha={alpha}
         />
 
         {/* ── What the line says (market read) ──────────────────────────── */}
