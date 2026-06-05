@@ -13,15 +13,10 @@ export default function OpsTabBar({ activeSport, onChange }: OpsTabBarProps) {
   return (
     <div className="border-b border-[#181c18] bg-[#0a0b0a] px-4 sm:px-6">
       <div className="mx-auto flex max-w-[1200px] items-center gap-2 overflow-x-auto py-3">
-        {OPS_SPORTS.map((sport, i) => {
+        {OPS_SPORTS.map((sport) => {
           const active = sport.key === activeSport;
-          const isUtility = sport.key === "users";
-          const prevIsUtility = i > 0 && OPS_SPORTS[i - 1].key === "users";
           return (
-            <div key={sport.key} className={cn("flex items-center gap-2", isUtility && "ml-auto")}>
-              {isUtility && !prevIsUtility && (
-                <div className="h-4 w-px bg-[#1e2220] mr-1" />
-              )}
+            <div key={sport.key} className="flex items-center gap-2">
               <button
                 onClick={() => onChange(sport.key)}
                 className={cn(

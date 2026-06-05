@@ -3,7 +3,7 @@
  *
  * Pure function of the posted odds. NO advice, NO edge claims, NO model jargon —
  * it only states what the market is pricing: implied probabilities (de-vigged so
- * they sum to ~100%), favorite/underdog/draw context, and total/goals context.
+ * they sum to ~100%), favorite/underdog/draw context, and sport-specific total context.
  * This is research, not a tip.
  */
 import type { Game } from "@/types/game";
@@ -48,8 +48,46 @@ function consensusTotalLine(game: Game): number | null {
   return best?.pt ?? null;
 }
 
+function totalTerminology(game: Game): { unit: string; noLine: string; prefix: string } {
+  const sport = `${game.sport} ${game.sport_title}`.toLowerCase();
+  if (sport.includes("baseball") || sport.includes("mlb")) {
+    return {
+      unit: "runs",
+      noLine: "No run total is posted yet — books usually set it closer to first pitch.",
+      prefix: "On runs",
+    };
+  }
+  if (sport.includes("basketball") || sport.includes("nba") || sport.includes("ncaab")) {
+    return {
+      unit: "points",
+      noLine: "No points total is posted yet — books usually set it closer to tipoff.",
+      prefix: "On points",
+    };
+  }
+  if (sport.includes("football") || sport.includes("nfl")) {
+    return {
+      unit: "points",
+      noLine: "No points total is posted yet — books usually set it closer to kickoff.",
+      prefix: "On points",
+    };
+  }
+  if (sport.includes("hockey") || sport.includes("nhl")) {
+    return {
+      unit: "goals",
+      noLine: "No goals line is posted yet — books usually set it closer to puck drop.",
+      prefix: "On goals",
+    };
+  }
+  return {
+    unit: "goals",
+    noLine: "No goals line is posted yet — books usually set it closer to kickoff.",
+    prefix: "On goals",
+  };
+}
+
 export function marketRead(game: Game): MarketRead | null {
   const home = game.home_team, away = game.away_team;
+  const terms = totalTerminology(game);
   const hi = bestPrice(game, "h2h", home), ai = bestPrice(game, "h2h", away);
   const di = bestPrice(game, "h2h", "Draw");
   if (!hi || !ai) return null;
@@ -96,17 +134,17 @@ export function marketRead(game: Game): MarketRead | null {
   } else {
     headline = `A slight lean to ${fav.name}, but this one's wide open${drawLive ? " — draw included" : ""}.`;
   }
-  // Detail — goals expectation (the bar doesn't show this, so it adds, not repeats).
+  // Detail — sport-specific total expectation (the bar doesn't show this, so it adds, not repeats).
   let detail: string;
   if (totalLine == null) {
-    detail = "No goals line is posted yet — books usually set it closer to kickoff.";
+    detail = terms.noLine;
   } else {
-    const leanWord = goalsLean === "high" ? "an open, higher-scoring game" : goalsLean === "low" ? "a tight, low-scoring game" : "a moderate-scoring game";
+    const leanWord = goalsLean === "high" ? `an open, higher-scoring game` : goalsLean === "low" ? `a tight, low-scoring game` : `a moderate-scoring game`;
     const over = overProb != null && overProb > 0.5;
     const tilt = overProb != null && Math.abs(overProb - 0.5) >= 0.04
       ? `, leaning ${over ? "over" : "under"}`
       : "";
-    detail = `On goals, books expect ${leanWord} — the line sits at ${totalLine}${tilt}.`;
+    detail = `${terms.prefix}, books expect ${leanWord} — the ${terms.unit} line sits at ${totalLine}${tilt}.`;
   }
 
   return { fav, dog, draw: drawProb, favStrength, totalLine, goalsLean, overProb, headline, detail };

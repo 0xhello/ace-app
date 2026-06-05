@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Game } from "@/types/game";
-import { cn, formatAmericanOdds, teamAbbr, timeUntilGame } from "@/lib/utils";
+import { cn, formatAmericanOdds, teamAbbr } from "@/lib/utils";
+import { etDateKey, formatDurationUntil, formatEtDate, formatEtTimeLabel } from "@/lib/time-format";
 import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users, ArrowUpRight } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
@@ -262,7 +263,7 @@ function OddsCell({
             <>
               <div className="flex items-center gap-1.5 mb-1.5">
                 <Sparkles className="h-3 w-3 text-[#3ee68a] shrink-0" />
-                <span className="text-[11px] font-bold text-white">{recommendationConfidence ?? 78}% Confidence</span>
+                <span className="text-[11px] font-bold text-white">{recommendationConfidence ?? 78}% signal strength</span>
               </div>
               <p className="text-[10px] text-[#d4d7d0] leading-relaxed">{recommendationReason}</p>
             </>
@@ -295,22 +296,22 @@ function ScoreTag({ team, score, leading }: { team: string; score: string | numb
 function formatUpcomingStart(commenceTime: string) {
   const now = new Date();
   const game = new Date(commenceTime);
-  const isToday = now.toDateString() === game.toDateString();
-  const primary = game.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const isToday = etDateKey(now) === etDateKey(game);
+  const primary = formatEtTimeLabel(game);
   const daysOut = Math.round((game.getTime() - now.getTime()) / 86_400_000);
 
   if (isToday) {
     return {
       primary,
-      secondary: `in ${timeUntilGame(commenceTime)}`,
+      secondary: `in ${formatDurationUntil(commenceTime)}`,
     };
   }
 
   // < 7 days out: just the weekday is clear enough ("Wed")
   // >= 7 days out: show month + day too so it's unambiguous ("Sep 9")
   const secondary = daysOut < 7
-    ? game.toLocaleDateString("en-US", { weekday: "short" })
-    : game.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    ? formatEtDate(game, { weekday: "short" })
+    : formatEtDate(game, { month: "short", day: "numeric" });
 
   return { primary, secondary };
 }

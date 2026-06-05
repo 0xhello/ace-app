@@ -1,208 +1,112 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Sparkles, X, ArrowRight, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ArrowRight, Lock, Sparkles, X } from "lucide-react";
 
-const QUICK_PROMPTS = [
-  "What's the sharpest bet on the board right now?",
-  "How do I build a +EV parlay tonight?",
-  "Explain line movement on today's games",
-  "Where's the best value on totals?",
+const PREVIEW_PROMPTS = [
+  "Which edges are real versus noise?",
+  "Show me the line move that matters.",
+  "Explain why this pick is track-only.",
+  "What changed since the last poll?",
 ];
 
-const COPILOT_PROMPTS = [
-  "Best live edge",
-  "Highest-confidence read",
-  "Biggest line move",
+const CAPABILITIES = [
+  "Transparent reasoning over odds, injuries, movement, and model signals",
+  "Clear source labels instead of black-box betting answers",
+  "Action versus track-only language before anything reaches your slip",
 ];
-
-interface Message {
-  role: "user" | "ace";
-  text: string;
-  demo?: boolean;
-}
 
 export default function AskAce({ onClose }: { onClose: () => void }) {
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  async function ask(question: string) {
-    if (!question.trim() || loading) return;
-    setInput("");
-    setMessages((prev) => [...prev, { role: "user", text: question }]);
-    setLoading(true);
-    try {
-      const res = await fetch("/api/ask-ace", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question }),
-      });
-      const data = await res.json();
-      setMessages((prev) => [...prev, { role: "ace", text: data.answer, demo: data.demo }]);
-    } catch {
-      setMessages((prev) => [...prev, { role: "ace", text: "Couldn't reach ACE right now. Check your connection and try again." }]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      ask(input);
-    }
-  }
-
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 z-50 bg-[#070807]/80 backdrop-blur-md" onClick={onClose} />
 
-      {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
         <div
-          className="pointer-events-auto w-full max-w-[620px] rounded-[24px] border border-[#2a3027] bg-[linear-gradient(180deg,rgba(11,13,11,0.98),rgba(9,10,9,0.98))] shadow-[0_24px_80px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden"
-          style={{ maxHeight: "82vh" }}
+          className="pointer-events-auto relative w-full max-w-[660px] overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(16,19,16,0.86),rgba(8,10,8,0.94))] shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_28px_90px_rgba(0,0,0,0.56)]"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[#1f241d] shrink-0">
-            <div className="flex items-center gap-2.5">
-              <div className="h-7 w-7 rounded-lg bg-[#3ee68a]/10 flex items-center justify-center">
-                <Sparkles className="h-3.5 w-3.5 text-[#3ee68a]" />
+          <div className="pointer-events-none absolute inset-0 opacity-70">
+            <div className="absolute -top-28 right-8 h-56 w-56 rounded-full bg-[#3ee68a]/10 blur-3xl" />
+            <div className="absolute bottom-0 left-0 h-44 w-72 rounded-full bg-white/[0.035] blur-3xl" />
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/18 to-transparent" />
+          </div>
+
+          <div className="relative flex items-center justify-between border-b border-white/[0.07] px-5 py-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#3ee68a]/20 bg-[#3ee68a]/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                <Sparkles className="h-4 w-4 text-[#3ee68a]" />
               </div>
               <div>
-                <p className="text-[13px] font-bold text-white leading-tight">Ask ACE</p>
-                <p className="text-[9px] text-[#758071] leading-tight uppercase tracking-[0.18em]">Betting intelligence copilot</p>
+                <p className="text-[13px] font-bold leading-tight text-white">Ask ACE</p>
+                <p className="text-[9px] uppercase tracking-[0.2em] text-[#7f8a7d]">Transparent copilot preview</p>
               </div>
             </div>
-            <button onClick={onClose} className="text-[#3a4033] hover:text-[#6b7068] transition-colors">
+            <button onClick={onClose} className="rounded-lg p-1.5 text-[#4d554b] transition-colors hover:bg-white/[0.04] hover:text-[#9ca39a] active:scale-[0.98]">
               <X className="h-4 w-4" />
             </button>
           </div>
 
-          {/* Conversation */}
-          <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3">
-            {messages.length === 0 ? (
-              <div className="space-y-4">
-                <div className="ace-panel px-4 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="ace-label mb-1">Copilot mode</p>
-                      <p className="text-[13px] font-semibold text-white">Use ACE like a fast trading desk, not a generic chatbot.</p>
-                      <p className="mt-1.5 text-[11px] text-[#7b8378] leading-relaxed">Ask for best edge, market confidence, line movement, or what deserves action versus tracking.</p>
-                    </div>
-                    <div className="hidden sm:flex flex-wrap justify-end gap-1.5 max-w-[180px]">
-                      {COPILOT_PROMPTS.map((prompt) => (
-                        <button
-                          key={prompt}
-                          onClick={() => ask(prompt)}
-                          className="ace-chip hover:border-[#3a4336] hover:text-white transition-colors"
-                        >
-                          {prompt}
-                        </button>
-                      ))}
-                    </div>
+          <div className="relative grid gap-5 px-5 py-5 md:grid-cols-[1.2fr_0.8fr]">
+            <div className="space-y-4">
+              <div className="inline-flex items-center gap-2 rounded-full border border-[#3ee68a]/15 bg-[#3ee68a]/[0.07] px-3 py-1.5">
+                <Lock className="h-3 w-3 text-[#3ee68a]" />
+                <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#bfeccc]">Coming soon</span>
+              </div>
+
+              <div>
+                <h2 className="max-w-[13ch] text-[34px] font-semibold leading-[0.92] tracking-[-0.06em] text-white sm:text-[42px]">
+                  A reasoning layer you can audit.
+                </h2>
+                <p className="mt-3 max-w-[46ch] text-[12px] leading-relaxed text-[#8b9388]">
+                  Ask ACE is being held back until it can show real sources, real uncertainty, and no demo betting reads. The feature should feel like a transparent trading desk, not a chatbot making confident guesses.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.035] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#6f786d]">Preview prompt</span>
+                  <span className="rounded-full border border-[#2b332a] px-2 py-0.5 text-[8px] uppercase tracking-[0.14em] text-[#657063]">locked</span>
+                </div>
+                <div className="flex items-center gap-2 rounded-xl border border-[#1e241d] bg-[#0d100d]/80 px-3 py-2.5">
+                  <p className="flex-1 text-[11px] text-[#d9ddd6]">What deserves action today, and what should only be tracked?</p>
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#3ee68a]/10 text-[#3ee68a]">
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {QUICK_PROMPTS.map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => ask(p)}
-                      className="text-left px-3 py-3 rounded-xl border border-[#20251f] bg-[#121412] hover:border-[#2e332a] hover:bg-[#161a16] transition-all"
-                    >
-                      <p className="text-[10px] text-[#b6bbb3] leading-relaxed">{p}</p>
-                    </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-white/[0.08] bg-[#101310]/70 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl">
+                <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#6f786d]">What it will do</p>
+                <div className="mt-3 space-y-2.5">
+                  {CAPABILITIES.map((item) => (
+                    <div key={item} className="flex gap-2">
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#3ee68a]/70" />
+                      <p className="text-[10px] leading-relaxed text-[#aeb6aa]">{item}</p>
+                    </div>
                   ))}
                 </div>
               </div>
-            ) : (
-              messages.map((m, i) => (
-                <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-                  {m.role === "ace" && (
-                    <div className="h-5 w-5 rounded-md bg-[#3ee68a]/10 flex items-center justify-center mr-2 mt-0.5 shrink-0">
-                      <Sparkles className="h-2.5 w-2.5 text-[#3ee68a]" />
-                    </div>
-                  )}
-                  <div
-                    className={cn(
-                      "max-w-[80%] rounded-xl px-3.5 py-2.5",
-                      m.role === "user"
-                        ? "bg-[#22251f] text-[11px] text-white"
-                        : "bg-[#121412] border border-[#22251f] text-[11px] text-[#d4d7d0] leading-relaxed"
-                    )}
-                  >
-                    {m.text}
-                    {m.demo && (
-                      <p className="text-[8px] text-[#3a4033] mt-1">Demo mode — add ANTHROPIC_API_KEY for live answers</p>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
 
-            {loading && (
-              <div className="flex justify-start">
-                <div className="h-5 w-5 rounded-md bg-[#3ee68a]/10 flex items-center justify-center mr-2 mt-0.5 shrink-0">
-                  <Sparkles className="h-2.5 w-2.5 text-[#3ee68a]" />
-                </div>
-                <div className="bg-[#121412] border border-[#22251f] rounded-xl px-3.5 py-2.5 flex items-center gap-2">
-                  <Loader2 className="h-3 w-3 text-[#6b7068] animate-spin" />
-                  <span className="text-[10px] text-[#6b7068]">Analyzing…</span>
-                </div>
+              <div className="grid gap-2">
+                {PREVIEW_PROMPTS.map((prompt, index) => (
+                  <div
+                    key={prompt}
+                    className="rounded-xl border border-[#20251f] bg-[#0e110e]/72 px-3 py-2.5 opacity-80"
+                    style={{ transform: `translateX(${index % 2 === 0 ? "0" : "10"}px)` }}
+                  >
+                    <p className="text-[10px] leading-relaxed text-[#7f867c]">{prompt}</p>
+                  </div>
+                ))}
               </div>
-            )}
-            <div ref={bottomRef} />
+            </div>
           </div>
 
-          {/* Input */}
-          <div className="shrink-0 border-t border-[#1f241d] p-3">
-            <div className="flex items-end gap-2 bg-[#121412] border border-[#22251f] rounded-xl px-3 py-2 focus-within:border-[#2e332a] transition-colors">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask about any game, line, or betting concept..."
-                rows={1}
-                className="flex-1 bg-transparent outline-none text-[11px] text-white placeholder:text-[#3a4033] resize-none leading-relaxed"
-                style={{ maxHeight: 80 }}
-              />
-              <button
-                onClick={() => ask(input)}
-                disabled={!input.trim() || loading}
-                className={cn(
-                  "shrink-0 h-6 w-6 rounded-md flex items-center justify-center transition-all",
-                  input.trim() && !loading
-                    ? "bg-[#3ee68a]/15 text-[#3ee68a] hover:bg-[#3ee68a]/25"
-                    : "text-[#3a4033]"
-                )}
-              >
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <p className="text-[8px] text-[#556053] text-center mt-1.5 uppercase tracking-[0.16em]">Enter to send · Shift+Enter for new line · Esc to close</p>
+          <div className="relative border-t border-white/[0.07] px-5 py-3">
+            <p className="text-center text-[8px] uppercase tracking-[0.18em] text-[#586057]">
+              No fallback picks. No hidden demo mode. Real intelligence only.
+            </p>
           </div>
         </div>
       </div>

@@ -19,16 +19,15 @@ import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
 import { type MatchAlphaDigest } from "@/lib/match-alpha";
 import { type MatchRead } from "@/lib/match-read";
 import { getGameViewBundle, warmGameViewBundlesSoon } from "@/lib/game-view-bundle";
-import { getMockGames } from "@/lib/mock-games";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
 import { formatAmericanOdds } from "@/lib/utils";
+import { formatDurationUntil, formatEtDate, formatEtDateTime } from "@/lib/time-format";
 import { bookMeta } from "@/lib/books";
 import * as serverCache from "@/lib/server-cache";
 import type { Game } from "@/types/game";
 
 export const dynamic = "force-dynamic";
-const IS_DEV = process.env.NODE_ENV !== "production";
 
 function getFriendlyGame(id: string): Game | null {
   if (!id.startsWith("friendly_")) return null;
@@ -94,7 +93,6 @@ async function getGame(id: string): Promise<Game | null> {
   } catch { /* ignore */ }
   let games: Game[] = [];
   try { games = (await fetchAllGames()).games ?? []; } catch { games = []; }
-  if (games.length === 0 && IS_DEV) games = getMockGames();
   return games.find((g) => g.id === id) ?? null;
 }
 
@@ -102,22 +100,19 @@ function initials(team: string): string {
   return team.split(" ").map((w) => w[0]).join("").slice(0, 3).toUpperCase();
 }
 function kickoff(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(iso)) + " ET";
-  } catch { return "TBD"; }
+  return formatEtDateTime(iso);
 }
 function countdown(iso: string): string {
   const ms = new Date(iso).getTime() - Date.now();
   if (ms <= 0) return "Kickoff imminent";
-  const d = Math.floor(ms / 86_400_000), h = Math.floor((ms % 86_400_000) / 3_600_000);
-  return d > 0 ? `${d}d ${h}h to kickoff` : `${h}h to kickoff`;
+  return `${formatDurationUntil(iso)} to kickoff`;
 }
 function fmtDate(iso: string): string {
   // iso is a date-only "YYYY-MM-DD"; build a local Date to avoid a UTC -1 day shift.
   try {
     const [y, m, d] = iso.split("-").map(Number);
     const dt = (y && m && d) ? new Date(y, m - 1, d) : new Date(iso);
-    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "2-digit" }).format(dt);
+    return formatEtDate(dt, { month: "short", day: "numeric", year: "2-digit" });
   } catch { return iso; }
 }
 function best(game: Game, market: "h2h" | "spreads" | "totals", name: string) {

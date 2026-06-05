@@ -11,6 +11,7 @@ import NotificationBell from "@/components/NotificationBell";
 import AskAce from "@/components/AskAce";
 import { Search, Sparkles, AlertTriangle, RefreshCw, Star, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { etDateKey, formatEtTimeLabel } from "@/lib/time-format";
 import { checkAlertsAgainst, fireNotification, type PriceAlert } from "@/lib/alerts";
 import { sportTab } from "@/lib/sport-tab";
 
@@ -25,6 +26,10 @@ export interface SlipLeg {
   label: string;
   odds: number;
   book?: string;
+  confidence?: {
+    tier: "high" | "medium" | "low";
+    pct: number;
+  };
 }
 
 const SPORT_LABELS: Record<string, { emoji: string; label: string }> = {
@@ -169,7 +174,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
       const sportOk = sport === "ALL" || sportTab(g.sport, g.sport_title) === sport;
       const timeOk = time === "ALL"
         || (time === "LIVE" && g.status === "live")
-        || (time === "TODAY" && new Date(g.commence_time).toDateString() === new Date().toDateString());
+        || (time === "TODAY" && etDateKey(g.commence_time) === etDateKey(new Date()));
       const q = query.toLowerCase().trim();
       const textOk = !q || `${g.away_team} ${g.home_team} ${g.sport_title}`.toLowerCase().includes(q);
       const wlOk = !watchlistOnly || watchlist.has(g.id);
@@ -249,7 +254,8 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
   }
 
   const selectedIds = slip.map((x) => x.id);
-  const boardUpdateLabel = boardUpdatedAt ? new Date(boardUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
+  const boardUpdateLabel = boardUpdatedAt ? formatEtTimeLabel(boardUpdatedAt) : null;
+  const lastPollLabel = formatEtTimeLabel(lastPoll);
   const activeFilterCount = [sport !== "ALL", time !== "ALL", signalFilter !== "none", watchlistOnly, query.trim().length > 0].filter(Boolean).length;
 
   return (
@@ -273,7 +279,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
               <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]" />{games.length} games</span>
               <span className="inline-flex items-center gap-1.5 text-[#ef6666]"><span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />{liveCount} live</span>
               <span className="inline-flex items-center gap-1.5 text-[#87d7aa]"><Sparkles className="h-3 w-3" />{signalGameCount} signals today</span>
-              <span>{boardUpdateLabel ? `Updated ${boardUpdateLabel}` : `Polled ${lastPoll.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}</span>
+              <span>{boardUpdateLabel ? `Updated ${boardUpdateLabel}` : `Polled ${lastPollLabel}`}</span>
               {activeFilterCount > 0 && <span>{activeFilterCount} filters</span>}
             </div>
 
@@ -434,7 +440,7 @@ export default function DashboardShell({ games: initialGames, intelMap = {}, boa
                           <span className="text-[9px] text-[#4a524a] shrink-0">FINAL</span>
                         ) : (
                           <span className="text-[9px] text-[#4a524a] shrink-0">
-                            {new Date(g.commence_time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                            {formatEtTimeLabel(g.commence_time)}
                           </span>
                         )}
                         {/* Score */}

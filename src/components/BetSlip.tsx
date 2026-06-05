@@ -140,12 +140,14 @@ function getEffectiveOdds(leg: SlipLeg, games: Game[], bookKey: string): number 
   return getBookOddsForLeg(game, leg.id, bookKey) ?? leg.odds;
 }
 
-// ── Confidence label ──────────────────────────────────────────────────────────
+// ── Signal-strength label ─────────────────────────────────────────────────────
+// This mirrors the source pick signal strength. It is not a calibrated model
+// confidence score yet; that remains a separate model workstream.
 
 const TIER_LABEL: Record<string, string> = {
-  high: "High Confidence",
-  medium: "Medium Confidence",
-  low: "Low Confidence",
+  high: "Strong signal",
+  medium: "Medium signal",
+  low: "Weak signal",
 };
 const TIER_COLOR: Record<string, string> = {
   high: "#3ee68a",
@@ -154,6 +156,9 @@ const TIER_COLOR: Record<string, string> = {
 };
 
 function confidenceForLeg(leg: SlipLeg, intelMap: Record<string, GameIntel>) {
+  if (leg.confidence) {
+    return { tier: leg.confidence.tier, pct: leg.confidence.pct };
+  }
   const intel = intelMap[leg.gameId];
   if (intel) {
     return { tier: intel.confidence.tier, pct: intel.confidence.pct };

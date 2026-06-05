@@ -1,6 +1,7 @@
 import type { Game } from "@/types/game";
 import type { PreparedGameIntel } from "@/lib/game-intel-cache";
 import type { MatchAlphaDigest } from "@/lib/match-alpha";
+import { formatEtTime } from "@/lib/time-format";
 
 export type MatchReadStatus = "quiet" | "watch" | "lineups" | "live" | "final";
 export type MatchReadImportance = "low" | "medium" | "high";
@@ -42,12 +43,7 @@ function kickoffDate(game: Game): Date | null {
 }
 
 function formatTime(d: Date): string {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).format(d);
+  return formatEtTime(d, { weekday: "short" });
 }
 
 function hoursToKickoff(game: Game): number | null {

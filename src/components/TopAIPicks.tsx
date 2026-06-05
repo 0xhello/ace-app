@@ -71,8 +71,8 @@ export default function TopAIPicks({ onAddLeg, picks }: { onAddLeg?: (leg: SlipL
                 </div>
                 <span className="text-[11px] font-bold text-white uppercase tracking-[0.22em]">Signal feed</span>
               </div>
-              <p className="mt-2 text-[11px] text-[#8c9389] max-w-[520px] leading-relaxed">
-                Real-time edge detection
+              <p className="mt-2 text-[11px] text-[#8c9389] max-w-[560px] leading-relaxed">
+                Real-time price discrepancy scanner. Signal strength is not validated model confidence yet.
               </p>
             </div>
             <div className="hidden md:flex items-center gap-2 text-[10px] text-[#7a8278]">
@@ -87,7 +87,7 @@ export default function TopAIPicks({ onAddLeg, picks }: { onAddLeg?: (leg: SlipL
               </div>
               <p className="text-[12px] font-semibold text-[#c4c7c0]">No live edges right now</p>
               <p className="mt-1.5 text-[11px] text-[#6b7068] max-w-[320px] leading-relaxed">
-                The model is scanning the board — signals surface here as games approach kickoff.
+                ACE is scanning the board for real price discrepancies — nothing is shown when the live data does not support it.
               </p>
             </div>
           ) : (
@@ -109,6 +109,10 @@ export default function TopAIPicks({ onAddLeg, picks }: { onAddLeg?: (leg: SlipL
                 market: pick.market,
                 label: pick.pick,
                 odds: pick.odds,
+                confidence: pick.confidence ? {
+                  tier: pick.confidence.tier,
+                  pct: pick.confidence.pct,
+                } : undefined,
               })}
               className="shrink-0 w-[292px] rounded-2xl border border-[#20251f] bg-[linear-gradient(180deg,rgba(18,20,18,0.98),rgba(13,15,13,0.98))] hover:border-[#2f352b] transition-all p-3.5 flex flex-col gap-2.5 group text-left shadow-[0_12px_30px_rgba(0,0,0,0.22)]"
             >
@@ -129,7 +133,7 @@ export default function TopAIPicks({ onAddLeg, picks }: { onAddLeg?: (leg: SlipL
                         {confPct}
                       </div>
                     </div>
-                    <span className="text-[7px] uppercase tracking-[0.12em] text-[#7f867c]">Conf</span>
+                    <span className="text-[7px] uppercase tracking-[0.12em] text-[#7f867c]">Signal</span>
                   </div>
                 </div>
               </div>

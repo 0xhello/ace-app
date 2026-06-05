@@ -1,19 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DEMO_RESPONSES: Record<string, string> = {
-  default: "I'm analyzing the current board for high-confidence edges. Based on line movement and sharp action indicators, the best value right now appears to be on totals where the market hasn't fully adjusted to recent injuries. Look for unders in games with key offensive players listed questionable.",
-  parlay: "For parlay construction, I'd focus on correlated legs — pair a team ML with the game going over if that team is a high-scoring favorite. Avoid mixing unrelated legs as the implied probability compounds against you quickly.",
-  value: "Value betting means finding lines where your estimated probability exceeds the implied odds. A -110 line implies ~52.4% win probability. If you think a team wins 58% of the time, that's a +EV bet worth tracking over time.",
-  sharp: "Sharp money moves are detected when line movement goes opposite to public betting percentages. When 70% of tickets are on one side but the line moves the other way, that's a sign books are respecting big-money action on the other side.",
-};
-
-function demoResponse(question: string): string {
-  const q = question.toLowerCase();
-  if (q.includes("parlay")) return DEMO_RESPONSES.parlay;
-  if (q.includes("value") || q.includes("ev") || q.includes("edge")) return DEMO_RESPONSES.value;
-  if (q.includes("sharp") || q.includes("line movement")) return DEMO_RESPONSES.sharp;
-  return DEMO_RESPONSES.default;
-}
+const UNAVAILABLE_ANSWER = "Ask ACE is temporarily unavailable because the live AI service could not be reached. I’m not going to show a fallback betting read that could be mistaken for real analysis.";
 
 export async function POST(req: NextRequest) {
   const { question } = await req.json();
@@ -23,8 +10,7 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    await new Promise((r) => setTimeout(r, 600));
-    return NextResponse.json({ answer: demoResponse(question), demo: true });
+    return NextResponse.json({ answer: UNAVAILABLE_ANSWER, unavailable: true }, { status: 503 });
   }
 
   try {
@@ -47,14 +33,17 @@ export async function POST(req: NextRequest) {
     if (!res.ok) {
       const err = await res.text();
       console.error("Anthropic API error:", err);
-      return NextResponse.json({ answer: demoResponse(question), demo: true });
+      return NextResponse.json({ answer: UNAVAILABLE_ANSWER, unavailable: true }, { status: 503 });
     }
 
     const data = await res.json();
-    const answer = data.content?.[0]?.text ?? demoResponse(question);
+    const answer = data.content?.[0]?.text;
+    if (!answer) {
+      return NextResponse.json({ answer: UNAVAILABLE_ANSWER, unavailable: true }, { status: 503 });
+    }
     return NextResponse.json({ answer });
   } catch (e) {
     console.error("ask-ace error:", e);
-    return NextResponse.json({ answer: demoResponse(question), demo: true });
+    return NextResponse.json({ answer: UNAVAILABLE_ANSWER, unavailable: true }, { status: 503 });
   }
 }

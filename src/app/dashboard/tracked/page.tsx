@@ -5,6 +5,7 @@ import Link from "next/link";
 import { bookMeta, bookLogoUrl } from "@/lib/books";
 import { formatAmericanOdds } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { formatEtDate, formatEtTimeLabel } from "@/lib/time-format";
 import { TrendingUp, Clock, CheckCircle2, XCircle, BarChart2, RefreshCw, Star } from "lucide-react";
 
 interface BetRecord {
@@ -296,7 +297,7 @@ export default function TrackedPage() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[12px] font-semibold text-white">{awayAbbr} @ {homeAbbr}</p>
-                      <p className="text-[10px] text-[#6b7068] mt-0.5">{g.sport_title} · {new Date(g.commence_time).toLocaleDateString([], { month: "short", day: "numeric" })}</p>
+                      <p className="text-[10px] text-[#6b7068] mt-0.5">{g.sport_title} · {formatEtDate(g.commence_time)}</p>
                     </div>
                     {isLive ? (
                       <div className="text-right">
@@ -314,7 +315,7 @@ export default function TrackedPage() {
                       </div>
                     ) : (
                       <p className="text-[11px] text-[#4a524a]">
-                        {new Date(g.commence_time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                        {formatEtTimeLabel(g.commence_time)}
                       </p>
                     )}
                   </div>

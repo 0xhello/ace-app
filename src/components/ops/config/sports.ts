@@ -3,10 +3,7 @@ import OverviewOpsTab from "@/components/ops/overview/OverviewOpsTab";
 import NBAOpsTab from "@/components/ops/nba/NBAOpsTab";
 import MLBOpsTab from "@/components/ops/mlb/MLBOpsTab";
 import SoccerOpsTab from "@/components/ops/soccer/SoccerOpsTab";
-import NFLOpsTab from "@/components/ops/nfl/NFLOpsTab";
-import UsersOpsTab from "@/components/ops/users/UsersOpsTab";
-
-export type OpsSportKey = "overview" | "nba" | "mlb" | "soccer" | "nfl" | "users";
+export type OpsSportKey = "overview" | "nba" | "mlb" | "soccer";
 export type OpsSportStatus = "live" | "soon" | "planned";
 
 export interface OpsSportConfig {
@@ -45,19 +42,5 @@ export const OPS_SPORTS: OpsSportConfig[] = [
     status: "live",
     description: "FIFA World Cup 2026 — h2h / AH / totals divergence with pick logging + CLV. Kickoff Jun 11.",
     component: SoccerOpsTab,
-  },
-  {
-    key: "nfl",
-    label: "NFL",
-    status: "planned",
-    description: "Spread/total ops with QB status, injury clusters, and weather context.",
-    component: NFLOpsTab,
-  },
-  {
-    key: "users",
-    label: "Users",
-    status: "live",
-    description: "Beta access, invite codes, and user management.",
-    component: UsersOpsTab,
   },
 ];

@@ -13,12 +13,10 @@ import { fetchModelSignals } from "@/lib/model-signals";
 // import { fetchWCSignals } from "@/lib/wc-signals";
 import { fetchMLBSignals } from "@/lib/mlb-signals";
 import { fetchSoccerInjuries } from "@/lib/soccer-injuries";
-import { getMockGames } from "@/lib/mock-games";
 import * as serverCache from "@/lib/server-cache";
 
 const CACHE_KEY = "board-games";
 const BOARD_INTEL_KEY = "board-generated-intel-v1";
-const IS_DEV = process.env.NODE_ENV === "development";
 
 function gameIdsKey(games: Game[]): string {
   return games.map((g) => g.id).sort().join("|");
@@ -76,14 +74,6 @@ async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T
 export default async function GamesFeed() {
   let { games, errors, fetchedAt } = await getGames();
 
-  // Local dev fallback: when the Odds API is unavailable / out of credits
-  // we don't want to dead-end developers with the prod maintenance screen.
-  // Drop in mock games instead so the dashboard is usable end-to-end on local.
-  if (games.length === 0 && IS_DEV) {
-    games = getMockGames();
-    fetchedAt = fetchedAt ?? new Date().toISOString();
-  }
-
   if (games.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#0a0b0a]">
@@ -94,14 +84,14 @@ export default async function GamesFeed() {
             </svg>
           </div>
           <p className="text-[20px] font-bold text-white mb-3 leading-tight">
-            ACE is Temporarily Offline
+            Live board data is unavailable
           </p>
           <p className="text-[13px] text-[#6b7068] leading-relaxed mb-6">
-            Our servers are currently under maintenance. We&apos;ll be back online shortly — please check back in a few minutes.
+            ACE could not load current odds or schedule data. We&apos;re not showing fallback games because that could be mistaken for real betting intelligence.
           </p>
           <div className="flex items-center justify-center gap-1.5 text-[10px] text-[#3a4033] uppercase tracking-widest font-semibold">
             <span className="h-1.5 w-1.5 rounded-full bg-[#f59e0b] animate-pulse" />
-            Maintenance in progress
+            Real data required
           </div>
         </div>
       </div>
