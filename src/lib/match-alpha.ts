@@ -23,6 +23,11 @@ export interface MatchAlphaCoverage {
   statistics: number;
   predictions: number;
   stateName: string | null;
+  latestChange: {
+    label: string;
+    detail: string;
+    changedAt: string | null;
+  } | null;
   fetchedAt: string | null;
 }
 
@@ -44,6 +49,7 @@ const emptyCoverage: MatchAlphaCoverage = {
   statistics: 0,
   predictions: 0,
   stateName: null,
+  latestChange: null,
   fetchedAt: null,
 };
 
@@ -81,6 +87,7 @@ out = {
   "statistics": 0,
   "predictions": len(b.get("predictions") or {}) if b else 0,
   "stateName": None,
+  "latestChange": None,
   "fetchedAt": b.get("fetched_at") if b else None,
 }
 try:
@@ -113,6 +120,41 @@ try:
   ]
   if unavailable and not out.get("sidelined"):
     out["sidelined"] = len(unavailable)
+
+  history = conn.execute("""
+    SELECT state_name, lineup_count, starters_count, bench_count,
+           sidelined_count, event_count, statistic_count, created_at
+      FROM soccer_fixture_feature_history
+     WHERE game_id = ? AND provider = 'sportmonks'
+     ORDER BY created_at DESC, id DESC
+     LIMIT 2
+  """, (game_id,)).fetchall()
+  if len(history) >= 2:
+    curr, prev = history[0], history[1]
+    changes = []
+    if (curr["state_name"] or "") != (prev["state_name"] or ""):
+      changes.append(f"state changed to {curr['state_name']}")
+    lineup_delta = (curr["lineup_count"] or 0) - (prev["lineup_count"] or 0)
+    starter_delta = (curr["starters_count"] or 0) - (prev["starters_count"] or 0)
+    sideline_delta = (curr["sidelined_count"] or 0) - (prev["sidelined_count"] or 0)
+    event_delta = (curr["event_count"] or 0) - (prev["event_count"] or 0)
+    stat_delta = (curr["statistic_count"] or 0) - (prev["statistic_count"] or 0)
+    if lineup_delta > 0:
+      changes.append(f"{lineup_delta} lineup names added")
+    if starter_delta > 0:
+      changes.append(f"{starter_delta} starters confirmed")
+    if sideline_delta > 0:
+      changes.append(f"{sideline_delta} new unavailable flag{'' if sideline_delta == 1 else 's'}")
+    if event_delta > 0:
+      changes.append(f"{event_delta} new match event{'' if event_delta == 1 else 's'}")
+    if stat_delta > 0:
+      changes.append("match stats updated")
+    if changes:
+      out["latestChange"] = {
+        "label": "Since last check",
+        "detail": "; ".join(changes[:3]),
+        "changedAt": curr["created_at"],
+      }
   conn.close()
 except Exception:
   pass

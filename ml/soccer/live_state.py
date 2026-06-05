@@ -127,6 +127,28 @@ def init_db(path: Optional[Path] = None) -> None:
             UNIQUE(game_id, provider)
         );
 
+        CREATE TABLE IF NOT EXISTS soccer_fixture_feature_history (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_id              TEXT NOT NULL,
+            provider             TEXT NOT NULL,
+            provider_fixture_id  TEXT,
+            state_id             INTEGER,
+            state_name           TEXT,
+            home_team            TEXT,
+            away_team            TEXT,
+            lineup_count         INTEGER NOT NULL DEFAULT 0,
+            starters_count       INTEGER NOT NULL DEFAULT 0,
+            bench_count          INTEGER NOT NULL DEFAULT 0,
+            sidelined_count      INTEGER NOT NULL DEFAULT 0,
+            event_count          INTEGER NOT NULL DEFAULT 0,
+            statistic_count      INTEGER NOT NULL DEFAULT 0,
+            score_json           TEXT NOT NULL DEFAULT '[]',
+            detected_at          TEXT NOT NULL,
+            created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_soccer_fixture_feature_history_game
+          ON soccer_fixture_feature_history(game_id, provider, created_at DESC);
+
         CREATE TABLE IF NOT EXISTS soccer_player_feature_snapshot (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             game_id              TEXT NOT NULL,
@@ -188,6 +210,25 @@ def init_db(path: Optional[Path] = None) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_soccer_prop_results_game_player
           ON soccer_player_prop_results(game_id, player_name);
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO soccer_fixture_feature_history (
+            game_id, provider, provider_fixture_id, state_id, state_name,
+            home_team, away_team, lineup_count, starters_count, bench_count,
+            sidelined_count, event_count, statistic_count, score_json, detected_at
+        )
+        SELECT s.game_id, s.provider, s.provider_fixture_id, s.state_id, s.state_name,
+               s.home_team, s.away_team, s.lineup_count, s.starters_count, s.bench_count,
+               s.sidelined_count, s.event_count, s.statistic_count, s.score_json, s.updated_at
+          FROM soccer_fixture_feature_snapshot s
+         WHERE NOT EXISTS (
+               SELECT 1
+                 FROM soccer_fixture_feature_history h
+                WHERE h.game_id = s.game_id
+                  AND h.provider = s.provider
+         )
         """
     )
     conn.commit()
@@ -342,6 +383,10 @@ def upsert_fixture_features(row: Dict[str, Any], path: Optional[Path] = None) ->
     cols = list(payload.keys())
     conn = get_db(path)
     try:
+        previous = conn.execute(
+            "SELECT * FROM soccer_fixture_feature_snapshot WHERE game_id = ? AND provider = ?",
+            (payload["game_id"], payload["provider"]),
+        ).fetchone()
         conn.execute(
             f"""
             INSERT INTO soccer_fixture_feature_snapshot ({','.join(cols)})
@@ -372,6 +417,47 @@ def upsert_fixture_features(row: Dict[str, Any], path: Optional[Path] = None) ->
             """,
             [payload[c] for c in cols],
         )
+        changed = previous is None or any(
+            previous[k] != payload[k]
+            for k in (
+                "provider_fixture_id",
+                "state_id",
+                "state_name",
+                "lineup_count",
+                "starters_count",
+                "bench_count",
+                "sidelined_count",
+                "event_count",
+                "statistic_count",
+                "score_json",
+            )
+        )
+        if changed:
+            history = {
+                "game_id": payload["game_id"],
+                "provider": payload["provider"],
+                "provider_fixture_id": payload["provider_fixture_id"],
+                "state_id": payload["state_id"],
+                "state_name": payload["state_name"],
+                "home_team": payload["home_team"],
+                "away_team": payload["away_team"],
+                "lineup_count": payload["lineup_count"],
+                "starters_count": payload["starters_count"],
+                "bench_count": payload["bench_count"],
+                "sidelined_count": payload["sidelined_count"],
+                "event_count": payload["event_count"],
+                "statistic_count": payload["statistic_count"],
+                "score_json": payload["score_json"],
+                "detected_at": now,
+            }
+            hcols = list(history.keys())
+            conn.execute(
+                f"""
+                INSERT INTO soccer_fixture_feature_history ({','.join(hcols)})
+                VALUES ({','.join('?' for _ in hcols)})
+                """,
+                [history[c] for c in hcols],
+            )
         conn.commit()
     finally:
         conn.close()

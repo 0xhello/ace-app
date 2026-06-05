@@ -6,6 +6,7 @@ export type MatchReadStatus = "quiet" | "watch" | "lineups" | "live" | "final";
 export type MatchReadImportance = "low" | "medium" | "high";
 export type MatchReadMomentType =
   | "lineup_window"
+  | "since_last_check"
   | "team_news"
   | "lineups_confirmed"
   | "live_event"
@@ -112,6 +113,17 @@ export function buildSoccerMatchRead(
   const injuries = prepared?.injuryAlerts ?? [];
   const story = firstUsefulStory(prepared);
   const moments: MatchReadMoment[] = [];
+
+  if (alpha.coverage.latestChange) {
+    moments.push({
+      type: "since_last_check",
+      rank: 0,
+      label: alpha.coverage.latestChange.label,
+      title: "Match read updated",
+      detail: alpha.coverage.latestChange.detail,
+      importance: "high",
+    });
+  }
 
   if (isLive) {
     moments.push({
