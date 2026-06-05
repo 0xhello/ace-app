@@ -2549,24 +2549,11 @@ export default function SoccerOpsTab() {
           </div>
         )}
 
-        {/* ══ SUGGESTED PICKS (M44) ══════════════════════════════════════════
-            Model-surfaced picks for the current slate with one-click
-            approval. POSTs to /api/ops/approved-picks via the admin
-            session that's already attached in the dashboard context —
-            replaces the previous F12+paste approval flow. Hidden when
-            the model has nothing to surface OR everything has already
-            been approved. */}
-        <SuggestedPicksPanel />
-
-        {/* F2 — International-friendly dress-rehearsal candidates. Sportmonks-
-            sourced (Odds API doesn't carry friendlies), clearly Experimental.
-            Exercises the live pipeline on real WC-team games before June 11. */}
-        <FriendliesPanel />
-
         {/* ══ FEATURED PICK (M33) ════════════════════════════════════════════
-            The single thing worth your attention right now: one validated
-            bet (or an honest "nothing right now"). Backtest receipt
-            included. Replaces the previous wall of overlapping panels. */}
+            Main operator surface: one validated bet worth attention, or an
+            honest empty state. Review queues and rehearsal diagnostics live in
+            Engine internals so the top-level Soccer page does not mix backend
+            QA with actual betting workflow. */}
         <FeaturedPickPanel />
 
         {/* ══ YOUR TICKET (M24) ══════════════════════════════════════════════
@@ -2579,7 +2566,15 @@ export default function SoccerOpsTab() {
             the unfiltered per-market grid (including markets the backtest
             says don't bet), candidate queues, prop cards, raw signal data.
             Out of the way unless you want to dig in. */}
-        <EngineInternals subtitle="full market view, prop research, raw signals, manual triggers">
+        <EngineInternals subtitle="review queues, rehearsal diagnostics, raw model output, manual triggers">
+          {/* Suggested picks are intentionally internal. They may be ungraded or
+              pending review, so they should not sit next to the main ticket. */}
+          <SuggestedPicksPanel />
+
+          {/* Friendly fixtures are backend/live-state rehearsal data, not board
+              games and not ACE-validated picks. Keep this behind internals. */}
+          <FriendliesPanel />
+
           {/* Match Intelligence — the full per-market grid (was top of page).
               Useful when you want to see model's opinion on every market,
               including the ones the backtest says lose money. */}
@@ -2592,9 +2587,8 @@ export default function SoccerOpsTab() {
             onStatus={updateCandidateStatus}
           />
 
-          {/* Approved picks — older alias for "ActualPicks" that pre-dated
-              the ApprovedPicksDashboard. Kept as a secondary view since the
-              data shape is slightly different (approval workflow flags). */}
+          {/* Approved picks — older raw view. Kept internal because the main
+              ApprovedPicksDashboard is the cleaner ticket view. */}
           <ActualPicksPanel picks={data?.actualPicks ?? []} />
 
           {/* Player-prop research cards (shots / scorer / assist etc.).

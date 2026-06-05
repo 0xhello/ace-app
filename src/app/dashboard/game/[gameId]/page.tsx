@@ -478,19 +478,13 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
         )}
 
         {/* ── Recent form (two columns) ─────────────────────────────────── */}
-        {isSoccer && (
+        {isSoccer && hasForm && (
           <section className="mt-6">
             <Label icon={Activity}>Recent form · last 5</Label>
-            {hasForm ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <FormColumn team={away} sport={game.sport} form={awayForm} align="left" />
-                <FormColumn team={home} sport={game.sport} form={homeForm} align="right" />
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4">
-                <p className="text-[12.5px] text-[#9ca39a]">Recent form is light for this matchup. Nothing to force there yet.</p>
-              </div>
-            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <FormColumn team={away} sport={game.sport} form={awayForm} align="left" />
+              <FormColumn team={home} sport={game.sport} form={homeForm} align="right" />
+            </div>
           </section>
         )}
 
@@ -523,60 +517,65 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           </section>
         )}
 
-        {/* ── Storylines ────────────────────────────────────────────────── */}
-        <section className="mt-7">
-          <Label icon={Newspaper}>Storylines{stories.length ? ` · ${stories.length}` : ""}</Label>
-          {stories.length === 0 ? (
-            <p className="text-[12.5px] text-[#6b7068] leading-relaxed">{researchLoaded ? "Quiet so far. No storyline strong enough to change the read yet." : "No meaningful storyline surfaced yet."}</p>
-          ) : (
-            <div className="space-y-4">
-              {lead && (
-                <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] p-5">
-                  <p className="text-[15px] md:text-[16px] font-semibold text-white leading-snug">{lead.title}</p>
-                  {lead.detail && <p className="text-[12.5px] text-[#9ca39a] mt-2 leading-relaxed">{lead.detail}</p>}
-                  <p className="text-[10px] text-[#4a524a] mt-2.5 font-mono uppercase tracking-wide">{lead.time}</p>
+        {/* ── Storylines / injuries for non-soccer pages only. Soccer folds
+            those signals into The Read so the page does not repeat itself. */}
+        {!isSoccer && (
+          <>
+            <section className="mt-7">
+              <Label icon={Newspaper}>Storylines{stories.length ? ` · ${stories.length}` : ""}</Label>
+              {stories.length === 0 ? (
+                <p className="text-[12.5px] text-[#6b7068] leading-relaxed">{researchLoaded ? "Quiet so far. No storyline strong enough to change the read yet." : "No meaningful storyline surfaced yet."}</p>
+              ) : (
+                <div className="space-y-4">
+                  {lead && (
+                    <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] p-5">
+                      <p className="text-[15px] md:text-[16px] font-semibold text-white leading-snug">{lead.title}</p>
+                      {lead.detail && <p className="text-[12.5px] text-[#9ca39a] mt-2 leading-relaxed">{lead.detail}</p>}
+                      <p className="text-[10px] text-[#4a524a] mt-2.5 font-mono uppercase tracking-wide">{lead.time}</p>
+                    </div>
+                  )}
+                  {rest.length > 0 && (
+                    <div className="divide-y divide-[#141714] rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5">
+                      {rest.map((s, i) => (
+                        <div key={i} className="flex gap-3 py-3.5">
+                          <Newspaper className="h-3.5 w-3.5 text-[#3ee68a]/70 mt-0.5 shrink-0" strokeWidth={1.6} />
+                          <div className="min-w-0">
+                            <p className="text-[13px] text-[#e0e3dc] font-medium leading-snug">{s.title}</p>
+                            {s.detail && <p className="text-[11.5px] text-[#8a9286] mt-1 leading-relaxed line-clamp-2">{s.detail}</p>}
+                            <p className="text-[10px] text-[#4a524a] mt-1 font-mono uppercase tracking-wide">{s.time}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
-              {rest.length > 0 && (
-                <div className="divide-y divide-[#141714] rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5">
-                  {rest.map((s, i) => (
-                    <div key={i} className="flex gap-3 py-3.5">
-                      <Newspaper className="h-3.5 w-3.5 text-[#3ee68a]/70 mt-0.5 shrink-0" strokeWidth={1.6} />
-                      <div className="min-w-0">
-                        <p className="text-[13px] text-[#e0e3dc] font-medium leading-snug">{s.title}</p>
-                        {s.detail && <p className="text-[11.5px] text-[#8a9286] mt-1 leading-relaxed line-clamp-2">{s.detail}</p>}
-                        <p className="text-[10px] text-[#4a524a] mt-1 font-mono uppercase tracking-wide">{s.time}</p>
-                      </div>
-                    </div>
+            </section>
+
+            <section className="mt-7">
+              <Label icon={HeartPulse}>Injuries &amp; team news{injuries.length ? ` · ${injuries.length}` : ""}</Label>
+              {injuries.length === 0 ? (
+                <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4 flex items-center gap-2.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]/50" />
+                  <p className="text-[12.5px] text-[#9ca39a]">{researchLoaded ? "No injuries or suspensions reported. Squad news matters more as kickoff gets closer." : "No team-news flag yet."}</p>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {injuries.map((a, i) => (
+                    <span key={i} className="inline-flex items-center gap-2 rounded-xl border border-[#ef4444]/30 bg-[#1a0e0e] px-3 py-2 text-[12px]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444]" />
+                      <span className="font-semibold text-[#ef9a9a]">{a.playerName}</span>
+                      <span className="text-[#9ca39a] text-[11px]">{a.status} · {a.teamName}</span>
+                    </span>
                   ))}
                 </div>
               )}
-            </div>
-          )}
-        </section>
-
-        {/* ── Injuries ──────────────────────────────────────────────────── */}
-        <section className="mt-7">
-          <Label icon={HeartPulse}>Injuries &amp; team news{injuries.length ? ` · ${injuries.length}` : ""}</Label>
-          {injuries.length === 0 ? (
-            <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4 flex items-center gap-2.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]/50" />
-              <p className="text-[12.5px] text-[#9ca39a]">{researchLoaded ? "No injuries or suspensions reported. Squad news matters more as kickoff gets closer." : "No team-news flag yet."}</p>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {injuries.map((a, i) => (
-                <span key={i} className="inline-flex items-center gap-2 rounded-xl border border-[#ef4444]/30 bg-[#1a0e0e] px-3 py-2 text-[12px]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444]" />
-                  <span className="font-semibold text-[#ef9a9a]">{a.playerName}</span>
-                  <span className="text-[#9ca39a] text-[11px]">{a.status} · {a.teamName}</span>
-                </span>
-              ))}
-            </div>
-          )}
-        </section>
+            </section>
+          </>
+        )}
 
         {/* ── Best odds ─────────────────────────────────────────────────── */}
+        {game.bookmakers.length > 0 && (
         <section className="mt-7">
           <Label icon={BarChart3}>Best odds across books</Label>
           <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] p-5 grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -604,6 +603,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
             ))}
           </div>
         </section>
+        )}
 
 
       </div>
