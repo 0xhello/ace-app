@@ -419,7 +419,7 @@ export default function NBAOpsTab() {
     <div className="flex-1 overflow-y-auto bg-[#0a0b0a]">
       <div className="max-w-[1200px] mx-auto px-6 py-7 space-y-5">
 
-        {/* Header — slim. Grade + Run Picks moved into Engine internals
+        {/* Header — slim. Grade + Run Picks moved into Diagnostics
             (the worker runs them on schedule; manual triggers are debug-only). */}
         <OpsPageHeader
           icon={Terminal}

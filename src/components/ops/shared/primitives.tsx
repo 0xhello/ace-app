@@ -415,7 +415,7 @@ export function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── EngineInternals — collapsible "show me the raw data" container ──────────
+// ── Diagnostics — collapsible "show me the raw data" container ──────────
 //
 // Used across NBA / MLB / Soccer ops tabs to hide engine-room data (manual
 // job triggers, dense KPI strips, raw signal tables, debug pipelines) from
@@ -428,7 +428,7 @@ export function EmptyState({ children }: { children: React.ReactNode }) {
 export function EngineInternals({
   children,
   defaultOpen = false,
-  subtitle = "raw metrics + manual job triggers",
+  subtitle = "raw metrics + manual job controls",
 }: {
   children: React.ReactNode;
   defaultOpen?: boolean;
@@ -446,7 +446,7 @@ export function EngineInternals({
           ? <ChevronDown className="h-4 w-4 text-[#6b7068]" />
           : <ChevronRight className="h-4 w-4 text-[#6b7068]" />}
         <Settings className="h-3.5 w-3.5 text-[#6b7068]" />
-        <span className="text-[12px] font-semibold uppercase tracking-wider text-[#9ca39a]">Engine internals</span>
+        <span className="text-[12px] font-semibold uppercase tracking-wider text-[#9ca39a]">Diagnostics</span>
         <span className="text-[10px] text-[#3a4033] ml-2">{subtitle}</span>
       </button>
       {open && (

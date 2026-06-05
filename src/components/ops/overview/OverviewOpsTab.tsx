@@ -10,6 +10,7 @@ import {
   ActionButton,
   OpsPageHeader,
   OpsFooter,
+  EngineInternals,
   StatusPill,
   Tag,
   Dot,
@@ -305,7 +306,7 @@ export default function OverviewOpsTab() {
 
         {/* Cross-sport aggregate KPI row */}
         <div className="flex gap-3 flex-wrap">
-          <KpiCard label="Signals (all-time)" value={String(totalAcross)} />
+          <KpiCard label="Tracked picks" value={String(totalAcross)} />
           <KpiCard label="Today" value={String(todayAcross)} color="#3ee68a" />
           <KpiCard
             label="Win rate"
@@ -319,25 +320,20 @@ export default function OverviewOpsTab() {
           />
         </div>
 
-        {/* Odds API credit headroom — surfaces /api/ops/odds-quota.
-            Color scales: green <60% used, amber 60-85%, red >85%. */}
-        <QuotaStrip quota={quota} />
+        <EngineInternals subtitle="quota, calibration, edge buckets, comparison workbench">
+          {/* Odds API credit headroom — surfaces /api/ops/odds-quota.
+              Color scales: green <60% used, amber 60-85%, red >85%. */}
+          <QuotaStrip quota={quota} />
 
-        {/* The lab tool — performance trend across sports + metrics over time.
-            Lives above per-sport cards because "are we getting better?" is
-            the question every operator opens this dashboard to answer. */}
-        <PerformanceOverTimePanel />
+          {/* The lab tool — performance trend across sports + metrics over time. */}
+          <PerformanceOverTimePanel />
 
-        {/* Edge-bucket validator — "is edge magnitude actually predictive?"
-            If high-edge picks don't beat low-edge picks, our tiering is
-            broken and a tier-A label is just decoration. */}
-        <EdgeBucketsPanel />
+          {/* Edge-bucket validator — "is edge magnitude actually predictive?" */}
+          <EdgeBucketsPanel />
 
-        {/* Comparison — hypothesis tester for any two slices of the data.
-            Pick Tier A vs B, FanDuel vs DraftKings, last-30d vs prior-30d,
-            etc. — answers questions that the other panels surface but
-            don't isolate. The lab's free-form workbench. */}
-        <ComparisonPanel />
+          {/* Comparison — hypothesis tester for any two slices of the data. */}
+          <ComparisonPanel />
+        </EngineInternals>
 
         {/* Per-sport cards */}
         <div className="grid grid-cols-3 gap-3">
@@ -346,9 +342,9 @@ export default function OverviewOpsTab() {
           ))}
         </div>
 
-        {/* Recent cross-sport signal stream */}
+        {/* Recent cross-sport pick/result stream */}
         <Panel>
-          <SectionHead icon={Activity} title="Recent signals · all sports" />
+          <SectionHead icon={Activity} title="Recent picks/results · all sports" />
           {data.recent.length === 0 ? (
             <EmptyState>No signals across any sport yet. Workers populate this as games come in.</EmptyState>
           ) : (
@@ -408,7 +404,7 @@ export default function OverviewOpsTab() {
         {/* Footer */}
         <OpsFooter
           refreshedAt={data.refreshedAt}
-          schemaText="ACE multi-sport · live signal layer"
+          schemaText="ACE multi-sport · picks/results default"
         />
       </div>
     </div>

@@ -262,7 +262,7 @@ Default Ops should become **picks/results + light health summary**. Anything tha
 | FIND-024 | Maintenance copy | Empty real games in dashboard shows “servers are under maintenance,” even if the real problem is odds API outage/credit/config. | User-facing error reason may be inaccurate. Should show honest data-unavailable state. | Open |
 | FIND-025 | Homepage hardcoded launch/WC copy | Homepage has fixed WC 2026 dates/times and emoji sports markers. | Can go stale or violate design-system polish; separate marketing audit needed. | Open |
 | FIND-026 | NBA fallback wording | NBA Ops has “Pinnacle vs fallback” / “fallback confidence threshold only.” | Internally meaningful, but confusing in default Ops. Move diagnostics. | Confirmed direction |
-| FIND-027 | Soccer no-bet caveat copy | Soccer text says full opinion includes unvalidated/no-bet markets and points to Engine internals. | Good honesty, but default page should not make Pixl parse losing/no-bet markets. | Confirmed direction |
+| FIND-027 | Soccer no-bet caveat copy | Soccer text says full opinion includes unvalidated/no-bet markets and points to Diagnostics. | Good honesty, but default page should not make Pixl parse losing/no-bet markets. | Confirmed direction |
 | FIND-028 | CLV/ROI/Kelly vocabulary | Default Ops uses CLV, ROI, Kelly, edge, stale, fallback heavily. | For Pixl default Ops, keep ROI maybe, explain CLV simply, hide Kelly/fallback/stale diagnostics unless needed. | Open |
 
 ## Confirmed Fix Batch — Pixl 2026-06-05 06:08 PT
@@ -329,3 +329,64 @@ Task list:
 - Build/validate actual model confidence before product copy implies ACE has reliable confidence calibration.
 - Track calibration by bucket: predicted confidence vs realized win rate, CLV, sample size, sport, market, and time horizon.
 - Until validated, avoid wording like “high confidence” in default user-facing pick surfaces when the underlying score is only a heuristic.
+
+## Fix Batch 2 Implementation — Ops Default Reset — 2026-06-05
+
+Status: implemented locally; pending build/verification at time of note.
+
+### Fixed
+
+- Ops Overview labels were adjusted toward picks/results, but product-copy leakage was later corrected and the broader Ops structure still needs redesign.
+- Cross-sport Overview default labels changed from generic signal language to tracked-pick/result language.
+- Overview diagnostics moved out of the default path and into collapsed `Diagnostics`:
+  - Odds API quota strip
+  - performance-over-time lab
+  - edge-bucket validator
+  - comparison workbench
+- Recent cross-sport table renamed from `Recent signals` to `Recent picks/results`.
+- Ops sport descriptions updated to state the default purpose: picks, open plays, and graded results.
+
+### Still Open / Later Ops Work
+
+- NBA, MLB, and Soccer tabs already use `Diagnostics`, but still need a tighter product pass to ensure every default panel is truly picks/results-only.
+- Mutating job buttons/API spenders should eventually require a dedicated Diagnostics/Admin mode, not just a collapsed section.
+- Soccer candidate approval/rejection UX needs a decision: keep as Pixl-facing pick review, or move to Diagnostics/Admin if it becomes too operator-heavy.
+- Users/Admin remains removed from the default tab bar, but should get a proper Admin route later.
+
+## Ops Source-of-Truth Audit — Added 2026-06-05
+
+### Confirmed data reality
+
+- `/api/ops/overview` currently reports:
+  - Soccer: `total=0`, `graded=0`, `open=0`
+  - MLB: `total=0`, `graded=0`, `open=0`
+  - NBA: `total=19`, `graded=13`, record `5W-8L`
+- `ml/nba_spread/data/mlb_signal_log.db` exists but `mlb_signals` has `0` rows.
+- `ml/nba_spread/data/wc_signal_log.db` has:
+  - `soccer_signals`: `0` rows
+  - `soccer_approved_picks`: `0` rows
+  - `soccer_model_candidates`: `606` rows (`219 candidate`, `387 graded`)
+- `/api/ops/soccer` returns `actualPicks` from candidate/shortlist logic, not actual approved picks. This is confusing because the UI can look like there are picks, while the real approved-picks table is empty.
+- `/api/ops/approved-picks` and `/api/picks/history` both return zero picks because `soccer_approved_picks` is empty.
+
+### Product conclusion
+
+Ops currently has no single canonical definition of a pick/result:
+
+1. NBA uses `signal_log`.
+2. MLB expects `mlb_signals`, but that table is empty.
+3. Soccer has historical graded candidate rows in `soccer_model_candidates`, but approved/actual pick history is empty and `soccer_signals` is empty.
+
+This means the UI cannot truthfully present cross-sport results until the product chooses and implements a canonical pick lifecycle:
+
+`candidate → approved/tracked pick → open → graded → performance/history`
+
+### Recommended direction
+
+- Create a unified read model for Ops results across sports, e.g. `/api/ops/results`, that normalizes NBA, MLB, soccer candidates, and approved soccer picks into one `OpsPickResult` shape.
+- Clearly separate:
+  - **Research candidates**: model ideas, not picks.
+  - **Tracked picks**: approved/selected plays we actually care about.
+  - **Historical backtest/candidate grading**: validation evidence, not an active ticket record.
+- Do not show candidate rows as “actual picks” unless they were explicitly approved/tracked.
+- Surface empty states honestly: “No tracked MLB picks yet” is better than an empty table that implies data disappeared.

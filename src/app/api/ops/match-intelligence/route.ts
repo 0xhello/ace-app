@@ -1,7 +1,7 @@
 /**
  * /api/ops/match-intelligence — the trading-desk view per fixture.
  *
- * Bob's direction (May 2026): ACE should treat soccer picks as a football
+ * Product direction (May 2026): ACE should treat soccer picks as a football
  * intelligence + trading desk system. We build our own pre-odds opinion
  * for every market we have signal for, THEN compare to the books, surface
  * disagreements as edges, and give a confidence tier per market.

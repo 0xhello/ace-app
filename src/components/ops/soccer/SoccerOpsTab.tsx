@@ -1213,7 +1213,7 @@ function FeaturedPickPanel() {
             The model has opinions on every market for {home} vs {away}, but none of them currently sit at a backtest-validated edge. The only markets we've proven against Pinnacle close are 1X2 away (non-neutral) and Totals 2.5 — neither is showing a positive edge here.
           </p>
           <p className="text-[10px] text-[#6b7068] leading-relaxed mt-3">
-            To see the model's full opinion (including unvalidated markets like BTTS / corners / 1X2 home / draw / shots), open <span className="text-[#9ca39a]">Engine internals</span> below.
+            To see the model's full opinion (including unvalidated markets like BTTS / corners / 1X2 home / draw / shots), open <span className="text-[#9ca39a]">Diagnostics</span> below.
           </p>
         </div>
       )}
@@ -1224,7 +1224,7 @@ function FeaturedPickPanel() {
 
 // ─── Match Intelligence (per-fixture trading-desk view) ─────────────────────
 //
-// Bob's direction (M17): treat soccer picks as a football intelligence +
+// Product direction (M17): treat soccer picks as a football intelligence +
 // trading desk system. For each "feature match" we surface the FULL picture:
 // our model's fair probabilities for every market we have signal on
 // (1X2, Totals 2.5, BTTS), the best book prices, the edges with confidence
@@ -1907,7 +1907,7 @@ function TodayPlaysPanel({
       />
       {actionable.length === 0 ? (
         <EmptyState>
-          No upcoming plays right now. The model scans every 30 min — new candidates show up here when the edge clears the threshold. Backfill picks (graded record) live under <span className="text-[#9ca39a]">Engine internals</span>.
+          No upcoming plays right now. The model scans every 30 min — new candidates show up here when the edge clears the threshold. Historical graded records appear in Diagnostics until the results view is rebuilt.
         </EmptyState>
       ) : (
         <div className="space-y-3">
@@ -2422,7 +2422,7 @@ export default function SoccerOpsTab() {
 
         {/* Header — slim. Only the safe non-destructive action (Refresh) is
             up front. Manual job triggers (scan, grade, prop cards, etc.) live
-            inside Engine internals — the worker already runs them on schedule
+            inside Diagnostics — the worker already runs them on schedule
             so they're rarely needed by hand. */}
         <OpsPageHeader
           icon={Trophy}
@@ -2444,7 +2444,7 @@ export default function SoccerOpsTab() {
         {/* ══ HEADLINE METRICS ═══════════════════════════════════════════════
             Just the two numbers a human cares about most: track record and
             ROI. Everything else (broken-down by market, by book, by pipeline
-            step) lives inside Engine internals. */}
+            step) lives inside Diagnostics. */}
         {stats && (
           <div className="flex gap-3 flex-wrap">
             <KpiCard
@@ -2552,7 +2552,7 @@ export default function SoccerOpsTab() {
         {/* ══ FEATURED PICK (M33) ════════════════════════════════════════════
             Main operator surface: one validated bet worth attention, or an
             honest empty state. Review queues and rehearsal diagnostics live in
-            Engine internals so the top-level Soccer page does not mix backend
+            Diagnostics so the top-level Soccer page does not mix backend
             QA with actual betting workflow. */}
         <FeaturedPickPanel />
 
