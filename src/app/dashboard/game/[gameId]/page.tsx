@@ -498,13 +498,14 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           </section>
         )}
 
-        {/* ── Storylines. Soccer keeps this as its own module; The Read avoids
-            repeating the content. Empty soccer storylines stay hidden. */}
-        {(!isSoccer || stories.length > 0) && (
+        {/* ── News. Kept as its own module; The Read avoids repeating it. */}
+        {isSoccer || stories.length > 0 ? (
           <section className="mt-7">
-            <Label icon={Newspaper}>Storylines{stories.length ? ` · ${stories.length}` : ""}</Label>
+            <Label icon={Newspaper}>News{stories.length ? ` · ${stories.length}` : ""}</Label>
             {stories.length === 0 ? (
-              <p className="text-[12.5px] text-[#6b7068] leading-relaxed">{researchLoaded ? "Quiet so far. No storyline strong enough to change the read yet." : "No meaningful storyline surfaced yet."}</p>
+              <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4">
+                <p className="text-[12.5px] text-[#9ca39a]">No relevant news found for this matchup yet.</p>
+              </div>
             ) : (
               <div className="space-y-4">
                 {lead && (
@@ -531,17 +532,17 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
               </div>
             )}
           </section>
-        )}
+        ) : null}
 
-        {/* ── Injuries / availability. Empty soccer availability stays hidden;
-            The Read should not repeat this player list. */}
-        {(!isSoccer || availability.length > 0) && (
+        {/* ── Injuries / availability. Kept as its own module; The Read should
+            not repeat this player list. */}
+        {isSoccer || availability.length > 0 ? (
           <section className="mt-7">
             <Label icon={HeartPulse}>Injuries &amp; team news{availability.length ? ` · ${availability.length}` : ""}</Label>
             {availability.length === 0 ? (
               <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4 flex items-center gap-2.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]/50" />
-                <p className="text-[12.5px] text-[#9ca39a]">{researchLoaded ? "No injuries or suspensions reported. Squad news matters more as kickoff gets closer." : "No team-news flag yet."}</p>
+                <p className="text-[12.5px] text-[#9ca39a]">No injuries, suspensions, or unavailable players found for this matchup yet.</p>
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
@@ -555,7 +556,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
               </div>
             )}
           </section>
-        )}
+        ) : null}
 
         {/* ── Best odds ─────────────────────────────────────────────────── */}
         {game.bookmakers.length > 0 && (
