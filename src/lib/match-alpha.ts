@@ -118,34 +118,34 @@ export function getMatchAlphaDigest(game: Game, prepared: PreparedGameIntel | nu
   if (coverage.sportmonksBundle) {
     if (coverage.lineups > 0) {
       cards.push({
-        label: "Lineup intelligence",
-        title: coverage.starters >= 22 ? "Starting XIs are available" : `${coverage.lineups} lineup entries cached`,
-        detail: `${coverage.starters} starters${coverage.bench ? `, ${coverage.bench} bench players` : ""}${coverage.sidelined ? `, ${coverage.sidelined} sidelined` : ""}. This is the first data source worth elevating above sportsbook info.`,
+        label: "Lineups",
+        title: coverage.starters >= 22 ? "Starting XIs are in" : `${coverage.lineups} names on the team sheet`,
+        detail: coverage.sidelined ? `${coverage.sidelined} players are unavailable. Check the shape before forcing a read.` : "No major lineup shock showing yet. The shape is the thing to check next.",
         tone: coverage.starters >= 22 ? "good" : "neutral",
       });
     } else {
-      gaps.push("Sportmonks fixture found, but lineups are not populated yet.");
+      gaps.push("Lineups are not out yet.");
     }
 
     if (coverage.events || coverage.statistics) {
       cards.push({
-        label: "Live/settled feed",
-        title: `${coverage.events} events · ${coverage.statistics} stats`,
-        detail: coverage.stateName ? `Provider state: ${coverage.stateName}. Use this for real score/events only when fresh.` : "Provider event/stat feed is present for this fixture.",
+        label: "Match flow",
+        title: `${coverage.events} key moments tracked`,
+        detail: coverage.stateName ? `${coverage.stateName}. Watch goals, cards and subs before reading too much into the live price.` : "Goals, cards and subs are available for this match.",
         tone: coverage.events ? "good" : "neutral",
       });
     }
 
     if (coverage.predictions > 0) {
       cards.push({
-        label: "Second opinion",
-        title: `${coverage.predictions} Sportmonks prediction markets cached`,
-        detail: "Useful as a disagreement check against ACE's own model, not as a pick by itself.",
+        label: "Model check",
+        title: `${coverage.predictions} angles to compare`,
+        detail: "Useful for spotting disagreement, not enough by itself to force a bet.",
         tone: "neutral",
       });
     }
   } else if (game.sport.startsWith("soccer")) {
-    gaps.push("No Sportmonks fixture bundle cached for this game yet — lineups, sidelined players, live events and provider predictions are unavailable.");
+    gaps.push("No major pre-match signal yet.");
   }
 
   if (injuries.length) {
@@ -178,16 +178,16 @@ export function getMatchAlphaDigest(game: Game, prepared: PreparedGameIntel | nu
     cards.push({
       label: "Form note",
       title: `${notableRun.team}: ${notableRun.run}`,
-      detail: `Recent form string: ${notableRun.form}. This belongs below lineup/news, but it is still game-specific context.`,
+      detail: `Recent form: ${notableRun.form}. Useful context, but not enough alone to force a position.`,
       tone: "neutral",
     });
   }
 
   if (!cards.length) {
     cards.push({
-      label: "Source gap",
-      title: "This page needs a data pull before it has alpha",
-      detail: "No lineup, injury, event, prediction or useful story delta is cached for this fixture yet.",
+      label: "Quiet so far",
+      title: "No clear angle yet",
+      detail: "Nothing meaningful has changed. This gets more interesting when lineups, team news or live events start to move.",
       tone: "warn",
     });
   }

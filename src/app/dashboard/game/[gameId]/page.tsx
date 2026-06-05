@@ -11,7 +11,7 @@
  * flex-1 overflow-y-auto root.
  */
 import { notFound } from "next/navigation";
-import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3, ShieldCheck, Database, AlertTriangle } from "lucide-react";
+import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3, Database, AlertTriangle } from "lucide-react";
 import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
 import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
@@ -191,18 +191,18 @@ function GameCommandStack({
   const awayScore = game.scoreboard?.away_score;
   const homeScore = game.scoreboard?.home_score;
   const readiness = [
-    { label: "Lineups", value: alpha.coverage.lineups ? `${alpha.coverage.lineups} cached` : "Missing" },
-    { label: "Events", value: alpha.coverage.events ? `${alpha.coverage.events} events` : "Not live" },
-    { label: "Source", value: alpha.coverage.sportmonksBundle ? "Sportmonks" : "Cache miss" },
+    { label: "Lineups", value: alpha.coverage.lineups ? `${alpha.coverage.lineups} names` : "Not out" },
+    { label: "Live notes", value: alpha.coverage.events ? `${alpha.coverage.events} moments` : "Quiet" },
+    { label: "Team news", value: injuries.length ? `${injuries.length} flags` : "Clear" },
   ];
 
   return (
     <section className="mt-4">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <Label icon={Radio} accent={false}>Match Desk</Label>
+        <Label icon={Radio} accent={false}>The Read</Label>
         <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-[#1b241a] bg-[#0d110d] px-2.5 py-1 text-[9px] font-mono uppercase tracking-[0.14em] text-[#7f867c]">
           <span className={`h-1.5 w-1.5 rounded-full ${isLive ? "bg-[#ef4444] animate-pulse" : "bg-[#3ee68a]"}`} />
-          {isLive ? "Side-by-side betting companion" : "Alpha runway"}
+          {isLive ? "Live now" : "Before kickoff"}
         </span>
       </div>
       <div className="relative overflow-hidden rounded-3xl border border-[#24311f] bg-[#080a08] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
@@ -217,11 +217,11 @@ function GameCommandStack({
                     <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${isLive ? "bg-[#ef4444]" : isFinal ? "bg-[#6b7068]" : "bg-[#3ee68a]"}`} />
                   </span>
                   <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#aab0a4]">
-                    {isLive ? "Scoreboard + market state" : isFinal ? "Final state" : "At a glance"}
+                    {isLive ? "Live picture" : isFinal ? "Final" : "Angle check"}
                   </p>
                 </div>
                 <p className="mt-2 text-[24px] md:text-[28px] font-black tracking-tight text-white">
-                  {isLive && awayScore != null ? <>{away}<span className="text-[#3a4033] mx-2">{awayScore}</span><span className="text-[#3a4033] mx-2">/</span><span className="text-[#3a4033] mx-2">{homeScore}</span>{home}</> : alpha.coverage.sportmonksBundle ? "Source intel loaded" : "Waiting on source pull"}
+                  {isLive && awayScore != null ? <>{away}<span className="text-[#3a4033] mx-2">{awayScore}</span><span className="text-[#3a4033] mx-2">/</span><span className="text-[#3a4033] mx-2">{homeScore}</span>{home}</> : alpha.cards[0]?.title ?? "No clear angle yet"}
                 </p>
                 <p className="mt-1 text-[12px] text-[#9ca39a]">
                   {isLive ? (game.scoreboard?.clock ?? "Clock updating") : kickoff(game.commence_time)}
@@ -245,13 +245,13 @@ function GameCommandStack({
             <div className="mt-4 rounded-2xl border border-[#171d16] bg-[#0b0e0b] p-4">
               <div className="flex items-center gap-2 mb-3">
                 <Database className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.7} />
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">Source coverage</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">What to know</p>
               </div>
               <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-[12px]">
-                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286]">Fixture</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.fixtureId ?? "-"}</span></div>
-                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286]">State</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.stateName ?? game.status}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Sidelined</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.sidelined || "-"}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Predictions</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.predictions || "-"}</span></div>
+                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286]">Lineups</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.lineups ? `${alpha.coverage.lineups} names` : "Not out"}</span></div>
+                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286]">Game state</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.stateName ?? (isLive ? "Live" : "Upcoming")}</span></div>
+                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Unavailable</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.sidelined || "None flagged"}</span></div>
+                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Watch next</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.lineups ? "Shape" : "Lineups"}</span></div>
               </div>
               {alpha.gaps[0] && (
                 <div className="mt-3 flex gap-2 rounded-xl border border-[#3a3216] bg-[#171407] px-3 py-2.5">
@@ -265,7 +265,7 @@ function GameCommandStack({
           <div className="relative px-5 py-5">
             <div className="flex items-center gap-2 mb-4">
               <Clock3 className="h-3.5 w-3.5 text-[#7a8278]" strokeWidth={1.7} />
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">Alpha digest</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">What matters</p>
             </div>
             <div className="space-y-2.5">
               {alpha.cards.map((card, i) => (
@@ -280,10 +280,6 @@ function GameCommandStack({
                   </div>
                 </div>
               ))}
-            </div>
-            <div className="mt-4 flex items-center gap-2 rounded-2xl border border-[#172117] bg-[#0c120d] px-3.5 py-3">
-              <ShieldCheck className="h-4 w-4 text-[#3ee68a] shrink-0" strokeWidth={1.7} />
-              <p className="text-[11px] text-[#9ca39a] leading-relaxed">No fake play-by-play: lineup, score, clock and key moments only appear when a provider feed has them.</p>
             </div>
           </div>
         </div>
@@ -414,7 +410,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
               </div>
             ) : (
               <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4">
-                <p className="text-[12.5px] text-[#9ca39a]">Recent results for these sides aren&apos;t tracked yet — form fills in as fixtures are pulled.</p>
+                <p className="text-[12.5px] text-[#9ca39a]">Recent form is light for this matchup. Nothing to force there yet.</p>
               </div>
             )}
           </section>
@@ -453,7 +449,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
         <section className="mt-7">
           <Label icon={Newspaper}>Storylines{stories.length ? ` · ${stories.length}` : ""}</Label>
           {stories.length === 0 ? (
-            <p className="text-[12.5px] text-[#6b7068] leading-relaxed">{researchLoaded ? "No useful storylines yet — coverage builds as kickoff nears." : "Storylines are warming in the background; the page stays fast while research catches up."}</p>
+            <p className="text-[12.5px] text-[#6b7068] leading-relaxed">{researchLoaded ? "Quiet so far. No storyline strong enough to change the read yet." : "No meaningful storyline surfaced yet."}</p>
           ) : (
             <div className="space-y-4">
               {lead && (
@@ -487,7 +483,7 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           {injuries.length === 0 ? (
             <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4 flex items-center gap-2.5">
               <span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]/50" />
-              <p className="text-[12.5px] text-[#9ca39a]">{researchLoaded ? "No injuries or suspensions reported. National-team squad news firms up closer to kickoff." : "Team news is warming in the background; this page no longer waits on the slow research pull."}</p>
+              <p className="text-[12.5px] text-[#9ca39a]">{researchLoaded ? "No injuries or suspensions reported. Squad news matters more as kickoff gets closer." : "No team-news flag yet."}</p>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
