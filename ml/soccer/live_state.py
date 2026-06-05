@@ -755,6 +755,14 @@ def _stat_from_details(details: Any, names: Iterable[str]) -> Optional[float]:
     return None
 
 
+def _clean_name(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).replace("\u00a0", " ")
+    text = " ".join(text.split())
+    return text or None
+
+
 def _nested_name(obj: Dict[str, Any], *keys: str) -> Optional[str]:
     cur: Any = obj
     for key in keys:
@@ -762,13 +770,19 @@ def _nested_name(obj: Dict[str, Any], *keys: str) -> Optional[str]:
             return None
         cur = cur.get(key)
     if isinstance(cur, str):
-        return cur
+        return _clean_name(cur)
     if isinstance(cur, dict):
-        return cur.get("display_name") or cur.get("name") or cur.get("common_name")
+        return _clean_name(cur.get("display_name") or cur.get("name") or cur.get("common_name"))
     return None
 
 
 TEAM_ALIASES = {
+    "south korea": "korearepublic",
+    "korea republic": "korearepublic",
+    "republic of korea": "korearepublic",
+    "bosnia & herzegovina": "bosniaandherzegovina",
+    "bosnia and herzegovina": "bosniaandherzegovina",
+    "bosnia-herzegovina": "bosniaandherzegovina",
     "saint etienne": "saintetienne",
     "saint étienne": "saintetienne",
     "st etienne": "saintetienne",
@@ -790,6 +804,21 @@ def _team_key(name: str) -> str:
 def _team_match(a: str, b: str) -> bool:
     ak, bk = _team_key(a), _team_key(b)
     return bool(ak and bk and (ak == bk or ak in bk or bk in ak))
+
+
+TEAM_SEARCH_ALIASES = {
+    "South Korea": ["Korea Republic", "Korea"],
+    "Bosnia & Herzegovina": ["Bosnia and Herzegovina", "Bosnia"],
+}
+
+
+def _team_search_queries(name: str) -> List[str]:
+    aliases = TEAM_SEARCH_ALIASES.get(name, [])
+    out: List[str] = []
+    for q in [name, *aliases]:
+        if q and q not in out:
+            out.append(q)
+    return out
 
 
 def _parse_time(ts: str) -> Optional[datetime]:
@@ -832,23 +861,24 @@ def find_sportmonks_fixture_for_game(game: Dict[str, Any]) -> Optional[Dict[str,
     candidates: List[Dict[str, Any]] = []
     seen: set[int] = set()
     for query in [home, away]:
-        for team in search_sportmonks_teams(query):
-            tid = team.get("id")
-            if not tid:
-                continue
-            # Avoid noisy teams whose name clearly doesn't match the query.
-            if not _team_match(query, team.get("name") or "") and len(candidates) > 0:
-                continue
-            try:
-                fixtures = sportmonks_fixtures_for_team(int(tid), start, end)
-            except Exception:
-                continue
-            for f in fixtures:
-                fid = f.get("id")
-                if fid in seen:
+        for search_query in _team_search_queries(query):
+            for team in search_sportmonks_teams(search_query):
+                tid = team.get("id")
+                if not tid:
                     continue
-                seen.add(fid)
-                candidates.append(f)
+                # Avoid noisy teams whose name clearly doesn't match the query.
+                if not _team_match(query, team.get("name") or "") and not _team_match(search_query, team.get("name") or "") and len(candidates) > 0:
+                    continue
+                try:
+                    fixtures = sportmonks_fixtures_for_team(int(tid), start, end)
+                except Exception:
+                    continue
+                for f in fixtures:
+                    fid = f.get("id")
+                    if fid in seen:
+                        continue
+                    seen.add(fid)
+                    candidates.append(f)
     scored: List[Tuple[float, Dict[str, Any]]] = []
     for f in candidates:
         parts = f.get("participants") or []
@@ -940,18 +970,18 @@ def _player_feature_rows(data: Dict[str, Any], *, game_id: str, provider_fixture
     teams: List[str] = []
     for p in participants if isinstance(participants, list) else []:
         tid = p.get("id") or p.get("team_id")
-        name = p.get("name") or p.get("display_name") or p.get("short_code")
+        name = _clean_name(p.get("name") or p.get("display_name") or p.get("short_code"))
         if tid is not None and name:
             teams_by_id[str(tid)] = name
             teams.append(name)
     rows: List[Dict[str, Any]] = []
     for item in data.get("lineups") or []:
         player = item.get("player") or {}
-        player_name = player.get("display_name") or player.get("name") or item.get("player_name") or item.get("name")
+        player_name = _clean_name(player.get("display_name") or player.get("name") or item.get("player_name") or item.get("name"))
         if not player_name:
             continue
         team_id = item.get("team_id") or item.get("participant_id")
-        team = teams_by_id.get(str(team_id)) or item.get("team_name") or item.get("team") or "unknown"
+        team = teams_by_id.get(str(team_id)) or _clean_name(item.get("team_name") or item.get("team")) or "unknown"
         lineup_status = "confirmed_starting" if item.get("type_id") in {11, "11"} else "bench" if item.get("type_id") in {12, "12"} else "projected_unknown"
         pos = _nested_name(item, "position") or item.get("position_name")
         field = item.get("formation_field")
@@ -991,11 +1021,11 @@ def _player_feature_rows(data: Dict[str, Any], *, game_id: str, provider_fixture
         })
     for item in data.get("sidelined") or []:
         player = item.get("player") or {}
-        player_name = player.get("display_name") or player.get("name") or item.get("player_name")
+        player_name = _clean_name(player.get("display_name") or player.get("name") or item.get("player_name"))
         if not player_name:
             continue
         team_id = item.get("team_id") or item.get("participant_id")
-        team = teams_by_id.get(str(team_id)) or item.get("team_name") or "unknown"
+        team = teams_by_id.get(str(team_id)) or _clean_name(item.get("team_name")) or "unknown"
         rows.append({
             "game_id": game_id,
             "provider": "sportmonks",
@@ -1024,18 +1054,18 @@ def normalize_sportmonks_fixture(payload: Dict[str, Any], *, game_id: str, provi
     teams = []
     for p in participants if isinstance(participants, list) else []:
         tid = p.get("id") or p.get("team_id")
-        name = p.get("name") or p.get("display_name") or p.get("short_code")
+        name = _clean_name(p.get("name") or p.get("display_name") or p.get("short_code"))
         if tid is not None and name:
             teams_by_id[str(tid)] = name
             teams.append(name)
     rows: List[Dict[str, Any]] = []
     for item in data.get("lineups") or []:
         player = item.get("player") or {}
-        player_name = player.get("display_name") or player.get("name") or item.get("player_name") or item.get("name")
+        player_name = _clean_name(player.get("display_name") or player.get("name") or item.get("player_name") or item.get("name"))
         if not player_name:
             continue
         team_id = item.get("team_id") or item.get("participant_id")
-        team = teams_by_id.get(str(team_id)) or item.get("team_name") or item.get("team") or "unknown"
+        team = teams_by_id.get(str(team_id)) or _clean_name(item.get("team_name") or item.get("team")) or "unknown"
         status_raw = str(item.get("type") or item.get("lineup_type") or item.get("formation_position") or "").lower()
         if item.get("type_id") in {11, "11"} or status_raw in {"starting", "lineup", "start"}:
             lineup_status = "confirmed_starting"
@@ -1066,11 +1096,11 @@ def normalize_sportmonks_fixture(payload: Dict[str, Any], *, game_id: str, provi
         })
     for item in data.get("sidelined") or []:
         player = item.get("player") or {}
-        player_name = player.get("display_name") or player.get("name") or item.get("player_name")
+        player_name = _clean_name(player.get("display_name") or player.get("name") or item.get("player_name"))
         if not player_name:
             continue
         team_id = item.get("team_id") or item.get("participant_id")
-        team = teams_by_id.get(str(team_id)) or item.get("team_name") or "unknown"
+        team = teams_by_id.get(str(team_id)) or _clean_name(item.get("team_name")) or "unknown"
         rows.append({
             "game_id": game_id,
             "provider": "sportmonks",
@@ -1098,6 +1128,19 @@ def sync_sportmonks_fixture(game_id: str, provider_fixture_id: str, path: Option
     rows = normalize_sportmonks_fixture(payload, game_id=game_id, provider_fixture_id=provider_fixture_id)
     feature_rows = _player_feature_rows(data, game_id=game_id, provider_fixture_id=provider_fixture_id)
     upsert_fixture_features(_fixture_feature_row(data, game_id=game_id, provider_fixture_id=provider_fixture_id), path)
+    conn = get_db(path)
+    try:
+        conn.execute(
+            "DELETE FROM soccer_live_player_state WHERE game_id = ? AND provider = 'sportmonks' AND provider_fixture_id = ?",
+            (game_id, provider_fixture_id),
+        )
+        conn.execute(
+            "DELETE FROM soccer_player_feature_snapshot WHERE game_id = ? AND provider = 'sportmonks' AND provider_fixture_id = ?",
+            (game_id, provider_fixture_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
     for row in rows:
         upsert_player_state(row, path)
     for row in feature_rows:
