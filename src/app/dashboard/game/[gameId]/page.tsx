@@ -12,7 +12,7 @@
  */
 import { notFound } from "next/navigation";
 import { spawnSync } from "child_process";
-import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3, Database, AlertTriangle } from "lucide-react";
+import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3 } from "lucide-react";
 import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
 import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
@@ -223,26 +223,18 @@ function deriveMeetings(home: string, away: string, homeForm?: TeamRecentForm, a
 }
 
 type LiveCenterStory = { title: string; detail?: string; time: string };
-type LiveCenterInjury = { playerName: string; status: string; teamName: string };
+type LiveCenterInjury = { playerName: string; status: string; teamName: string; reason?: string | null };
 
 function GameCommandStack({
   game,
   away,
   home,
-  stories,
-  injuries,
-  awayForm,
-  homeForm,
   alpha,
   read,
 }: {
   game: Game;
   away: string;
   home: string;
-  stories: LiveCenterStory[];
-  injuries: LiveCenterInjury[];
-  awayForm?: TeamRecentForm;
-  homeForm?: TeamRecentForm;
   alpha: MatchAlphaDigest;
   read: MatchRead | null;
 }) {
@@ -250,11 +242,7 @@ function GameCommandStack({
   const isFinal = game.status === "final";
   const awayScore = game.scoreboard?.away_score;
   const homeScore = game.scoreboard?.home_score;
-  const readiness = [
-    { label: "Lineups", value: alpha.coverage.lineups ? `${alpha.coverage.lineups} names` : "Not out" },
-    { label: "Live notes", value: alpha.coverage.events ? `${alpha.coverage.events} moments` : "Quiet" },
-    { label: "Team news", value: injuries.length ? `${injuries.length} flags` : "Clear" },
-  ];
+  const matchState = alpha.coverage.stateName ?? (isLive ? "Live" : isFinal ? "Final" : "Upcoming");
 
   return (
     <section className="mt-4">
@@ -293,31 +281,13 @@ function GameCommandStack({
               </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-3 gap-2">
-              {readiness.map((r) => (
-                <div key={r.label} className="rounded-2xl border border-[#171d16] bg-[#0b0e0b] px-3 py-3">
-                  <p className="text-[9px] uppercase tracking-[0.18em] text-[#4f574d]">{r.label}</p>
-                  <p className="mt-1 text-[12px] font-semibold text-[#d6dbd2] truncate">{r.value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-[#171d16] bg-[#0b0e0b] p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Database className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.7} />
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#aab0a4]">What to know</p>
+            <div className="mt-5 rounded-2xl border border-[#171d16] bg-[#0b0e0b] p-4">
+              <div className="flex items-center justify-between gap-4 text-[12px]">
+                <span className="text-[#8a9286]">Current match state</span>
+                <span className="font-mono font-bold text-[#dfe4dc]">{matchState}</span>
               </div>
-              <div className="grid grid-cols-2 gap-x-5 gap-y-2 text-[12px]">
-                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286]">Lineups</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.lineups ? `${alpha.coverage.lineups} names` : "Not out"}</span></div>
-                <div className="flex items-center justify-between gap-3 border-b border-[#151b14] pb-2"><span className="text-[#8a9286]">Game state</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.stateName ?? (isLive ? "Live" : "Upcoming")}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Unavailable</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.sidelined || "None flagged"}</span></div>
-                <div className="flex items-center justify-between gap-3"><span className="text-[#8a9286]">Watch next</span><span className="font-mono font-bold text-[#dfe4dc]">{alpha.coverage.lineups ? "Shape" : "Lineups"}</span></div>
-              </div>
-              {alpha.gaps[0] && (
-                <div className="mt-3 flex gap-2 rounded-xl border border-[#3a3216] bg-[#171407] px-3 py-2.5">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#d8bd5f]" strokeWidth={1.7} />
-                  <p className="text-[11px] leading-relaxed text-[#b9ad79]">{alpha.gaps[0]}</p>
-                </div>
+              {read?.summary && (
+                <p className="mt-3 text-[12px] leading-relaxed text-[#9ca39a]">{read.summary}</p>
               )}
             </div>
           </div>
@@ -383,8 +353,23 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
   const isLive = game.status === "live";
   const read = marketRead(game);
 
-  const alpha = isSoccer ? getMatchAlphaDigest(game, prepared) : null;
+  const alpha = isSoccer ? await getMatchAlphaDigest(game, prepared) : null;
   const matchRead = isSoccer && alpha ? buildSoccerMatchRead(game, prepared, alpha) : null;
+  const liveUnavailable: LiveCenterInjury[] = (alpha?.coverage.unavailable ?? []).map((p) => ({
+    playerName: p.playerName,
+    teamName: p.teamName,
+    status: "out",
+    reason: p.reason ?? null,
+  }));
+  const preparedUnavailable: LiveCenterInjury[] = injuries.map((p) => ({
+    playerName: p.playerName,
+    teamName: p.teamName,
+    status: p.status,
+    reason: null,
+  }));
+  const availability: LiveCenterInjury[] = [...preparedUnavailable, ...liveUnavailable].filter((item, index, arr) => (
+    arr.findIndex((x) => x.playerName === item.playerName && x.teamName === item.teamName) === index
+  ));
   const awayForm = isSoccer ? prepared?.awayForm ?? undefined : undefined;
   const homeForm = isSoccer ? prepared?.homeForm ?? undefined : undefined;
   const hasForm = !!(awayForm || homeForm);
@@ -445,10 +430,6 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
             game={game}
             away={away}
             home={home}
-            stories={stories}
-            injuries={injuries}
-            awayForm={awayForm}
-            homeForm={homeForm}
             alpha={alpha}
             read={matchRead}
           />
@@ -517,61 +498,63 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           </section>
         )}
 
-        {/* ── Storylines / injuries for non-soccer pages only. Soccer folds
-            those signals into The Read so the page does not repeat itself. */}
-        {!isSoccer && (
-          <>
-            <section className="mt-7">
-              <Label icon={Newspaper}>Storylines{stories.length ? ` · ${stories.length}` : ""}</Label>
-              {stories.length === 0 ? (
-                <p className="text-[12.5px] text-[#6b7068] leading-relaxed">{researchLoaded ? "Quiet so far. No storyline strong enough to change the read yet." : "No meaningful storyline surfaced yet."}</p>
-              ) : (
-                <div className="space-y-4">
-                  {lead && (
-                    <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] p-5">
-                      <p className="text-[15px] md:text-[16px] font-semibold text-white leading-snug">{lead.title}</p>
-                      {lead.detail && <p className="text-[12.5px] text-[#9ca39a] mt-2 leading-relaxed">{lead.detail}</p>}
-                      <p className="text-[10px] text-[#4a524a] mt-2.5 font-mono uppercase tracking-wide">{lead.time}</p>
-                    </div>
-                  )}
-                  {rest.length > 0 && (
-                    <div className="divide-y divide-[#141714] rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5">
-                      {rest.map((s, i) => (
-                        <div key={i} className="flex gap-3 py-3.5">
-                          <Newspaper className="h-3.5 w-3.5 text-[#3ee68a]/70 mt-0.5 shrink-0" strokeWidth={1.6} />
-                          <div className="min-w-0">
-                            <p className="text-[13px] text-[#e0e3dc] font-medium leading-snug">{s.title}</p>
-                            {s.detail && <p className="text-[11.5px] text-[#8a9286] mt-1 leading-relaxed line-clamp-2">{s.detail}</p>}
-                            <p className="text-[10px] text-[#4a524a] mt-1 font-mono uppercase tracking-wide">{s.time}</p>
-                          </div>
+        {/* ── Storylines. Soccer keeps this as its own module; The Read avoids
+            repeating the content. Empty soccer storylines stay hidden. */}
+        {(!isSoccer || stories.length > 0) && (
+          <section className="mt-7">
+            <Label icon={Newspaper}>Storylines{stories.length ? ` · ${stories.length}` : ""}</Label>
+            {stories.length === 0 ? (
+              <p className="text-[12.5px] text-[#6b7068] leading-relaxed">{researchLoaded ? "Quiet so far. No storyline strong enough to change the read yet." : "No meaningful storyline surfaced yet."}</p>
+            ) : (
+              <div className="space-y-4">
+                {lead && (
+                  <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] p-5">
+                    <p className="text-[15px] md:text-[16px] font-semibold text-white leading-snug">{lead.title}</p>
+                    {lead.detail && <p className="text-[12.5px] text-[#9ca39a] mt-2 leading-relaxed">{lead.detail}</p>}
+                    <p className="text-[10px] text-[#4a524a] mt-2.5 font-mono uppercase tracking-wide">{lead.time}</p>
+                  </div>
+                )}
+                {rest.length > 0 && (
+                  <div className="divide-y divide-[#141714] rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5">
+                    {rest.map((s, i) => (
+                      <div key={i} className="flex gap-3 py-3.5">
+                        <Newspaper className="h-3.5 w-3.5 text-[#3ee68a]/70 mt-0.5 shrink-0" strokeWidth={1.6} />
+                        <div className="min-w-0">
+                          <p className="text-[13px] text-[#e0e3dc] font-medium leading-snug">{s.title}</p>
+                          {s.detail && <p className="text-[11.5px] text-[#8a9286] mt-1 leading-relaxed line-clamp-2">{s.detail}</p>}
+                          <p className="text-[10px] text-[#4a524a] mt-1 font-mono uppercase tracking-wide">{s.time}</p>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
-            <section className="mt-7">
-              <Label icon={HeartPulse}>Injuries &amp; team news{injuries.length ? ` · ${injuries.length}` : ""}</Label>
-              {injuries.length === 0 ? (
-                <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4 flex items-center gap-2.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]/50" />
-                  <p className="text-[12.5px] text-[#9ca39a]">{researchLoaded ? "No injuries or suspensions reported. Squad news matters more as kickoff gets closer." : "No team-news flag yet."}</p>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {injuries.map((a, i) => (
-                    <span key={i} className="inline-flex items-center gap-2 rounded-xl border border-[#ef4444]/30 bg-[#1a0e0e] px-3 py-2 text-[12px]">
-                      <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444]" />
-                      <span className="font-semibold text-[#ef9a9a]">{a.playerName}</span>
-                      <span className="text-[#9ca39a] text-[11px]">{a.status} · {a.teamName}</span>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </section>
-          </>
+        {/* ── Injuries / availability. Empty soccer availability stays hidden;
+            The Read should not repeat this player list. */}
+        {(!isSoccer || availability.length > 0) && (
+          <section className="mt-7">
+            <Label icon={HeartPulse}>Injuries &amp; team news{availability.length ? ` · ${availability.length}` : ""}</Label>
+            {availability.length === 0 ? (
+              <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4 flex items-center gap-2.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]/50" />
+                <p className="text-[12.5px] text-[#9ca39a]">{researchLoaded ? "No injuries or suspensions reported. Squad news matters more as kickoff gets closer." : "No team-news flag yet."}</p>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {availability.map((a, i) => (
+                  <span key={i} className="inline-flex items-center gap-2 rounded-xl border border-[#ef4444]/30 bg-[#1a0e0e] px-3 py-2 text-[12px]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444]" />
+                    <span className="font-semibold text-[#ef9a9a]">{a.playerName}</span>
+                    <span className="text-[#9ca39a] text-[11px]">{a.status} · {a.teamName}{a.reason ? ` · ${a.reason}` : ""}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
         )}
 
         {/* ── Best odds ─────────────────────────────────────────────────── */}

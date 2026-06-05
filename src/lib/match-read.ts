@@ -7,11 +7,9 @@ export type MatchReadImportance = "low" | "medium" | "high";
 export type MatchReadMomentType =
   | "lineup_window"
   | "since_last_check"
-  | "team_news"
   | "lineups_confirmed"
   | "live_event"
   | "tactical_watch"
-  | "form_note"
   | "quiet";
 
 export interface MatchReadMoment {
@@ -79,27 +77,6 @@ function kickoffWindow(game: Game): MatchReadWindow | null {
   };
 }
 
-function firstUsefulStory(prepared: PreparedGameIntel | null) {
-  return (prepared?.stories ?? []).find((s) => (s.detail ?? "").trim().length > 35);
-}
-
-function formMoment(game: Game, prepared: PreparedGameIntel | null): MatchReadMoment | null {
-  const candidates = [
-    prepared?.awayForm?.summary ? { team: game.away_team, summary: prepared.awayForm.summary } : null,
-    prepared?.homeForm?.summary ? { team: game.home_team, summary: prepared.homeForm.summary } : null,
-  ].filter(Boolean) as Array<{ team: string; summary: { run?: string | null; form: string } }>;
-  const notable = candidates.find((x) => x.summary.run);
-  if (!notable) return null;
-  return {
-    type: "form_note",
-    rank: 50,
-    label: "Context",
-    title: `${notable.team}: ${notable.summary.run}`,
-    detail: `Recent form: ${notable.summary.form}. Useful background, not a standalone bet angle.`,
-    importance: "low",
-  };
-}
-
 export function buildSoccerMatchRead(
   game: Game,
   prepared: PreparedGameIntel | null,
@@ -110,8 +87,6 @@ export function buildSoccerMatchRead(
   const isLive = game.status === "live";
   const isFinal = game.status === "final";
   const h = hoursToKickoff(game);
-  const injuries = prepared?.injuryAlerts ?? [];
-  const story = firstUsefulStory(prepared);
   const moments: MatchReadMoment[] = [];
 
   if (alpha.coverage.latestChange) {
@@ -142,9 +117,9 @@ export function buildSoccerMatchRead(
       rank: isLive ? 3 : 1,
       label: "Lineups",
       title: alpha.coverage.starters >= 22 ? "Starting XIs are in" : `${alpha.coverage.lineups} names on the sheet`,
-      detail: alpha.coverage.sidelined
-        ? `${alpha.coverage.unavailable.slice(0, 2).map((p) => `${p.playerName} (${p.teamName})`).join(" · ")}${alpha.coverage.sidelined > 2 ? ` +${alpha.coverage.sidelined - 2} more` : ""}. Check who replaces them and how the shape changes.`
-        : "No obvious lineup shock yet. Shape and roles are the next thing to inspect.",
+      detail: alpha.coverage.starters >= 22
+        ? "The page can move from pre-match assumptions to actual shape, roles and matchups."
+        : "The sheet is partially populated. Wait for confirmed XIs before treating it as decisive.",
       importance: alpha.coverage.starters >= 22 ? "high" : "medium",
     });
   } else if (!isLive && !isFinal) {
@@ -160,49 +135,13 @@ export function buildSoccerMatchRead(
     });
   }
 
-  if (alpha.coverage.sidelined && !alpha.coverage.lineups) {
-    moments.push({
-      type: "team_news",
-      rank: 1,
-      label: "Team news",
-      title: `${alpha.coverage.sidelined} unavailable already flagged`,
-      detail: `${alpha.coverage.unavailable.slice(0, 2).map((p) => p.playerName).join(" · ")}${alpha.coverage.sidelined > 2 ? ` +${alpha.coverage.sidelined - 2} more` : ""}. This is worth tracking before lineups drop.`,
-      importance: "high",
-    });
-  }
-
-  if (injuries.length) {
-    moments.push({
-      type: "team_news",
-      rank: 1,
-      label: "Team news",
-      title: `${injuries.length} availability flag${injuries.length === 1 ? "" : "s"}`,
-      detail: injuries.slice(0, 2).map((i) => `${i.playerName} ${i.status} (${i.teamName})`).join(" · "),
-      importance: "high",
-    });
-  }
-
-  if (story) {
-    moments.push({
-      type: "team_news",
-      rank: 8,
-      label: "Context",
-      title: story.title,
-      detail: story.detail ?? "Worth knowing before kickoff.",
-      importance: "medium",
-    });
-  }
-
-  const fm = formMoment(game, prepared);
-  if (fm) moments.push(fm);
-
   if (!moments.length) {
     moments.push({
       type: "quiet",
       rank: 99,
       label: "Quiet",
       title: "Nothing meaningful has changed",
-      detail: "No lineup, team-news or live-game signal strong enough to create an angle yet.",
+      detail: "No match-state change strong enough to alter the page yet.",
       importance: "low",
     });
   }

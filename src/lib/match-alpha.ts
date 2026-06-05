@@ -1,4 +1,5 @@
 import { spawnSync } from "child_process";
+import * as serverCache from "@/lib/server-cache";
 import type { Game } from "@/types/game";
 import type { PreparedGameIntel } from "@/lib/game-intel-cache";
 
@@ -63,8 +64,12 @@ function firstSentence(text: string, max = 170): string {
   return `${clean.slice(0, max - 1).trim()}…`;
 }
 
-function sportmonksDigest(game: Game): MatchAlphaCoverage {
+async function sportmonksDigest(game: Game): Promise<MatchAlphaCoverage> {
   if (!game.sport.startsWith("soccer")) return emptyCoverage;
+  const cacheKey = `match-alpha-v1:${game.id}`;
+  const cached = await serverCache.get(cacheKey);
+  if (cached?.data) return { ...emptyCoverage, ...cached.data } as MatchAlphaCoverage;
+
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
   const script = `
 import json, sqlite3
@@ -162,14 +167,16 @@ print(json.dumps(out))
 `;
   const r = spawnSync("python3", ["-c", script], { cwd: appRoot, encoding: "utf-8", timeout: 6_000 });
   try {
-    return { ...emptyCoverage, ...JSON.parse(r.stdout) } as MatchAlphaCoverage;
+    const coverage = { ...emptyCoverage, ...JSON.parse(r.stdout) } as MatchAlphaCoverage;
+    await serverCache.set(cacheKey, coverage, [game]);
+    return coverage;
   } catch {
     return emptyCoverage;
   }
 }
 
-export function getMatchAlphaDigest(game: Game, prepared: PreparedGameIntel | null): MatchAlphaDigest {
-  const coverage = sportmonksDigest(game);
+export async function getMatchAlphaDigest(game: Game, prepared: PreparedGameIntel | null): Promise<MatchAlphaDigest> {
+  const coverage = await sportmonksDigest(game);
   const stories = prepared?.stories ?? [];
   const injuries = prepared?.injuryAlerts ?? [];
   const cards: MatchAlphaCard[] = [];
