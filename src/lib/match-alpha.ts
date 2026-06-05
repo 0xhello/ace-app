@@ -18,6 +18,7 @@ export interface MatchAlphaCoverage {
   starters: number;
   bench: number;
   sidelined: number;
+  unavailable: Array<{ playerName: string; teamName: string; reason?: string | null }>;
   events: number;
   statistics: number;
   predictions: number;
@@ -38,6 +39,7 @@ const emptyCoverage: MatchAlphaCoverage = {
   starters: 0,
   bench: 0,
   sidelined: 0,
+  unavailable: [],
   events: 0,
   statistics: 0,
   predictions: 0,
@@ -74,6 +76,7 @@ out = {
   "starters": sum(1 for x in (b.get("lineups") or []) if x.get("is_starter")) if b else 0,
   "bench": sum(1 for x in (b.get("lineups") or []) if not x.get("is_starter")) if b else 0,
   "sidelined": 0,
+  "unavailable": [],
   "events": len(b.get("events") or []) if b else 0,
   "statistics": 0,
   "predictions": len(b.get("predictions") or {}) if b else 0,
@@ -95,6 +98,21 @@ try:
       "fixtureId": row["provider_fixture_id"] or out["fixtureId"],
       "sportmonksBundle": True,
     })
+  unavailable = conn.execute("""
+    SELECT player_name, team, unavailable_reason
+      FROM soccer_player_feature_snapshot
+     WHERE game_id = ?
+       AND provider = 'sportmonks'
+       AND (availability = 'out' OR lineup_status = 'out')
+     ORDER BY team, player_name
+     LIMIT 8
+  """, (game_id,)).fetchall()
+  out["unavailable"] = [
+    {"playerName": r["player_name"], "teamName": r["team"], "reason": r["unavailable_reason"]}
+    for r in unavailable
+  ]
+  if unavailable and not out.get("sidelined"):
+    out["sidelined"] = len(unavailable)
   conn.close()
 except Exception:
   pass
@@ -120,7 +138,7 @@ export function getMatchAlphaDigest(game: Game, prepared: PreparedGameIntel | nu
       cards.push({
         label: "Lineups",
         title: coverage.starters >= 22 ? "Starting XIs are in" : `${coverage.lineups} names on the team sheet`,
-        detail: coverage.sidelined ? `${coverage.sidelined} players are unavailable. Check the shape before forcing a read.` : "No major lineup shock showing yet. The shape is the thing to check next.",
+        detail: coverage.sidelined ? `${coverage.unavailable.slice(0, 2).map((p) => `${p.playerName} (${p.teamName})`).join(" · ")}${coverage.sidelined > 2 ? ` +${coverage.sidelined - 2} more` : ""}. Check who replaces them and how the shape changes.` : "No major lineup shock showing yet. The shape is the thing to check next.",
         tone: coverage.starters >= 22 ? "good" : "neutral",
       });
     } else {

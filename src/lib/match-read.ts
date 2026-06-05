@@ -131,7 +131,7 @@ export function buildSoccerMatchRead(
       label: "Lineups",
       title: alpha.coverage.starters >= 22 ? "Starting XIs are in" : `${alpha.coverage.lineups} names on the sheet`,
       detail: alpha.coverage.sidelined
-        ? `${alpha.coverage.sidelined} unavailable. Check who replaced them and how the shape changes.`
+        ? `${alpha.coverage.unavailable.slice(0, 2).map((p) => `${p.playerName} (${p.teamName})`).join(" · ")}${alpha.coverage.sidelined > 2 ? ` +${alpha.coverage.sidelined - 2} more` : ""}. Check who replaces them and how the shape changes.`
         : "No obvious lineup shock yet. Shape and roles are the next thing to inspect.",
       importance: alpha.coverage.starters >= 22 ? "high" : "medium",
     });
@@ -145,6 +145,17 @@ export function buildSoccerMatchRead(
         ? "Nothing needs to be forced this far out. Confirmed XIs should matter more than early noise."
         : "This is where the read can change quickly: starters, formation and late scratches.",
       importance: h != null && h <= 4 ? "high" : "medium",
+    });
+  }
+
+  if (alpha.coverage.sidelined && !alpha.coverage.lineups) {
+    moments.push({
+      type: "team_news",
+      rank: 1,
+      label: "Team news",
+      title: `${alpha.coverage.sidelined} unavailable already flagged`,
+      detail: `${alpha.coverage.unavailable.slice(0, 2).map((p) => p.playerName).join(" · ")}${alpha.coverage.sidelined > 2 ? ` +${alpha.coverage.sidelined - 2} more` : ""}. This is worth tracking before lineups drop.`,
+      importance: "high",
     });
   }
 
