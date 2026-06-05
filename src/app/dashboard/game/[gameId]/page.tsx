@@ -11,6 +11,7 @@
  * flex-1 overflow-y-auto root.
  */
 import { notFound } from "next/navigation";
+import { spawnSync } from "child_process";
 import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3, Database, AlertTriangle } from "lucide-react";
 import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
@@ -30,7 +31,63 @@ import type { Game } from "@/types/game";
 export const dynamic = "force-dynamic";
 const IS_DEV = process.env.NODE_ENV !== "production";
 
+function getFriendlyGame(id: string): Game | null {
+  if (!id.startsWith("friendly_")) return null;
+  const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
+  const script = `
+import json, sqlite3, sys
+from ml.world_cup.signal_logger import DB_PATH
+conn=sqlite3.connect(DB_PATH); conn.row_factory=sqlite3.Row
+mapping=conn.execute("""
+  SELECT game_id, sport_key, provider_fixture_id, home_team, away_team, commence_time
+    FROM soccer_fixture_provider_map
+   WHERE game_id = ? AND provider = 'sportmonks'
+   ORDER BY updated_at DESC, id DESC
+   LIMIT 1
+""", (${JSON.stringify(id)},)).fetchone()
+snapshot=conn.execute("""
+  SELECT state_name
+    FROM soccer_fixture_feature_snapshot
+   WHERE game_id = ? AND provider = 'sportmonks'
+   LIMIT 1
+""", (${JSON.stringify(id)},)).fetchone()
+conn.close()
+if not mapping:
+  print(json.dumps(None)); sys.exit(0)
+state=(snapshot["state_name"] if snapshot else None) or "Not Started"
+sl=str(state).lower()
+status="upcoming"
+if any(x in sl for x in ["live", "1st", "2nd", "half time", "break"]):
+  status="live"
+elif any(x in sl for x in ["full", "ended", "after penalties", "cancelled", "postponed"]):
+  status="final"
+print(json.dumps({
+  "id": mapping["game_id"],
+  "sport": mapping["sport_key"] or "soccer_international_friendly",
+  "sport_title": "International Friendly",
+  "home_team": mapping["home_team"],
+  "away_team": mapping["away_team"],
+  "commence_time": mapping["commence_time"],
+  "status": status,
+  "best_moneyline": {},
+  "bookmakers": [],
+  "num_books": 0,
+  "fetched_at": "",
+  "scoreboard": {"state": state, "clock": state},
+}, ensure_ascii=False))
+`;
+  const r = spawnSync("python3", ["-c", script], { cwd: appRoot, encoding: "utf-8", timeout: 6_000 });
+  try {
+    return JSON.parse(r.stdout) as Game | null;
+  } catch {
+    return null;
+  }
+}
+
 async function getGame(id: string): Promise<Game | null> {
+  const friendly = getFriendlyGame(id);
+  if (friendly) return friendly;
+
   try {
     const entry = await serverCache.get("board-games");
     const hit = (entry?.data?.games ?? []).find((g: Game) => g.id === id);
@@ -313,8 +370,9 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
   // Sportmonks/Python work runs in background via game-intel cache warming.
   // If the cache is cold, render a good partial page immediately and trigger a
   // non-blocking warm for the next load.
-  const prepared = await getPreparedGameIntel(game.id);
-  if (!prepared) warmGameIntelCacheSoon(`cold-game-page:${game.id}`);
+  const isFriendlyRehearsal = game.id.startsWith("friendly_");
+  const prepared = isFriendlyRehearsal ? null : await getPreparedGameIntel(game.id);
+  if (!prepared && !isFriendlyRehearsal) warmGameIntelCacheSoon(`cold-game-page:${game.id}`);
 
   const researchLoaded = !!prepared;
   const stories = prepared?.stories ?? [];
