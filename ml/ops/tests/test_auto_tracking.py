@@ -63,3 +63,24 @@ def test_nba_signal_auto_tracks_and_grades(tmp_path: Path) -> None:
 
     grade_nba_signal("nba-auto", 112, 104, db_path=source)
     assert _tracked_row(tmp_path, "signal_log") == ("nba", "model_auto", "graded", "win")
+
+from ml.ops.tracked_picks import add_operator_pick
+
+
+def test_operator_manual_pick_starts_open_and_internal(tmp_path: Path) -> None:
+    row = add_operator_pick(
+        sport="mlb",
+        matchup_label="Away @ Home",
+        market="h2h",
+        side="home",
+        book="DraftKings",
+        odds_american=-110,
+        notes="operator research",
+        target_db=tmp_path / "tracked_picks.db",
+    )
+    assert row["sport"] == "mlb"
+    assert row["origin"] == "operator_manual"
+    assert row["tracking_mode"] == "paper"
+    assert row["publish_state"] == "internal"
+    assert row["lifecycle"] == "open"
+    assert row["source_table"] == "operator_manual"

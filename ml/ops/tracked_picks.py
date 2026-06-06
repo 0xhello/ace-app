@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -457,6 +458,101 @@ def track_nba_signal(source_id: int | str, source_db: Path, target_db: Optional[
         return row_id
     finally:
         tgt.close()
+
+
+def add_operator_pick(
+    *,
+    sport: str,
+    market: str,
+    side: str,
+    matchup_label: str,
+    game_id: Optional[str] = None,
+    game_date: Optional[str] = None,
+    commence_time: Optional[str] = None,
+    league: Optional[str] = None,
+    tournament: Optional[str] = None,
+    home_team: Optional[str] = None,
+    away_team: Optional[str] = None,
+    line: Optional[float] = None,
+    selection_label: Optional[str] = None,
+    book: Optional[str] = None,
+    odds_american: Optional[float] = None,
+    implied_prob: Optional[float] = None,
+    model_prob: Optional[float] = None,
+    edge_pp: Optional[float] = None,
+    confidence_tier: Optional[str] = None,
+    stake_units: Optional[float] = 1.0,
+    notes: Optional[str] = None,
+    publish_state: str = "internal",
+    target_db: Path = DEFAULT_TARGET_DB,
+) -> Dict[str, Any]:
+    """Create a manual/operator paper pick in the canonical ledger.
+
+    This is intentionally internal + paper-only. It does not touch real-money
+    execution and does not write to legacy sport signal tables.
+    """
+    sport = (sport or "").strip().lower()
+    market = (market or "").strip().lower()
+    side = (side or "").strip().lower()
+    matchup_label = (matchup_label or "").strip()
+    publish_state = (publish_state or "internal").strip().lower()
+
+    if sport not in {"mlb", "nba", "soccer"}:
+        raise ValueError("sport must be one of: mlb, nba, soccer")
+    if not market:
+        raise ValueError("market is required")
+    if not side:
+        raise ValueError("side is required")
+    if not matchup_label:
+        raise ValueError("matchup_label is required")
+    if publish_state not in {"internal", "signal_feed", "hidden"}:
+        raise ValueError("publish_state must be internal, signal_feed, or hidden")
+
+    source_id = f"manual_{uuid.uuid4().hex}"
+    now = utc_now()
+    pick = {
+        "source_table": "operator_manual",
+        "source_id": source_id,
+        "source_db": Path(target_db).name,
+        "source_snapshot_at": now,
+        "sport": sport,
+        "tracking_mode": "paper",
+        "origin": "operator_manual",
+        "lifecycle": "open",
+        "publish_state": publish_state,
+        "game_id": game_id or source_id,
+        "game_date": game_date,
+        "commence_time": commence_time,
+        "league": league,
+        "tournament": tournament,
+        "home_team": home_team,
+        "away_team": away_team,
+        "matchup_label": matchup_label,
+        "market": market,
+        "side": side,
+        "line": line,
+        "selection_label": selection_label,
+        "book": book,
+        "odds_american": odds_american,
+        "implied_prob": implied_prob,
+        "model_prob": model_prob,
+        "edge_pp": edge_pp,
+        "signal_strength": edge_pp,
+        "confidence_tier": confidence_tier,
+        "stake_units": stake_units,
+        "notes": notes,
+        "detected_at": now,
+        "tracked_at": now,
+    }
+    init_db(Path(target_db))
+    conn = connect(Path(target_db))
+    try:
+        _, row_id = upsert_pick(conn, pick, dry_run=False)
+        conn.commit()
+        row = conn.execute("SELECT * FROM tracked_picks WHERE id=?", (row_id,)).fetchone()
+        return rowdict(row) if row else {**pick, "id": row_id}
+    finally:
+        conn.close()
 
 
 def import_mlb_signals(source_db: Path, target_db: Path, dry_run: bool = True) -> ImportStats:
