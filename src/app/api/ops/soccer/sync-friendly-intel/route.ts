@@ -1,9 +1,8 @@
 /**
  * /api/ops/soccer/sync-friendly-intel — data-only international-friendly rehearsal lane.
  *
- * Thin ops wrapper around ml.soccer.friendly_intel. This route parses request
- * limits and delegates domain work to the Python service layer. It does NOT
- * generate or approve picks.
+ * Thin ops wrapper around ml.soccer.friendly_intel. GET is rehearsal/status;
+ * POST ?sync=true performs provider/data sync. It does NOT generate or approve picks.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
@@ -15,10 +14,16 @@ function boundedInt(value: string | null, fallback: number, min: number, max: nu
   return Number.isFinite(raw) ? Math.max(min, Math.min(max, Math.floor(raw))) : fallback;
 }
 
-export async function GET(req: NextRequest) {
+async function runFriendlyIntel(req: NextRequest, opts?: { allowMutating?: boolean }) {
   const days = boundedInt(req.nextUrl.searchParams.get("days"), 7, 1, 21);
   const limit = boundedInt(req.nextUrl.searchParams.get("limit"), 8, 1, 24);
   const shouldSync = req.nextUrl.searchParams.get("sync") === "true";
+  if (shouldSync && !opts?.allowMutating) {
+    return NextResponse.json(
+      { ok: false, error: "sync mutates data and must be called with POST by an admin session" },
+      { status: 405, headers: { Allow: "GET, POST" } },
+    );
+  }
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
 
   const script = `
@@ -53,4 +58,12 @@ except Exception as e:
       { status: 500 },
     );
   }
+}
+
+export async function GET(req: NextRequest) {
+  return runFriendlyIntel(req, { allowMutating: false });
+}
+
+export async function POST(req: NextRequest) {
+  return runFriendlyIntel(req, { allowMutating: true });
 }

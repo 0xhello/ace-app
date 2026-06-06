@@ -122,7 +122,10 @@ export default function FriendliesPanel() {
     if (sync) setSyncing(true); else setLoading(true);
     setErr(null);
     try {
-      const res = await fetch(`/api/ops/soccer/sync-friendly-intel?days=7&limit=8${sync ? "&sync=true" : ""}`, { cache: "no-store" });
+      const res = await fetch(`/api/ops/soccer/sync-friendly-intel?days=7&limit=8${sync ? "&sync=true" : ""}`, {
+        cache: "no-store",
+        method: sync ? "POST" : "GET",
+      });
       const json = await res.json() as FriendlyIntelResponse;
       if (json.ok) setData(json);
       else setErr(json.error || "failed to load friendly rehearsal data");
