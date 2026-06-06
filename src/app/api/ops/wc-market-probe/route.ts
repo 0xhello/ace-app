@@ -160,23 +160,17 @@ db = ${JSON.stringify(dbPath)}
 out = {"history": [], "latest": None}
 try:
     if os.path.exists(db):
-        conn = sqlite3.connect(db); conn.row_factory = sqlite3.Row
-        # Make sure the log table exists — idempotent
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS wc_market_probe_log (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                probed_at   TEXT NOT NULL,
-                total_games INTEGER NOT NULL,
-                credit_cost INTEGER,
-                credits_remaining INTEGER,
-                markets_json TEXT NOT NULL
-            )
-        """)
-        conn.commit()
-        rows = [dict(r) for r in conn.execute(
-            "SELECT probed_at, total_games, credit_cost, credits_remaining, markets_json "
-            "FROM wc_market_probe_log ORDER BY id DESC LIMIT 20"
-        ).fetchall()]
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True); conn.row_factory = sqlite3.Row
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='wc_market_probe_log'"
+        ).fetchone()
+        if exists:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT probed_at, total_games, credit_cost, credits_remaining, markets_json "
+                "FROM wc_market_probe_log ORDER BY id DESC LIMIT 20"
+            ).fetchall()]
+        else:
+            rows = []
         conn.close()
         # Decode markets_json into structured form
         for r in rows:
