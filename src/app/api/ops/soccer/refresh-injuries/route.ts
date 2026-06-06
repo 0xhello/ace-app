@@ -6,10 +6,11 @@
  * cron) or on demand — NOT on every board render. The board reads the table
  * read-only via fetchSoccerInjuries().
  *
- *   GET /api/ops/soccer/refresh-injuries              → scan cached board for soccer teams
- *   GET /api/ops/soccer/refresh-injuries?teams=Brazil,France,Liverpool
+ *   POST /api/ops/soccer/refresh-injuries              → scan cached board for soccer teams
+ *   POST /api/ops/soccer/refresh-injuries?teams=Brazil,France,Liverpool
  *
- * Read-token gated through middleware.
+ * This mutates the local/prod soccer injury cache, so it must remain POST-only
+ * behind an admin session. GET is reserved for read-token-safe reads.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
 
 const CACHE_KEY = "board-games";   // must match src/app/api/board/route.ts
 
-export async function GET(req: NextRequest) {
+async function runRefresh(req: NextRequest) {
   // 1. Resolve the team list: explicit param, else soccer teams off the cached board.
   let teams: string[] = (req.nextUrl.searchParams.get("teams") || "")
     .split(",").map((s) => s.trim()).filter(Boolean);
@@ -70,4 +71,15 @@ except Exception as e:
       { status: 500 },
     );
   }
+}
+
+export async function POST(req: NextRequest) {
+  return runRefresh(req);
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { ok: false, error: "refresh-injuries mutates data and must be called with POST by an admin session" },
+    { status: 405, headers: { Allow: "POST" } },
+  );
 }
