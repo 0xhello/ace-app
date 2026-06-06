@@ -7,10 +7,11 @@
  * run this periodically (worker / cron) or on demand — NOT per render. The game
  * page reads the table read-only via fetchSoccerRecentForm().
  *
- *   GET /api/ops/soccer/refresh-recent-form              → scan cached board for soccer teams
- *   GET /api/ops/soccer/refresh-recent-form?teams=Mexico,Brazil
+ *   POST /api/ops/soccer/refresh-recent-form              → scan cached board for soccer teams
+ *   POST /api/ops/soccer/refresh-recent-form?teams=Mexico,Brazil
  *
- * Read-token gated through middleware.
+ * This mutates the local/prod recent-form cache, so it must remain POST-only
+ * behind an admin session. GET is reserved for read-token-safe reads.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
@@ -21,7 +22,7 @@ export const dynamic = "force-dynamic";
 
 const CACHE_KEY = "board-games";   // must match src/app/api/board/route.ts
 
-export async function GET(req: NextRequest) {
+async function runRefresh(req: NextRequest) {
   let teams: string[] = (req.nextUrl.searchParams.get("teams") || "")
     .split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -70,4 +71,15 @@ except Exception as e:
       { status: 500 },
     );
   }
+}
+
+export async function POST(req: NextRequest) {
+  return runRefresh(req);
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { ok: false, error: "refresh-recent-form mutates data and must be called with POST by an admin session" },
+    { status: 405, headers: { Allow: "POST" } },
+  );
 }
