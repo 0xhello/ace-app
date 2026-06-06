@@ -16,6 +16,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from ml.ops.confidence_calibration import MODEL_VERSION as CONFIDENCE_MODEL_VERSION
+from ml.ops.confidence_calibration import confidence_tier_for_score
+
 APP_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATA_DIR = APP_ROOT / "ml" / "nba_spread" / "data"
 DEFAULT_TARGET_DB = DEFAULT_DATA_DIR / "tracked_picks.db"
@@ -175,6 +178,15 @@ class ImportStats:
     def as_dict(self) -> Dict[str, Any]:
         return self.__dict__.copy()
 
+
+
+def calibrated_tier(edge_pp: Optional[float], fallback: Optional[str] = None) -> Optional[str]:
+    if edge_pp is None:
+        return fallback
+    try:
+        return confidence_tier_for_score(float(edge_pp))
+    except (TypeError, ValueError):
+        return fallback
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -359,7 +371,8 @@ def track_mlb_signal(source_id: int | str, source_db: Path, target_db: Optional[
             "sharp_prob": r.get("pinnacle_prob"),
             "edge_pp": r.get("edge_pp"),
             "signal_strength": r.get("edge_pp"),
-            "confidence_tier": r.get("confidence_tier"),
+            "confidence_tier": calibrated_tier(r.get("edge_pp"), r.get("confidence_tier")),
+            "confidence_model_version": CONFIDENCE_MODEL_VERSION if r.get("edge_pp") is not None else None,
             "kelly_fraction": r.get("kelly_fraction"),
             "stake_units": 1.0 if lifecycle in ("open", "graded") else None,
             "rationale_json": r.get("reasoning_json"),
@@ -421,7 +434,8 @@ def track_soccer_signal(source_id: int | str, source_db: Path, target_db: Option
             "sharp_prob": r.get("pinnacle_prob") or r.get("prior_prob"),
             "edge_pp": r.get("edge_pp"),
             "signal_strength": r.get("edge_pp"),
-            "confidence_tier": r.get("confidence_tier"),
+            "confidence_tier": calibrated_tier(r.get("edge_pp"), r.get("confidence_tier")),
+            "confidence_model_version": CONFIDENCE_MODEL_VERSION if r.get("edge_pp") is not None else None,
             "kelly_fraction": r.get("kelly_fraction"),
             "stake_units": 1.0 if lifecycle in ("open", "graded") else None,
             "rationale_json": r.get("reasoning_json"),
@@ -808,7 +822,8 @@ def add_operator_pick(
         "model_prob": model_prob,
         "edge_pp": edge_pp,
         "signal_strength": edge_pp,
-        "confidence_tier": confidence_tier,
+        "confidence_tier": calibrated_tier(edge_pp, confidence_tier),
+        "confidence_model_version": CONFIDENCE_MODEL_VERSION if edge_pp is not None else None,
         "stake_units": stake_units,
         "notes": notes,
         "detected_at": now,
@@ -864,7 +879,8 @@ def import_mlb_signals(source_db: Path, target_db: Path, dry_run: bool = True) -
             "model_prob": None,
             "edge_pp": r.get("edge_pp"),
             "signal_strength": r.get("edge_pp"),
-            "confidence_tier": r.get("confidence_tier"),
+            "confidence_tier": calibrated_tier(r.get("edge_pp"), r.get("confidence_tier")),
+            "confidence_model_version": CONFIDENCE_MODEL_VERSION if r.get("edge_pp") is not None else None,
             "kelly_fraction": r.get("kelly_fraction"),
             "stake_units": 1.0 if lifecycle in ("open", "graded") else None,
             "rationale_json": r.get("reasoning_json"),
@@ -927,7 +943,8 @@ def import_soccer_signals(source_db: Path, target_db: Path, dry_run: bool = True
             "sharp_prob": r.get("pinnacle_prob"),
             "edge_pp": r.get("edge_pp"),
             "signal_strength": r.get("edge_pp"),
-            "confidence_tier": r.get("confidence_tier"),
+            "confidence_tier": calibrated_tier(r.get("edge_pp"), r.get("confidence_tier")),
+            "confidence_model_version": CONFIDENCE_MODEL_VERSION if r.get("edge_pp") is not None else None,
             "kelly_fraction": r.get("kelly_fraction"),
             "stake_units": 1.0 if lifecycle in ("open", "graded") else None,
             "rationale_json": r.get("reasoning_json"),
