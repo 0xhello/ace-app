@@ -172,10 +172,31 @@ function ParlayBuilderPanel({ picks, parlays, onCreated }: { picks: TrackedPickR
   const [odds, setOdds] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [publishingId, setPublishingId] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   function toggle(id: number) {
     setSelected((current) => current.includes(id) ? current.filter((v) => v !== id) : [...current, id]);
+  }
+
+  async function updatePublishState(parlayId: number, publishState: "internal" | "signal_feed" | "hidden") {
+    setPublishingId(parlayId);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/ops/parlays", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parlay_id: parlayId, publish_state: publishState }),
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload.ok) throw new Error(payload.error ?? "Could not update parlay");
+      setMessage(publishState === "signal_feed" ? "Parlay marked for Signal Feed." : publishState === "hidden" ? "Parlay hidden from publish surfaces." : "Parlay kept internal.");
+      await onCreated();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not update parlay");
+    } finally {
+      setPublishingId(null);
+    }
   }
 
   async function submit() {
@@ -292,13 +313,27 @@ function ParlayBuilderPanel({ picks, parlays, onCreated }: { picks: TrackedPickR
       {parlays.length > 0 && (
         <div className="mt-4 divide-y divide-[#181c18] rounded-xl border border-[#1e2220] bg-[#080908]">
           {parlays.slice(0, 5).map((parlay) => (
-            <div key={parlay.id} className="grid grid-cols-1 gap-2 px-3 py-3 md:grid-cols-[1.2fr_0.5fr_0.5fr]">
+            <div key={parlay.id} className="grid grid-cols-1 gap-3 px-3 py-3 lg:grid-cols-[1.1fr_0.35fr_0.35fr_0.9fr]">
               <div>
                 <p className="text-[11px] font-semibold text-white">{parlay.label}</p>
-                <p className="mt-1 text-[10px] text-[#6b7068]">{parlay.legs.length} legs · {parlay.lifecycle}</p>
+                <p className="mt-1 text-[10px] text-[#6b7068]">{parlay.legs.length} legs · {parlay.lifecycle} · {parlay.publish_state === "signal_feed" ? "Signal Feed ready" : parlay.publish_state === "hidden" ? "Hidden" : "Internal"}</p>
+                <p className="mt-2 line-clamp-2 text-[10px] text-[#6b7068]">
+                  {parlay.legs.map((leg) => `${sideLabel(leg)} ${leg.matchup_label ?? ""}`.trim()).join(" / ")}
+                </p>
               </div>
               <p className="font-mono text-[11px] text-[#9ca39a]">{fmtOdds(parlay.odds_american)}</p>
               <p className="font-mono text-[11px] text-[#9ca39a]">{parlay.pnl_units == null ? "open" : `${parlay.pnl_units > 0 ? "+" : ""}${parlay.pnl_units.toFixed(2)}u`}</p>
+              <div className="flex flex-wrap items-start gap-2 lg:justify-end">
+                <button onClick={() => void updatePublishState(parlay.id, "signal_feed")} disabled={publishingId === parlay.id || parlay.publish_state === "signal_feed"} className="rounded-md border border-[#3ee68a]/20 bg-[#3ee68a]/5 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#3ee68a] transition hover:bg-[#3ee68a]/10 active:translate-y-[1px] disabled:opacity-35">
+                  Feed
+                </button>
+                <button onClick={() => void updatePublishState(parlay.id, "internal")} disabled={publishingId === parlay.id || parlay.publish_state === "internal"} className="rounded-md border border-[#252a25] px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#9ca39a] transition hover:border-[#3a4033] active:translate-y-[1px] disabled:opacity-35">
+                  Internal
+                </button>
+                <button onClick={() => void updatePublishState(parlay.id, "hidden")} disabled={publishingId === parlay.id || parlay.publish_state === "hidden"} className="rounded-md border border-[#252a25] px-2 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#6b7068] transition hover:border-[#3a4033] active:translate-y-[1px] disabled:opacity-35">
+                  Hide
+                </button>
+              </div>
             </div>
           ))}
         </div>

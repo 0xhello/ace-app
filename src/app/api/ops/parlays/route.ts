@@ -92,3 +92,38 @@ except Exception as e:
   const { parsed } = runPython(script);
   return NextResponse.json(parsed, { status: parsed.ok ? 201 : 400 });
 }
+
+
+export async function PATCH(req: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const payload = {
+    parlay_id: cleanNumber(body.parlay_id),
+    publish_state: cleanString(body.publish_state, 40) ?? "internal",
+  };
+
+  if (!payload.parlay_id) {
+    return NextResponse.json({ ok: false, error: "parlay_id is required" }, { status: 400 });
+  }
+
+  const root = appRoot();
+  const dbPath = path.join(root, "ml", "nba_spread", "data", "tracked_picks.db");
+  const script = `
+import json, sys
+from pathlib import Path
+from ml.ops.tracked_picks import update_parlay_publish_state
+payload = ${JSON.stringify(payload)}
+try:
+    row = update_parlay_publish_state(target_db=Path(${JSON.stringify(dbPath)}), **payload)
+    print(json.dumps({"ok": True, "parlay": row}, default=str))
+except Exception as e:
+    print(json.dumps({"ok": False, "error": str(e)[:500]})); sys.exit(1)
+`;
+  const { parsed } = runPython(script);
+  return NextResponse.json(parsed, { status: parsed.ok ? 200 : 400 });
+}

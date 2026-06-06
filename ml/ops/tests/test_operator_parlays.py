@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from ml.ops.tracked_picks import add_operator_parlay, add_operator_pick, sync_parlay_results
+from ml.ops.tracked_picks import add_operator_parlay, add_operator_pick, sync_parlay_results, update_parlay_publish_state
 
 
 def test_operator_parlay_tracks_and_settles_from_legs(tmp_path: Path) -> None:
@@ -30,3 +30,20 @@ def test_operator_parlay_tracks_and_settles_from_legs(tmp_path: Path) -> None:
     assert row[0] == "graded"
     assert row[1] == "loss"
     assert row[2] == -1.0
+
+
+
+def test_operator_parlay_publish_state_can_be_marked_for_feed(tmp_path: Path) -> None:
+    db = tmp_path / "tracked_picks.db"
+    leg1 = add_operator_pick(sport="mlb", matchup_label="A @ B", market="h2h", side="home", target_db=db)
+    leg2 = add_operator_pick(sport="mlb", matchup_label="C @ D", market="spreads", side="away", line=-1.5, target_db=db)
+
+    parlay = add_operator_parlay(pick_ids=[leg1["id"], leg2["id"]], label="Feed-ready two-leg", target_db=db)
+    assert parlay["publish_state"] == "internal"
+
+    updated = update_parlay_publish_state(parlay_id=parlay["id"], publish_state="signal_feed", target_db=db)
+    assert updated["publish_state"] == "signal_feed"
+    assert [leg["id"] for leg in updated["legs"]] == [leg1["id"], leg2["id"]]
+
+    hidden = update_parlay_publish_state(parlay_id=parlay["id"], publish_state="hidden", target_db=db)
+    assert hidden["publish_state"] == "hidden"

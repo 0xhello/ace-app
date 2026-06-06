@@ -701,6 +701,35 @@ def list_parlays(target_db: Path = DEFAULT_TARGET_DB, limit: int = 100) -> List[
     finally:
         conn.close()
 
+
+
+def update_parlay_publish_state(
+    *,
+    parlay_id: int,
+    publish_state: str,
+    target_db: Path = DEFAULT_TARGET_DB,
+) -> Dict[str, Any]:
+    """Update whether an operator parlay is internal, hidden, or ready for the signal feed."""
+    publish_state = (publish_state or "internal").strip().lower()
+    if publish_state not in {"internal", "signal_feed", "hidden"}:
+        raise ValueError("publish_state must be internal, signal_feed, or hidden")
+
+    init_db(Path(target_db))
+    conn = connect(Path(target_db))
+    try:
+        row = conn.execute("SELECT id FROM tracked_parlays WHERE id=?", (int(parlay_id),)).fetchone()
+        if not row:
+            raise ValueError(f"unknown parlay_id: {parlay_id}")
+        conn.execute(
+            "UPDATE tracked_parlays SET publish_state=?, updated_at=datetime('now') WHERE id=?",
+            (publish_state, int(parlay_id)),
+        )
+        conn.commit()
+        updated = get_parlay(conn, int(parlay_id))
+        return updated or {"id": int(parlay_id), "publish_state": publish_state}
+    finally:
+        conn.close()
+
 def add_operator_pick(
     *,
     sport: str,
