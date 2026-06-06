@@ -614,3 +614,60 @@ Updated direction:
 5. Keep research/candidate history separate but linked where useful.
 6. Build Today/Results/Research/Diagnostics off the new foundation.
 
+
+## Production/Local Data Divergence Finding — 2026-06-06
+
+Pixl provided screenshot evidence showing MLB Ops record `27–30`, `57 graded`, `64 signals`, `6 open`, ROI `-9.6%` on the live app.
+
+Authenticated production check confirmed the screenshot is real and current on live ACE:
+
+### Production `/api/ops/overview`
+
+- Soccer: `18` signals, `18` graded, `7W / 11L`, win rate `38.9%`, ROI `-25.8%`
+- MLB: `64` signals, `6` open, `57` graded, `27W / 30L`, win rate `47.4%`, ROI `-9.6%`
+- NBA: `47` signals, `25` graded, `11W / 14L`, win rate `44.0%`, ROI `-16.0%`
+
+### Local DB comparison
+
+Local `ml/nba_spread/data/mlb_signal_log.db` exists but `mlb_signals` has `0` rows.
+
+Local soccer DB path is different: soccer signal rows are in production but local `wc_signal_log.db` currently has:
+
+- `soccer_signals`: `0`
+- `soccer_approved_picks`: `0`
+- `soccer_model_candidates`: `606`
+- `soccer_prop_cards`: `418`
+- `soccer_player_prop_results`: `73`
+
+### Updated conclusion
+
+The MLB/Soccer tracked signal history was not deleted by the local Ops cleanup. It exists on production/live DB state but not in the local DB snapshot.
+
+Therefore, migration readiness now requires a **production data export/backup step** before any canonical ledger migration.
+
+### Updated migration requirement
+
+Do not build/import the canonical `tracked_picks` ledger from local data alone.
+
+Required sequence:
+
+1. Export/backup production SQLite DBs or relevant signal tables read-only.
+2. Store a timestamped local audit snapshot.
+3. Compare prod vs local table counts and schemas.
+4. Classify production rows:
+   - true prospective signal/tracked pick
+   - model candidate/research item
+   - manual/operator pick
+   - artifact/backfill/unusable
+5. Design canonical `tracked_picks` schema.
+6. Import only classified/trustworthy rows.
+
+### Product note
+
+The live app is currently showing real tracked signal history across all three sports, but the data is negative ROI across the board:
+
+- NBA: `-16.0%`
+- MLB: `-9.6%`
+- Soccer: `-25.8%`
+
+This should not be hidden. It should drive model debugging: edge thresholds, market selection, CLV behavior, stale line capture, book quality, sample size, and confidence calibration.
