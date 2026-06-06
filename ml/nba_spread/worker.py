@@ -703,13 +703,16 @@ def _run_scheduled_tasks() -> None:
 
     if _daily_due("grade_results", hour=9):
         _run_task("ml.nba_spread.grade_results", "--days", "2", "--void-stale")
+        _run_task("ml.ops.grade_tracked_picks", "--apply")
 
     # Evening passes so results appear same night (11pm and 1am ET cover all game windows)
     if _daily_due("grade_results_evening", hour=23):
         _run_task("ml.nba_spread.grade_results", "--days", "2")
+        _run_task("ml.ops.grade_tracked_picks", "--apply")
 
     if _daily_due("grade_results_latenight", hour=1):
         _run_task("ml.nba_spread.grade_results", "--days", "2")
+        _run_task("ml.ops.grade_tracked_picks", "--apply")
 
     if _daily_due("fetch_and_predict", hour=9, minute=30):
         _run_task("ml.nba_spread.fetch_and_predict")
@@ -721,6 +724,7 @@ def _run_scheduled_tasks() -> None:
     if _WC_AVAILABLE and _WC_START <= datetime.now(_TZ_ET).date() <= _WC_END:
         if _daily_due("wc_grade_results", hour=9):
             _run_task("ml.world_cup.grade_results", "--days", "3")
+            _run_task("ml.ops.grade_tracked_picks", "--apply")
 
         # Daily market probe at 6:45am ET — before the rest of the WC sync
         # so the run loop knows whether player-prop scanning is live for
@@ -855,6 +859,7 @@ def _run_scheduled_tasks() -> None:
         # so all west-coast late games are settled before the morning poll.
         if _daily_due("mlb_grade_results", hour=6):
             _run_task("ml.mlb.grade_results", "--days", "3")
+            _run_task("ml.ops.grade_tracked_picks", "--apply")
 
     # ── Weekly tasks (Sunday) ─────────────────────────────────────────────────
     if _weekly_due("player_values", weekday=6, hour=5):

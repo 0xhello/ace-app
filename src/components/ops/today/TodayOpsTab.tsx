@@ -206,6 +206,8 @@ export default function TodayOpsTab() {
   const [data, setData] = useState<TodayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [grading, setGrading] = useState(false);
+  const [gradeMessage, setGradeMessage] = useState<string | null>(null);
   const [sportFilter, setSportFilter] = useState<SportFilter>("all");
   const [query, setQuery] = useState("");
 
@@ -217,6 +219,26 @@ export default function TodayOpsTab() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  }
+
+  async function runGrading() {
+    setGrading(true);
+    setGradeMessage(null);
+    try {
+      const res = await fetch("/api/ops/grade-tracked-picks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply: true }),
+      });
+      const payload = await res.json();
+      if (!res.ok || payload.ok === false) throw new Error(payload.error ?? "Could not run grading");
+      setGradeMessage(`Graded ${payload.rows_graded ?? 0} row${payload.rows_graded === 1 ? "" : "s"}.`);
+      await load();
+    } catch (err) {
+      setGradeMessage(err instanceof Error ? err.message : "Could not run grading");
+    } finally {
+      setGrading(false);
     }
   }
 
@@ -238,8 +260,23 @@ export default function TodayOpsTab() {
         title="Today"
         tag="paper tracking"
         tagColor="#3ee68a"
-        actions={<ActionButton icon={RefreshCw} variant="subtle" busy={refreshing} disabled={refreshing} onClick={() => void load()} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void runGrading()}
+              disabled={grading}
+              className="rounded-lg border border-[#1e2220] bg-[#0d0f0d] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-[#9ca39a] hover:border-[#3ee68a]/30 hover:text-[#3ee68a] disabled:opacity-40"
+            >
+              {grading ? "Grading…" : "Run grading"}
+            </button>
+            <ActionButton icon={RefreshCw} variant="subtle" busy={refreshing} disabled={refreshing} onClick={() => void load()} />
+          </div>
+        }
       />
+
+      {gradeMessage && (
+        <p className="rounded-lg border border-[#1e2220] bg-[#0d0f0d] px-3 py-2 text-[11px] text-[#9ca39a]">{gradeMessage}</p>
+      )}
 
       {!data?.available && (
         <Panel>
