@@ -94,6 +94,45 @@ CREATE INDEX IF NOT EXISTS idx_tracked_picks_publish_state ON tracked_picks(publ
 CREATE INDEX IF NOT EXISTS idx_tracked_picks_origin ON tracked_picks(origin);
 CREATE INDEX IF NOT EXISTS idx_tracked_picks_source ON tracked_picks(source_table, source_id);
 
+CREATE TABLE IF NOT EXISTS tracked_parlays (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id TEXT NOT NULL UNIQUE,
+  tracking_mode TEXT NOT NULL DEFAULT 'paper',
+  origin TEXT NOT NULL DEFAULT 'operator_manual',
+  lifecycle TEXT NOT NULL DEFAULT 'open',
+  publish_state TEXT NOT NULL DEFAULT 'internal',
+
+  label TEXT NOT NULL,
+  sport TEXT,
+  stake_units REAL NOT NULL DEFAULT 1.0,
+  odds_american REAL,
+  implied_prob REAL,
+  leg_count INTEGER NOT NULL,
+  notes TEXT,
+
+  result TEXT,
+  pnl_units REAL,
+  tracked_at TEXT NOT NULL,
+  graded_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS tracked_parlay_legs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  parlay_id INTEGER NOT NULL,
+  pick_id INTEGER NOT NULL,
+  leg_index INTEGER NOT NULL,
+  FOREIGN KEY(parlay_id) REFERENCES tracked_parlays(id),
+  FOREIGN KEY(pick_id) REFERENCES tracked_picks(id),
+  UNIQUE(parlay_id, pick_id),
+  UNIQUE(parlay_id, leg_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracked_parlays_lifecycle ON tracked_parlays(lifecycle);
+CREATE INDEX IF NOT EXISTS idx_tracked_parlays_publish_state ON tracked_parlays(publish_state);
+CREATE INDEX IF NOT EXISTS idx_tracked_parlay_legs_parlay ON tracked_parlay_legs(parlay_id);
+
 CREATE TABLE IF NOT EXISTS tracked_pick_import_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   import_name TEXT NOT NULL,
@@ -459,6 +498,208 @@ def track_nba_signal(source_id: int | str, source_db: Path, target_db: Optional[
     finally:
         tgt.close()
 
+
+
+def profit_from_american(stake: float, odds: Optional[float]) -> float:
+    if odds is None:
+        return stake * (100 / 110)
+    odds = float(odds)
+    if odds > 0:
+        return stake * (odds / 100)
+    if odds < 0:
+        return stake * (100 / abs(odds))
+    return 0.0
+
+
+def parlay_pnl(result: str, stake: Optional[float], odds: Optional[float]) -> float:
+    s = float(stake if stake is not None else 1.0)
+    if result == "win":
+        return round(profit_from_american(s, odds), 6)
+    if result == "loss":
+        return round(-s, 6)
+    return 0.0
+
+
+def decimal_from_american(odds: Optional[float]) -> Optional[float]:
+    if odds is None:
+        return None
+    odds = float(odds)
+    if odds > 0:
+        return 1.0 + (odds / 100.0)
+    if odds < 0:
+        return 1.0 + (100.0 / abs(odds))
+    return None
+
+
+def american_from_decimal(decimal_odds: Optional[float]) -> Optional[float]:
+    if decimal_odds is None or decimal_odds <= 1:
+        return None
+    if decimal_odds >= 2:
+        return round((decimal_odds - 1.0) * 100.0, 2)
+    return round(-100.0 / (decimal_odds - 1.0), 2)
+
+
+def combined_parlay_odds(rows: Iterable[sqlite3.Row]) -> Optional[float]:
+    decimal = 1.0
+    used = 0
+    for row in rows:
+        leg_decimal = decimal_from_american(row["odds_american"])
+        if leg_decimal is None:
+            continue
+        decimal *= leg_decimal
+        used += 1
+    if used == 0:
+        return None
+    return american_from_decimal(decimal)
+
+
+def sync_parlay_results(target_db: Path = DEFAULT_TARGET_DB) -> Dict[str, Any]:
+    """Settle open parlays once all legs have settled.
+
+    Parlay settlement is conservative: any losing leg loses the parlay; pushes
+    reduce the active leg count; all settled with at least one winning/non-push
+    leg wins. If any leg remains open, the parlay remains open.
+    """
+    init_db(Path(target_db))
+    conn = connect(Path(target_db))
+    settled = []
+    try:
+        parlays = conn.execute("SELECT * FROM tracked_parlays WHERE lifecycle='open' ORDER BY id").fetchall()
+        for parlay in parlays:
+            legs = conn.execute(
+                """
+                SELECT p.* FROM tracked_parlay_legs l
+                JOIN tracked_picks p ON p.id=l.pick_id
+                WHERE l.parlay_id=? ORDER BY l.leg_index
+                """,
+                (parlay["id"],),
+            ).fetchall()
+            if not legs:
+                continue
+            results = [leg["result"] for leg in legs]
+            lifecycles = [leg["lifecycle"] for leg in legs]
+            if any(lc == "open" or result is None for lc, result in zip(lifecycles, results)):
+                continue
+            if any(result == "loss" for result in results):
+                result = "loss"
+            elif any(result == "win" for result in results):
+                result = "win"
+            else:
+                result = "push"
+            pnl = parlay_pnl(result, parlay["stake_units"], parlay["odds_american"])
+            conn.execute(
+                """
+                UPDATE tracked_parlays
+                   SET lifecycle='graded', result=?, pnl_units=?, graded_at=?, updated_at=datetime('now')
+                 WHERE id=?
+                """,
+                (result, pnl, utc_now(), parlay["id"]),
+            )
+            settled.append({"id": parlay["id"], "result": result, "pnl_units": pnl})
+        conn.commit()
+        return {"ok": True, "settled": settled, "rows_settled": len(settled)}
+    finally:
+        conn.close()
+
+
+def add_operator_parlay(
+    *,
+    pick_ids: List[int],
+    label: str,
+    stake_units: Optional[float] = 1.0,
+    odds_american: Optional[float] = None,
+    notes: Optional[str] = None,
+    publish_state: str = "internal",
+    target_db: Path = DEFAULT_TARGET_DB,
+) -> Dict[str, Any]:
+    """Create an operator-built paper parlay from canonical tracked pick legs."""
+    label = (label or "").strip()
+    publish_state = (publish_state or "internal").strip().lower()
+    clean_ids = []
+    for raw in pick_ids or []:
+        try:
+            value = int(raw)
+        except Exception:
+            continue
+        if value not in clean_ids:
+            clean_ids.append(value)
+
+    if len(clean_ids) < 2:
+        raise ValueError("parlay requires at least two unique pick_ids")
+    if not label:
+        raise ValueError("label is required")
+    if publish_state not in {"internal", "signal_feed", "hidden"}:
+        raise ValueError("publish_state must be internal, signal_feed, or hidden")
+
+    init_db(Path(target_db))
+    conn = connect(Path(target_db))
+    try:
+        placeholders = ",".join(["?"] * len(clean_ids))
+        rows = conn.execute(f"SELECT * FROM tracked_picks WHERE id IN ({placeholders})", clean_ids).fetchall()
+        by_id = {int(r["id"]): r for r in rows}
+        missing = [pid for pid in clean_ids if pid not in by_id]
+        if missing:
+            raise ValueError(f"unknown pick_ids: {missing}")
+        ordered = [by_id[pid] for pid in clean_ids]
+        if odds_american is None:
+            odds_american = combined_parlay_odds(ordered)
+        implied = None
+        if odds_american is not None:
+            dec = decimal_from_american(odds_american)
+            implied = round(1.0 / dec, 6) if dec else None
+        sports = sorted({str(r["sport"]) for r in ordered if r["sport"]})
+        sport = sports[0] if len(sports) == 1 else "multi"
+        source_id = f"parlay_{uuid.uuid4().hex}"
+        now = utc_now()
+        cur = conn.execute(
+            """
+            INSERT INTO tracked_parlays (
+              source_id, tracking_mode, origin, lifecycle, publish_state,
+              label, sport, stake_units, odds_american, implied_prob, leg_count,
+              notes, tracked_at
+            ) VALUES (?, 'paper', 'operator_manual', 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (source_id, publish_state, label, sport, float(stake_units or 1.0), odds_american, implied, len(ordered), notes, now),
+        )
+        parlay_id = int(cur.lastrowid)
+        for index, pick_id in enumerate(clean_ids, start=1):
+            conn.execute(
+                "INSERT INTO tracked_parlay_legs (parlay_id, pick_id, leg_index) VALUES (?, ?, ?)",
+                (parlay_id, pick_id, index),
+            )
+        conn.commit()
+        row = get_parlay(conn, parlay_id)
+        return row or {"id": parlay_id, "source_id": source_id}
+    finally:
+        conn.close()
+
+
+def get_parlay(conn: sqlite3.Connection, parlay_id: int) -> Optional[Dict[str, Any]]:
+    parlay = conn.execute("SELECT * FROM tracked_parlays WHERE id=?", (parlay_id,)).fetchone()
+    if not parlay:
+        return None
+    legs = conn.execute(
+        """
+        SELECT l.leg_index, p.* FROM tracked_parlay_legs l
+        JOIN tracked_picks p ON p.id=l.pick_id
+        WHERE l.parlay_id=? ORDER BY l.leg_index
+        """,
+        (parlay_id,),
+    ).fetchall()
+    out = rowdict(parlay)
+    out["legs"] = [rowdict(r) for r in legs]
+    return out
+
+
+def list_parlays(target_db: Path = DEFAULT_TARGET_DB, limit: int = 100) -> List[Dict[str, Any]]:
+    init_db(Path(target_db))
+    conn = connect(Path(target_db))
+    try:
+        sync_parlay_results(Path(target_db))
+        rows = conn.execute("SELECT id FROM tracked_parlays ORDER BY COALESCE(graded_at, tracked_at) DESC, id DESC LIMIT ?", (limit,)).fetchall()
+        return [p for r in rows if (p := get_parlay(conn, int(r["id"]))) is not None]
+    finally:
+        conn.close()
 
 def add_operator_pick(
     *,

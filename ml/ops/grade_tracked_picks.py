@@ -248,6 +248,11 @@ def reconcile(db_path: Path = DEFAULT_DB, apply: bool = False) -> Dict[str, Any]
 
     if apply:
         conn.commit()
+        try:
+            from ml.ops.tracked_picks import sync_parlay_results
+            sync_parlay_results(db_path)
+        except Exception:
+            pass
     remaining = conn.execute("SELECT COUNT(*) c FROM tracked_picks WHERE lifecycle='open'").fetchone()["c"]
     graded = conn.execute("SELECT COUNT(*) c FROM tracked_picks WHERE lifecycle='graded'").fetchone()["c"]
     conn.close()
