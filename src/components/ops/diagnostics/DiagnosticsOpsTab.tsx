@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Database, RefreshCw, Zap } from "lucide-react";
+import { Activity, BarChart3, Database, RefreshCw, Zap } from "lucide-react";
 import { ActionButton, EmptyState, KpiCard, LoadingState, OpsFooter, OpsPageHeader, Panel, SectionHead, Tag } from "@/components/ops/shared/primitives";
 import { fmtSport, fmtUnits, type ResultsSummaryRow } from "@/components/ops/shared/ledger";
 
@@ -39,6 +39,45 @@ interface QuotaResponse {
   age_seconds?: number;
 }
 
+interface CalibrationBucket {
+  tier: string;
+  n: number;
+  wins: number;
+  losses: number;
+  raw_hit_rate: number | null;
+  shrunk_hit_rate: number | null;
+  avg_score: number | null;
+  avg_clv_pp: number | null;
+  maturity: string;
+}
+
+interface CalibrationResponse {
+  ok: boolean;
+  error?: string;
+  calibration?: {
+    model_version: string;
+    generated_at: string;
+    source: string;
+    sample: { n: number; wins: number; losses: number; hit_rate: number | null; maturity: string };
+    buckets: CalibrationBucket[];
+    warnings: string[];
+  };
+}
+
+function pct(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "—";
+}
+
+function pp(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(1)}pp` : "—";
+}
+
+function maturityColor(maturity: string | null | undefined): string {
+  if (maturity === "validated") return "#3ee68a";
+  if (maturity === "provisional") return "#f5c062";
+  return "#ef4444";
+}
+
 function timeAgo(iso: string | null): string {
   if (!iso) return "never";
   const ms = Date.now() - new Date(iso.replace(" ", "T")).getTime();
@@ -54,20 +93,23 @@ export default function DiagnosticsOpsTab() {
   const [results, setResults] = useState<ResultsResponse | null>(null);
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [quota, setQuota] = useState<QuotaResponse | null>(null);
+  const [calibration, setCalibration] = useState<CalibrationResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   async function load() {
     setRefreshing(true);
     try {
-      const [resultsRes, overviewRes, quotaRes] = await Promise.all([
+      const [resultsRes, overviewRes, quotaRes, calibrationRes] = await Promise.all([
         fetch("/api/ops/results", { cache: "no-store" }),
         fetch("/api/ops/overview", { cache: "no-store" }),
         fetch("/api/ops/odds-quota", { cache: "no-store" }),
+        fetch("/api/ops/confidence-calibration", { cache: "no-store" }),
       ]);
       setResults((await resultsRes.json()) as ResultsResponse);
       setOverview((await overviewRes.json()) as OverviewResponse);
       setQuota((await quotaRes.json()) as QuotaResponse);
+      setCalibration((await calibrationRes.json()) as CalibrationResponse);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -117,6 +159,65 @@ export default function DiagnosticsOpsTab() {
           </div>
         ) : (
           <EmptyState>{results?.message ?? "Canonical tracked-picks ledger is not available yet."}</EmptyState>
+        )}
+      </Panel>
+
+
+      <Panel>
+        <SectionHead
+          icon={BarChart3}
+          title="Confidence calibration"
+          right={<Tag label={calibration?.calibration?.sample.maturity ?? (calibration?.ok ? "unknown" : "unavailable")} color={maturityColor(calibration?.calibration?.sample.maturity)} />}
+        />
+        <p className="mb-4 max-w-[760px] text-[12px] leading-relaxed text-[#9ca39a]">
+          This is the current Low / Medium / High confidence model. It is built from graded paper outcomes and NBA model prediction history, then used by the canonical tracking ledger when edge data exists.
+        </p>
+        {calibration?.ok && calibration.calibration ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <KpiCard label="Samples" value={String(calibration.calibration.sample.n)} sub={calibration.calibration.source} />
+              <KpiCard label="Record" value={`${calibration.calibration.sample.wins}W-${calibration.calibration.sample.losses}L`} />
+              <KpiCard label="Hit rate" value={pct(calibration.calibration.sample.hit_rate)} />
+              <KpiCard label="Version" value={calibration.calibration.model_version.replace("ace_confidence_calibration_", "")} sub="tier model" />
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-[10px] font-mono">
+                <thead className="border-b border-[#22251f] text-[#6b7068] uppercase tracking-[0.12em]">
+                  <tr>
+                    <th className="px-2 py-2 font-semibold">Tier</th>
+                    <th className="px-2 py-2 font-semibold text-right">Samples</th>
+                    <th className="px-2 py-2 font-semibold text-right">Record</th>
+                    <th className="px-2 py-2 font-semibold text-right">Raw hit</th>
+                    <th className="px-2 py-2 font-semibold text-right">Shrunk hit</th>
+                    <th className="px-2 py-2 font-semibold text-right">Avg score</th>
+                    <th className="px-2 py-2 font-semibold text-right">Avg CLV</th>
+                    <th className="px-2 py-2 font-semibold">Maturity</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#181c18]">
+                  {calibration.calibration.buckets.map((bucket) => (
+                    <tr key={bucket.tier} className="text-[#c4c7c0]">
+                      <td className="px-2 py-2 text-white capitalize">{bucket.tier}</td>
+                      <td className="px-2 py-2 text-right">{bucket.n}</td>
+                      <td className="px-2 py-2 text-right">{bucket.wins}W-{bucket.losses}L</td>
+                      <td className="px-2 py-2 text-right">{pct(bucket.raw_hit_rate)}</td>
+                      <td className="px-2 py-2 text-right">{pct(bucket.shrunk_hit_rate)}</td>
+                      <td className="px-2 py-2 text-right">{pp(bucket.avg_score)}</td>
+                      <td className="px-2 py-2 text-right">{pp(bucket.avg_clv_pp)}</td>
+                      <td className="px-2 py-2"><Tag label={bucket.maturity} color={maturityColor(bucket.maturity)} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {calibration.calibration.warnings.length > 0 && (
+              <div className="rounded-xl border border-[#3a2f16] bg-[#171309] px-4 py-3 text-[11px] leading-relaxed text-[#f5c062]">
+                {calibration.calibration.warnings[0]}
+              </div>
+            )}
+          </div>
+        ) : (
+          <EmptyState>{calibration?.error ?? "Confidence calibration is not available yet."}</EmptyState>
         )}
       </Panel>
 
