@@ -231,13 +231,21 @@ def lifecycle_from_approved(status: Optional[str]) -> str:
     return "archived"
 
 
+PROTECTED_ORIGINS = {"model_auto", "model_approved", "operator_manual"}
+
+
 def upsert_pick(conn: sqlite3.Connection, pick: Dict[str, Any], dry_run: bool) -> Tuple[str, Optional[int]]:
     existing = conn.execute(
-        "SELECT id FROM tracked_picks WHERE source_table=? AND source_id=?",
+        "SELECT id, origin FROM tracked_picks WHERE source_table=? AND source_id=?",
         (pick["source_table"], pick["source_id"]),
     ).fetchone()
     if dry_run:
         return ("updated" if existing else "inserted", existing["id"] if existing else None)
+
+    # Historical sync/import jobs should never downgrade a row that was already
+    # intentionally paper-tracked at signal-fire time or entered by an operator.
+    if existing and pick.get("origin") == "historical_signal" and existing["origin"] in PROTECTED_ORIGINS:
+        pick = {**pick, "origin": existing["origin"]}
 
     payload = {col: pick.get(col) for col in TRACKED_COLUMNS}
     if existing:
@@ -257,6 +265,198 @@ def upsert_pick(conn: sqlite3.Connection, pick: Dict[str, Any], dry_run: bool) -
         [payload[col] for col in TRACKED_COLUMNS],
     )
     return "inserted", int(cur.lastrowid)
+
+
+def _target_for_source(source_db: Path, target_db: Optional[Path] = None) -> Path:
+    return target_db if target_db is not None else Path(source_db).parent / "tracked_picks.db"
+
+
+def _fetch_source_row(source_db: Path, table: str, source_id: int | str) -> Optional[Dict[str, Any]]:
+    src = readonly_connect(Path(source_db))
+    try:
+        if not table_exists(src, table):
+            return None
+        row = src.execute(f"SELECT * FROM {table} WHERE id=?", (source_id,)).fetchone()
+        return rowdict(row) if row else None
+    finally:
+        src.close()
+
+
+def track_mlb_signal(source_id: int | str, source_db: Path, target_db: Optional[Path] = None, origin: str = "model_auto") -> Optional[int]:
+    """Upsert one MLB signal into the canonical paper ledger."""
+    source_db = Path(source_db)
+    r = _fetch_source_row(source_db, "mlb_signals", source_id)
+    if not r:
+        return None
+    target = _target_for_source(source_db, target_db)
+    init_db(target)
+    tgt = connect(target)
+    try:
+        lifecycle = map_signal_lifecycle(r.get("status"))
+        pick = {
+            "source_table": "mlb_signals",
+            "source_id": str(r["id"]),
+            "source_db": source_db.name,
+            "source_snapshot_at": source_snapshot_at(source_db),
+            "sport": "mlb",
+            "tracking_mode": "paper",
+            "origin": origin,
+            "lifecycle": lifecycle,
+            "publish_state": "internal",
+            "game_id": r.get("game_id"),
+            "game_date": r.get("game_date"),
+            "commence_time": r.get("commence_time"),
+            "league": r.get("league") or "MLB",
+            "home_team": r.get("home_team"),
+            "away_team": r.get("away_team"),
+            "matchup_label": f"{r.get('away_team')} @ {r.get('home_team')}",
+            "market": r.get("market"),
+            "side": r.get("bet_side"),
+            "line": r.get("line"),
+            "book": r.get("book"),
+            "odds_american": r.get("book_odds"),
+            "implied_prob": r.get("book_prob"),
+            "sharp_prob": r.get("pinnacle_prob"),
+            "edge_pp": r.get("edge_pp"),
+            "signal_strength": r.get("edge_pp"),
+            "confidence_tier": r.get("confidence_tier"),
+            "kelly_fraction": r.get("kelly_fraction"),
+            "stake_units": 1.0 if lifecycle in ("open", "graded") else None,
+            "rationale_json": r.get("reasoning_json"),
+            "notes": r.get("notes"),
+            "closing_odds_american": r.get("closing_book_odds"),
+            "closing_implied_prob": r.get("closing_pinnacle_prob"),
+            "clv_pp": r.get("clv_pp"),
+            "home_score": r.get("home_score"),
+            "away_score": r.get("away_score"),
+            "result": result_from_correct(r.get("status"), r.get("correct")),
+            "result_detail": r.get("result"),
+            "pnl_units": pnl_units(r.get("status"), r.get("correct"), 1.0),
+            "detected_at": r.get("detected_at"),
+            "tracked_at": r.get("detected_at") or r.get("created_at") or utc_now(),
+            "graded_at": utc_now() if lifecycle in ("graded", "void") else None,
+        }
+        _, row_id = upsert_pick(tgt, pick, dry_run=False)
+        tgt.commit()
+        return row_id
+    finally:
+        tgt.close()
+
+
+def track_soccer_signal(source_id: int | str, source_db: Path, target_db: Optional[Path] = None, origin: str = "model_auto") -> Optional[int]:
+    """Upsert one soccer signal into the canonical paper ledger."""
+    source_db = Path(source_db)
+    r = _fetch_source_row(source_db, "soccer_signals", source_id)
+    if not r:
+        return None
+    target = _target_for_source(source_db, target_db)
+    init_db(target)
+    tgt = connect(target)
+    try:
+        lifecycle = map_signal_lifecycle(r.get("status"))
+        pick = {
+            "source_table": "soccer_signals",
+            "source_id": str(r["id"]),
+            "source_db": source_db.name,
+            "source_snapshot_at": source_snapshot_at(source_db),
+            "sport": "soccer",
+            "tracking_mode": "paper",
+            "origin": origin,
+            "lifecycle": lifecycle,
+            "publish_state": "internal",
+            "game_id": r.get("game_id"),
+            "game_date": r.get("game_date"),
+            "commence_time": r.get("commence_time"),
+            "tournament": r.get("tournament"),
+            "home_team": r.get("home_team"),
+            "away_team": r.get("away_team"),
+            "matchup_label": f"{r.get('away_team')} @ {r.get('home_team')}",
+            "market": r.get("market"),
+            "side": r.get("bet_side"),
+            "line": r.get("total_line"),
+            "selection_label": r.get("player_name"),
+            "book": r.get("book"),
+            "odds_american": r.get("book_odds"),
+            "implied_prob": r.get("book_prob"),
+            "sharp_prob": r.get("pinnacle_prob") or r.get("prior_prob"),
+            "edge_pp": r.get("edge_pp"),
+            "signal_strength": r.get("edge_pp"),
+            "confidence_tier": r.get("confidence_tier"),
+            "kelly_fraction": r.get("kelly_fraction"),
+            "stake_units": 1.0 if lifecycle in ("open", "graded") else None,
+            "rationale_json": r.get("reasoning_json"),
+            "notes": r.get("notes"),
+            "closing_odds_american": r.get("closing_book_odds"),
+            "closing_implied_prob": r.get("closing_pinnacle_prob"),
+            "clv_pp": r.get("clv_pp"),
+            "home_score": r.get("home_score"),
+            "away_score": r.get("away_score"),
+            "result": result_from_correct(r.get("status"), r.get("correct")),
+            "result_detail": r.get("result"),
+            "pnl_units": pnl_units(r.get("status"), r.get("correct"), 1.0),
+            "detected_at": r.get("detected_at"),
+            "tracked_at": r.get("detected_at") or r.get("created_at") or utc_now(),
+            "graded_at": utc_now() if lifecycle in ("graded", "void") else None,
+        }
+        _, row_id = upsert_pick(tgt, pick, dry_run=False)
+        tgt.commit()
+        return row_id
+    finally:
+        tgt.close()
+
+
+def track_nba_signal(source_id: int | str, source_db: Path, target_db: Optional[Path] = None, origin: str = "model_auto") -> Optional[int]:
+    """Upsert one NBA signal into the canonical paper ledger."""
+    source_db = Path(source_db)
+    r = _fetch_source_row(source_db, "signal_log", source_id)
+    if not r:
+        return None
+    target = _target_for_source(source_db, target_db)
+    init_db(target)
+    tgt = connect(target)
+    try:
+        lifecycle = map_signal_lifecycle(r.get("status"))
+        result = None
+        if lifecycle == "graded":
+            result = "win" if r.get("covered") == 1 else "loss" if r.get("covered") == 0 else "push"
+        pick = {
+            "source_table": "signal_log",
+            "source_id": str(r["id"]),
+            "source_db": source_db.name,
+            "source_snapshot_at": source_snapshot_at(source_db),
+            "sport": "nba",
+            "tracking_mode": "paper",
+            "origin": origin,
+            "lifecycle": lifecycle,
+            "publish_state": "internal",
+            "game_id": r.get("game_id"),
+            "game_date": r.get("game_date"),
+            "commence_time": r.get("commence_time"),
+            "league": "NBA",
+            "home_team": r.get("home_team"),
+            "away_team": r.get("away_team"),
+            "matchup_label": f"{r.get('away_team')} @ {r.get('home_team')}",
+            "market": r.get("signal_type"),
+            "side": r.get("bet_side"),
+            "line": r.get("line_at_signal"),
+            "book": r.get("execution_source"),
+            "odds_american": r.get("bet_odds"),
+            "notes": r.get("notes") or r.get("signal_detail"),
+            "closing_book": r.get("closing_source"),
+            "clv_points": r.get("clv_points"),
+            "home_score": r.get("score_home"),
+            "away_score": r.get("score_away"),
+            "result": result,
+            "pnl_units": pnl_units("graded", r.get("covered"), 1.0) if lifecycle == "graded" else None,
+            "detected_at": r.get("detected_at"),
+            "tracked_at": r.get("detected_at") or r.get("created_at") or utc_now(),
+            "graded_at": utc_now() if lifecycle in ("graded", "void") else None,
+        }
+        _, row_id = upsert_pick(tgt, pick, dry_run=False)
+        tgt.commit()
+        return row_id
+    finally:
+        tgt.close()
 
 
 def import_mlb_signals(source_db: Path, target_db: Path, dry_run: bool = True) -> ImportStats:

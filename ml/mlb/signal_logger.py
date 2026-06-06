@@ -252,6 +252,12 @@ def log_signal(
     row_id = cursor.lastrowid or 0
     conn.commit()
     conn.close()
+    if row_id:
+        try:
+            from ml.ops.tracked_picks import track_mlb_signal
+            track_mlb_signal(row_id, path, origin="model_auto")
+        except Exception:
+            pass
     return row_id
 
 
@@ -387,4 +393,10 @@ def grade_signal(
         graded.append({**dict(sig), "result": result, "correct": correct})
     conn.commit()
     conn.close()
+    for item in graded:
+        try:
+            from ml.ops.tracked_picks import track_mlb_signal
+            track_mlb_signal(item["id"], path, origin="model_auto")
+        except Exception:
+            pass
     return graded

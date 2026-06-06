@@ -362,6 +362,12 @@ def log_signal(
     row_id = cursor.lastrowid or 0
     conn.commit()
     conn.close()
+    if row_id:
+        try:
+            from ml.ops.tracked_picks import track_soccer_signal
+            track_soccer_signal(row_id, path, origin="model_auto")
+        except Exception:
+            pass
     return row_id
 
 
@@ -437,6 +443,12 @@ def log_player_prop_signal(
     row_id = cursor.lastrowid or 0
     conn.commit()
     conn.close()
+    if row_id:
+        try:
+            from ml.ops.tracked_picks import track_soccer_signal
+            track_soccer_signal(row_id, path, origin="model_auto")
+        except Exception:
+            pass
     return row_id
 
 
@@ -748,4 +760,10 @@ def grade_signal(
 
     conn.commit()
     conn.close()
+    for item in graded:
+        try:
+            from ml.ops.tracked_picks import track_soccer_signal
+            track_soccer_signal(item["id"], path, origin="model_auto")
+        except Exception:
+            pass
     return graded

@@ -448,6 +448,12 @@ def log_signal(
     row_id = cursor.lastrowid or 0
     conn.commit()
     conn.close()
+    if row_id:
+        try:
+            from ml.ops.tracked_picks import track_nba_signal
+            track_nba_signal(row_id, db_path, origin="model_auto")
+        except Exception:
+            pass
     return row_id
 
 
@@ -931,6 +937,12 @@ def grade_signal(
 
     conn.commit()
     conn.close()
+    for item in results:
+        try:
+            from ml.ops.tracked_picks import track_nba_signal
+            track_nba_signal(item["id"], db_path, origin="model_auto")
+        except Exception:
+            pass
     return results
 
 
