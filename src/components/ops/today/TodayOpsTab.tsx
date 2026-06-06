@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Clock, RefreshCw, AlertTriangle } from "lucide-react";
 import { ActionButton, EmptyState, KpiCard, LoadingState, OpsFooter, OpsPageHeader, Panel, SectionHead, Tag } from "@/components/ops/shared/primitives";
 import { formatEtDateTime } from "@/lib/time-format";
-import { fmtOdds, fmtPp, fmtSport, marketLabel, sideLabel, type TrackedPickRow } from "@/components/ops/shared/ledger";
+import { fmtOdds, fmtPp, fmtSport, marketLabel, rowMatchesSearch, rowMatchesSport, sideLabel, type SportFilter, type TrackedPickRow } from "@/components/ops/shared/ledger";
+import OpsFilters from "@/components/ops/shared/Filters";
 
 interface TodayResponse {
   source: "tracked_picks";
@@ -72,6 +73,8 @@ export default function TodayOpsTab() {
   const [data, setData] = useState<TodayResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [sportFilter, setSportFilter] = useState<SportFilter>("all");
+  const [query, setQuery] = useState("");
 
   async function load() {
     setRefreshing(true);
@@ -88,11 +91,12 @@ export default function TodayOpsTab() {
     void load();
   }, []);
 
-  if (loading) return <LoadingState label="Loading tracked picks…" />;
-
   const open = data?.open ?? [];
-  const awaiting = data?.awaitingGrade ?? [];
-  const upcoming = open.filter((row) => !isStale(row));
+  const filteredOpen = useMemo(() => open.filter((row) => rowMatchesSport(row, sportFilter) && rowMatchesSearch(row, query)), [open, sportFilter, query]);
+  const awaiting = filteredOpen.filter((row) => isStale(row));
+  const upcoming = filteredOpen.filter((row) => !isStale(row));
+
+  if (loading) return <LoadingState label="Loading tracked picks…" />;
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-5 px-6 py-7">
@@ -112,14 +116,24 @@ export default function TodayOpsTab() {
       )}
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.3fr_1fr_1fr]">
-        <KpiCard label="Open tracked" value={String(open.length)} sub="paper picks awaiting result" />
+        <KpiCard label="Open tracked" value={String(filteredOpen.length)} sub="filtered paper picks" />
         <KpiCard label="Upcoming" value={String(upcoming.length)} color="#3ee68a" />
         <KpiCard label="Needs grade" value={String(awaiting.length)} color={awaiting.length > 0 ? "#f5c062" : "#9ca39a"} />
       </div>
 
       <Panel>
-        <SectionHead icon={Clock} title="Open paper-tracked picks" right={<span className="text-[10px] text-[#6b7068]">{open.length} rows</span>} />
-        <PickTable rows={open} />
+        <SectionHead icon={Clock} title="Open paper-tracked picks" right={<span className="text-[10px] text-[#6b7068]">{filteredOpen.length} rows</span>} />
+        <div className="mb-4">
+          <OpsFilters
+            sport={sportFilter}
+            onSportChange={setSportFilter}
+            query={query}
+            onQueryChange={setQuery}
+            resultCount={filteredOpen.length}
+            totalCount={open.length}
+          />
+        </div>
+        <PickTable rows={filteredOpen} />
       </Panel>
 
       <OpsFooter refreshedAt={data?.refreshedAt ?? new Date().toISOString()} schemaText="tracked_picks · Today" />

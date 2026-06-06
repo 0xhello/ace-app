@@ -119,3 +119,36 @@ export function resultLabel(result?: string | null): string {
   if (result === "void") return "Push";
   return "Open";
 }
+
+export type SportFilter = "all" | "mlb" | "nba" | "soccer";
+
+export function normalizeSearch(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function rowMatchesSport(row: Pick<TrackedPickRow, "sport">, sport: SportFilter): boolean {
+  return sport === "all" || row.sport === sport;
+}
+
+export function rowMatchesSearch(row: TrackedPickRow, query: string): boolean {
+  const q = normalizeSearch(query);
+  if (!q) return true;
+  const haystack = [
+    row.sport,
+    row.matchup_label,
+    row.home_team,
+    row.away_team,
+    row.league,
+    row.tournament,
+    row.market,
+    row.side,
+    row.selection_label,
+    row.book,
+    row.result,
+    row.source_table,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(q);
+}

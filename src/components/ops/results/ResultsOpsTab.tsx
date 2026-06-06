@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart2, RefreshCw, AlertTriangle } from "lucide-react";
 import { ActionButton, EmptyState, KpiCard, LoadingState, OpsFooter, OpsPageHeader, Panel, SectionHead, Tag } from "@/components/ops/shared/primitives";
 import { formatEtDateTime } from "@/lib/time-format";
-import { fmtOdds, fmtPp, fmtSport, fmtUnits, marketLabel, resultColor, resultLabel, sideLabel, type ResultsSummaryRow, type TrackedPickRow } from "@/components/ops/shared/ledger";
+import { fmtOdds, fmtPp, fmtSport, fmtUnits, marketLabel, resultColor, resultLabel, rowMatchesSearch, rowMatchesSport, sideLabel, type ResultsSummaryRow, type SportFilter, type TrackedPickRow } from "@/components/ops/shared/ledger";
+import OpsFilters from "@/components/ops/shared/Filters";
 
 interface ResultsResponse {
   source: "tracked_picks";
@@ -62,6 +63,8 @@ export default function ResultsOpsTab() {
   const [data, setData] = useState<ResultsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [sportFilter, setSportFilter] = useState<SportFilter>("all");
+  const [query, setQuery] = useState("");
 
   async function load() {
     setRefreshing(true);
@@ -77,6 +80,8 @@ export default function ResultsOpsTab() {
   useEffect(() => {
     void load();
   }, []);
+
+  const filteredPicks = useMemo(() => (data?.picks ?? []).filter((row) => rowMatchesSport(row, sportFilter) && rowMatchesSearch(row, query)), [data, sportFilter, query]);
 
   const totals = useMemo(() => {
     const summary = data?.summary ?? [];
@@ -130,8 +135,18 @@ export default function ResultsOpsTab() {
       </Panel>
 
       <Panel>
-        <SectionHead icon={BarChart2} title="Graded tracked picks" right={<span className="text-[10px] text-[#6b7068]">{data?.picks.length ?? 0} rows</span>} />
-        <ResultTable rows={data?.picks ?? []} />
+        <SectionHead icon={BarChart2} title="Graded tracked picks" right={<span className="text-[10px] text-[#6b7068]">{filteredPicks.length} rows</span>} />
+        <div className="mb-4">
+          <OpsFilters
+            sport={sportFilter}
+            onSportChange={setSportFilter}
+            query={query}
+            onQueryChange={setQuery}
+            resultCount={filteredPicks.length}
+            totalCount={data?.picks.length ?? 0}
+          />
+        </div>
+        <ResultTable rows={filteredPicks} />
       </Panel>
 
       <OpsFooter refreshedAt={data?.refreshedAt ?? new Date().toISOString()} schemaText="tracked_picks · Results" />

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlaskConical, RefreshCw } from "lucide-react";
 import { ActionButton, EmptyState, KpiCard, LoadingState, OpsFooter, OpsPageHeader, Panel, SectionHead, Tag } from "@/components/ops/shared/primitives";
 import { formatEtDateTime } from "@/lib/time-format";
-import { fmtPp, fmtSport, marketLabel } from "@/components/ops/shared/ledger";
+import { fmtPp, fmtSport, marketLabel, normalizeSearch, type SportFilter } from "@/components/ops/shared/ledger";
+import OpsFilters from "@/components/ops/shared/Filters";
 
 interface SoccerCandidate {
   id: number;
@@ -56,6 +57,8 @@ export default function ResearchOpsTab() {
   const [data, setData] = useState<SoccerResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [sportFilter, setSportFilter] = useState<SportFilter>("soccer");
+  const [query, setQuery] = useState("");
 
   async function load() {
     setRefreshing(true);
@@ -72,11 +75,27 @@ export default function ResearchOpsTab() {
     void load();
   }, []);
 
-  if (loading) return <LoadingState label="Loading research…" />;
-
   const stats = data?.candidateStats;
   const record = stats?.record;
   const candidates = data?.candidates ?? [];
+  const filteredCandidates = useMemo(() => {
+    const q = normalizeSearch(query);
+    return candidates.filter((row) => {
+      if (sportFilter !== "all" && sportFilter !== "soccer") return false;
+      if (!q) return true;
+      return [
+        row.tournament,
+        row.home_team,
+        row.away_team,
+        row.market,
+        row.bet_side,
+        row.book,
+        row.status,
+      ].join(" ").toLowerCase().includes(q);
+    });
+  }, [candidates, sportFilter, query]);
+
+  if (loading) return <LoadingState label="Loading research…" />;
 
   return (
     <div className="mx-auto max-w-[1200px] space-y-5 px-6 py-7">
@@ -104,8 +123,20 @@ export default function ResearchOpsTab() {
 
       <Panel>
         <SectionHead icon={FlaskConical} title="Soccer candidate validation" right={<span className="text-[10px] text-[#6b7068]">sample from research table</span>} />
-        {candidates.length === 0 ? (
-          <EmptyState>No candidate rows available. Research data will appear here after candidate jobs run.</EmptyState>
+        <div className="mb-4">
+          <OpsFilters
+            sport={sportFilter}
+            onSportChange={setSportFilter}
+            query={query}
+            onQueryChange={setQuery}
+            resultCount={filteredCandidates.length}
+            totalCount={candidates.length}
+            sports={["all", "soccer"]}
+            placeholder="Search team, market, book…"
+          />
+        </div>
+        {filteredCandidates.length === 0 ? (
+          <EmptyState>No candidate rows match the current filters.</EmptyState>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-[10px] font-mono">
@@ -120,7 +151,7 @@ export default function ResearchOpsTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#181c18]">
-                {candidates.slice(0, 24).map((row) => (
+                {filteredCandidates.slice(0, 24).map((row) => (
                   <tr key={row.id} className="text-[#c4c7c0]">
                     <td className="px-2 py-2 text-[#9ca39a]">{fmtSport("soccer")}</td>
                     <td className="px-2 py-2">
