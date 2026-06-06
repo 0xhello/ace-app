@@ -1,10 +1,10 @@
 /**
  * /api/ops/soccer/sync-board-intel — safe board-level controller for soccer game intel.
  *
- * Thin ops wrapper around ml.soccer.intel_sync. Default is status-only:
- * reads local DB/cache and spends no provider credits. Use explicit flags:
- *   - ?map=true   maps unmapped games, up to ?limit=N
- *   - ?sync=true  syncs already-mapped games, up to ?limit=N
+ * Thin ops wrapper around ml.soccer.intel_sync. GET is status-only:
+ * reads local DB/cache and spends no provider credits. Mutating work must use POST:
+ *   - POST ?map=true   maps unmapped games, up to ?limit=N
+ *   - POST ?sync=true  syncs already-mapped games, up to ?limit=N
  */
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
@@ -39,9 +39,15 @@ function boundedInt(value: string | null, fallback: number, min: number, max: nu
   return Number.isFinite(raw) ? Math.max(min, Math.min(max, Math.floor(raw))) : fallback;
 }
 
-export async function GET(req: NextRequest) {
+async function runBoardIntel(req: NextRequest, opts?: { allowMutating?: boolean }) {
   const shouldMap = req.nextUrl.searchParams.get("map") === "true";
   const shouldSync = req.nextUrl.searchParams.get("sync") === "true";
+  if ((shouldMap || shouldSync) && !opts?.allowMutating) {
+    return NextResponse.json(
+      { ok: false, error: "map/sync mutate data and must be called with POST by an admin session" },
+      { status: 405, headers: { Allow: "GET, POST" } },
+    );
+  }
   const limit = boundedInt(req.nextUrl.searchParams.get("limit"), 12, 1, 24);
   const horizonHours = boundedInt(req.nextUrl.searchParams.get("horizonHours"), 240, 1, 720);
 
@@ -90,4 +96,12 @@ except Exception as e:
       { status: 500 },
     );
   }
+}
+
+export async function GET(req: NextRequest) {
+  return runBoardIntel(req, { allowMutating: false });
+}
+
+export async function POST(req: NextRequest) {
+  return runBoardIntel(req, { allowMutating: true });
 }
