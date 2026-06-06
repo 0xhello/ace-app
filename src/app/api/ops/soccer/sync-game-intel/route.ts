@@ -1,8 +1,8 @@
 /**
  * /api/ops/soccer/sync-game-intel — targeted soccer game → Sportmonks mapping/sync.
  *
- * Thin ops wrapper around ml.soccer.intel_sync. Default is status-only;
- * ?map=true and ?sync=true explicitly trigger provider work.
+ * Thin ops wrapper around ml.soccer.intel_sync. GET is status-only;
+ * POST ?map=true and POST ?sync=true explicitly trigger provider work.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
@@ -37,10 +37,16 @@ async function getGameForOps(gameId: string): Promise<{ game: Game | null; sourc
   return { game: null, source: "none" };
 }
 
-export async function GET(req: NextRequest) {
+async function runGameIntel(req: NextRequest, opts?: { allowMutating?: boolean }) {
   const gameId = req.nextUrl.searchParams.get("game_id")?.trim();
   const shouldMap = req.nextUrl.searchParams.get("map") === "true";
   const shouldSync = req.nextUrl.searchParams.get("sync") === "true";
+  if ((shouldMap || shouldSync) && !opts?.allowMutating) {
+    return NextResponse.json(
+      { ok: false, error: "map/sync mutate data and must be called with POST by an admin session" },
+      { status: 405, headers: { Allow: "GET, POST" } },
+    );
+  }
 
   if (!gameId) {
     return NextResponse.json({ ok: false, error: "Missing required ?game_id" }, { status: 400 });
@@ -85,4 +91,12 @@ except Exception as e:
       { status: 500 },
     );
   }
+}
+
+export async function GET(req: NextRequest) {
+  return runGameIntel(req, { allowMutating: false });
+}
+
+export async function POST(req: NextRequest) {
+  return runGameIntel(req, { allowMutating: true });
 }
