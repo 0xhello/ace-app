@@ -541,3 +541,76 @@ Both lanes matter. The mistake is mixing them in the same table as if they mean 
 3. Should the paper-tracked ledger support all sports from day one, even if MLB/Soccer initially have empty states?
 4. Should candidate rows ever be bulk-promoted into paper-tracked history retroactively, or should paper tracking only start prospectively from implementation date?
 5. Should we create a new canonical table such as `tracked_picks`, or keep sport-specific tables and normalize only in API/read models first?
+
+## Pixl Decision Pass 2 — 2026-06-06
+
+### Model picks entering paper tracking
+
+Decision: **Model picks should enter paper tracking automatically.**
+
+Reason: requiring Pixl to approve every model pick is too much manual overhead. ACE should learn from its own paper-tracked picks and improve based on performance.
+
+Guardrail: auto-paper-tracked does not mean real-money execution. It means ACE records the pick before the game, grades it, tracks CLV/P&L, and uses the result for model improvement.
+
+### Consumer-facing display of manual picks
+
+Decision: **Manual Pixl/operator picks can appear in the consumer-facing Signal Feed, but should not be labeled as “Pixl picks.”**
+
+Product framing should be neutral/professional, e.g.:
+
+- ACE tracked pick
+- Featured signal
+- Board signal
+- Research desk pick
+
+Need a data field for origin internally, but public labels should be polished ACE product copy.
+
+### Existing three-sport graded data
+
+Decision: **Investigate before trusting.**
+
+Pixl remembers/expected graded picks across NBA, MLB, and Soccer, but only NBA currently appears as real tracked signal history in the current Ops API. Soccer has graded candidate/research rows, MLB tracking table is empty locally.
+
+Task: audit whether prior MLB/Soccer graded rows exist elsewhere, whether they were legitimate prospective picks, backfills, candidates, or artifacts.
+
+### Historical negative ROI / model improvement
+
+Decision: **Investigate and learn, not hide.**
+
+If ROI was negative, that is useful. The product should be honest and the model should improve from it. ACE needs analysis of why negative ROI happened:
+
+- stale lines?
+- bad edge calculation?
+- poor market selection?
+- overfit model?
+- uncalibrated confidence?
+- book/market availability mismatch?
+- candidates generated after-the-fact or from contaminated data?
+- insufficient CLV?
+
+Bob should take professional responsibility here: investigate deeply and recommend what is best for ACE/product/business, not just ask Pixl to choose every technical detail.
+
+### Backend foundation / DB migration vs API read model
+
+Decision: **Build the foundation correctly for a real product.**
+
+Plain-English translation:
+
+- **DB migration** = changing/adding database tables so ACE has a clean permanent source of truth, e.g. a real `tracked_picks` table.
+- **API/read model** = leaving old tables in place and writing code that reads/normalizes them into a cleaner shape for the UI.
+
+Recommendation after Pixl clarification:
+
+- For investor/customer readiness, ACE needs a proper canonical backend foundation, not just UI normalization.
+- Use a new canonical tracked-pick ledger/table, with migration/backfill scripts, rather than relying forever on messy sport-specific tables.
+- Existing data should be audited and imported/classified carefully, not blindly dumped into the new table.
+
+Updated direction:
+
+1. Audit existing NBA/MLB/Soccer data thoroughly.
+2. Classify each dataset: tracked pick, candidate, backtest, artifact, unusable.
+3. Design canonical `tracked_picks` ledger.
+4. Migrate/import only trustworthy historical tracked data.
+5. Keep research/candidate history separate but linked where useful.
+6. Build Today/Results/Research/Diagnostics off the new foundation.
+
