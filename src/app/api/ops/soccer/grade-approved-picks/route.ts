@@ -5,10 +5,11 @@
  * the UCL final demo we need to settle picks at fulltime (~14:00 ET) so
  * the dashboard shows W/L while investors are watching, not 19h later.
  *
- * GET-only by design — gated by the standard /api/ops/* read-token
- * middleware. Reuses the worker's _approved_picks_result_lookup so the
- * same data path (soccer_model_candidates final scores + Sportmonks
- * goal events from M38 cache) drives both auto-grading and manual.
+ * POST-only: this mutates settlement state, so it must stay behind an admin
+ * session instead of the /api/ops/* read-token GET path. Reuses the
+ * worker's _approved_picks_result_lookup so the same data path
+ * (soccer_model_candidates final scores + Sportmonks goal events from M38
+ * cache) drives both auto-grading and manual.
  *
  * Idempotent: picks already settled stay settled.
  *
@@ -20,7 +21,7 @@ import { spawnSync } from "child_process";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest) {
+async function runGrade(_req: NextRequest) {
   const appRoot = process.cwd().includes("/.next/standalone")
     ? "/app"
     : process.cwd();
@@ -113,4 +114,15 @@ except Exception as e:
       { status: 500 },
     );
   }
+}
+
+export async function POST(req: NextRequest) {
+  return runGrade(req);
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { ok: false, error: "grade-approved-picks mutates settlement state and must be called with POST by an admin session" },
+    { status: 405, headers: { Allow: "POST" } },
+  );
 }
