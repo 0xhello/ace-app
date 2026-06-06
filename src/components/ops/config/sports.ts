@@ -1,10 +1,10 @@
 import type { ComponentType } from "react";
-import OverviewOpsTab from "@/components/ops/overview/OverviewOpsTab";
-import NBAOpsTab from "@/components/ops/nba/NBAOpsTab";
-import MLBOpsTab from "@/components/ops/mlb/MLBOpsTab";
-import SoccerOpsTab from "@/components/ops/soccer/SoccerOpsTab";
+import TodayOpsTab from "@/components/ops/today/TodayOpsTab";
+import ResultsOpsTab from "@/components/ops/results/ResultsOpsTab";
+import ResearchOpsTab from "@/components/ops/research/ResearchOpsTab";
+import DiagnosticsOpsTab from "@/components/ops/diagnostics/DiagnosticsOpsTab";
 
-export type OpsSportKey = "overview" | "nba" | "mlb" | "soccer";
+export type OpsSportKey = "today" | "results" | "research" | "diagnostics";
 export type OpsSportStatus = "live" | "soon" | "planned";
 
 export interface OpsSportConfig {
@@ -17,31 +17,31 @@ export interface OpsSportConfig {
 
 export const OPS_SPORTS: OpsSportConfig[] = [
   {
-    key: "overview",
-    label: "Overview",
+    key: "today",
+    label: "Today",
     status: "live",
-    description: "Cross-sport picks, open plays, results, and record.",
-    component: OverviewOpsTab,
+    description: "Open paper-tracked picks and stale rows needing grade.",
+    component: TodayOpsTab,
   },
   {
-    key: "nba",
-    label: "NBA",
+    key: "results",
+    label: "Results",
     status: "live",
-    description: "NBA picks, open plays, and graded results.",
-    component: NBAOpsTab,
+    description: "Graded canonical paper-tracked performance.",
+    component: ResultsOpsTab,
   },
   {
-    key: "mlb",
-    label: "MLB",
+    key: "research",
+    label: "Research",
     status: "live",
-    description: "MLB picks, open plays, CLV, and graded results.",
-    component: MLBOpsTab,
+    description: "Candidates, validation, backtests, and calibration work.",
+    component: ResearchOpsTab,
   },
   {
-    key: "soccer",
-    label: "Soccer",
+    key: "diagnostics",
+    label: "Diagnostics",
     status: "live",
-    description: "Soccer picks, approved tickets, candidate review, and results.",
-    component: SoccerOpsTab,
+    description: "Workers, quota, raw tables, and operational tools.",
+    component: DiagnosticsOpsTab,
   },
 ];
