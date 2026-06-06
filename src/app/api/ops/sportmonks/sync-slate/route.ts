@@ -19,7 +19,8 @@
  *     we have the latest confirmed XI
  *   - For debugging: re-run with ?force=true to bust the refresh policy
  *
- * Gated by the standard /api/ops/* read-token middleware. GET-only.
+ * POST-only: this spends provider credits and mutates fixture-cache state,
+ * so it must stay behind an admin session instead of the read-token GET path.
  *
  * Query params
  * ------------
@@ -37,7 +38,7 @@ import { spawnSync } from "child_process";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
+async function runSync(req: NextRequest) {
   const days = parseInt(req.nextUrl.searchParams.get("days") || "3", 10);
   const force = req.nextUrl.searchParams.get("force") === "true";
   const leaguesParam = req.nextUrl.searchParams.get("leagues")?.trim();
@@ -100,4 +101,15 @@ except Exception as e:
       { status: 500 },
     );
   }
+}
+
+export async function POST(req: NextRequest) {
+  return runSync(req);
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { ok: false, error: "sync-slate mutates cache state and must be called with POST by an admin session" },
+    { status: 405, headers: { Allow: "POST" } },
+  );
 }
