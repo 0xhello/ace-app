@@ -391,3 +391,153 @@ Pixl decisions needed:
 3. Should old NBA signal history remain visible or be archived as legacy?
 4. Should soccer graded candidate history be shown as backtest/validation, or hidden until we trust it?
 5. Should Diagnostics be visible to all admins or only a private/local/internal mode?
+
+## Pixl Decision Pass — 2026-06-06
+
+### Approved / clarified decisions
+
+#### 1. Ops rebuilt around canonical tracked picks/results
+
+Decision: **Approved.**
+
+Ops should not keep mixing candidates, raw signals, approved picks, backtests, and diagnostics in one default surface. It should be rebuilt around a clean pick/result lifecycle.
+
+#### 2. Soccer candidates in Research, not Results
+
+Decision: **Approved with clarification.**
+
+This does **not** contradict canonical tracked results. The distinction is:
+
+- **Research**: model candidates, candidate grading, backtests, validation, learning material.
+- **Results**: picks that ACE or Pixl intentionally tracked as paper picks.
+
+Soccer model candidates still matter and should not be discarded. They are useful for learning and model validation. They should just not be presented as actual tracked picks unless they were intentionally promoted into tracking.
+
+#### 3. `soccer_approved_picks` / tracked-pick source of truth
+
+Decision: **Approve direction, modify naming/meaning.**
+
+Pixl wants a workflow where:
+
+- the model can produce picks without relying on Pixl;
+- Pixl can also manually approve/add picks he personally likes;
+- both can be paper-tracked;
+- later ACE can compare Pixl/manual picks vs model picks to find edge, disagreement, and room for improvement.
+
+Therefore the source of truth should not mean “only model-approved soccer picks.” It should mean a canonical **paper-tracked pick ledger** that supports multiple origins:
+
+- `model_auto`
+- `model_approved`
+- `pixl_manual`
+- `operator_manual`
+
+Current `soccer_approved_picks` can either evolve into this ledger for soccer or be replaced/normalized behind a unified cross-sport tracked-picks read model.
+
+#### 4. MLB empty state
+
+Decision: **Approved.**
+
+MLB should show an honest empty state until `mlb_signals` or the future tracked-pick ledger has rows. Do not imply MLB results disappeared.
+
+#### 5. NBA `signal_log`
+
+Decision: **Tentatively approved as current/early tracked signal history, not necessarily “legacy.”**
+
+Pixl does not want useful data dismissed as legacy just because the architecture is changing. Treat NBA `signal_log` as existing tracked signal history unless/until we discover it is polluted, invalid, or no longer comparable.
+
+#### 6. Top-level nav
+
+Decision: **Approved direction.**
+
+Use a professional app structure that prevents everything from being jumbled:
+
+- Today
+- Results
+- Research
+- Diagnostics
+
+Avoid turning Overview into a junk drawer.
+
+#### 7. Model confidence workstream
+
+Decision: **Approved.**
+
+Model confidence is not cosmetic UI polish. It is a model/data perfection workstream. UI can be packaged beautifully later, but the underlying data output has to become trustworthy first.
+
+### Open-question answers
+
+#### Q1. Should tracked pick mean paper-tracked only, real-bet only, or both?
+
+Decision: **Paper-tracked only for now.**
+
+Reason: avoid financial confusion/losses while ACE learns how to generate, track, and grade picks consistently across sports.
+
+Future real-money tracking can be added later with a separate field/mode.
+
+#### Q2. Should manual picks be allowed?
+
+Decision: **Yes, manual Pixl picks should be allowed.**
+
+Purpose:
+
+- compare Pixl’s own research/edge vs model picks;
+- track disagreement between human and model;
+- allow Pixl to display a manually selected pick on the consumer-facing board when appropriate.
+
+Manual picks must still be clearly labeled by origin in the data model.
+
+#### Q3. Should old NBA signal history remain visible?
+
+Decision: **Yes, keep it if useful.**
+
+Do not call it legacy by default. Ask: can we learn from this data? If yes, preserve and label it accurately. Only archive or relabel as legacy if we confirm the model/process has materially changed enough that old rows are not comparable.
+
+#### Q4. Should soccer graded candidate history be shown as backtest/validation or hidden?
+
+Decision: **Keep it as research/validation data.**
+
+Do not hide it just because it is not tracked-pick data. It may be exactly the learning data ACE needs. But label it correctly so it does not masquerade as actual paper-tracked picks.
+
+#### Q5. Should Diagnostics be visible to all admins?
+
+Decision: **Visible to all admins for now.**
+
+Private/internal mode can be added later if needed.
+
+## Updated Product Direction
+
+The system should support two parallel but clearly separated lanes:
+
+### Lane A — Paper-tracked picks
+
+This is the operational truth layer.
+
+- model auto picks
+- model approved picks
+- Pixl manual picks
+- open/graded status
+- paper P&L
+- CLV
+- model/human comparison
+
+### Lane B — Research/validation
+
+This is the learning layer.
+
+- soccer candidates
+- candidate grading
+- backtests
+- edge buckets
+- calibration
+- model confidence work
+- stale/diagnostic warnings
+
+Both lanes matter. The mistake is mixing them in the same table as if they mean the same thing.
+
+## Additional questions before implementation
+
+1. Should model-generated picks be allowed to enter paper tracking automatically when they clear strict rules, or should every pick require approval at first?
+2. Should Pixl manual picks appear on the consumer-facing board immediately, or only after a separate “publish/display” toggle?
+3. Should the paper-tracked ledger support all sports from day one, even if MLB/Soccer initially have empty states?
+4. Should candidate rows ever be bulk-promoted into paper-tracked history retroactively, or should paper tracking only start prospectively from implementation date?
+5. Should we create a new canonical table such as `tracked_picks`, or keep sport-specific tables and normalize only in API/read models first?
