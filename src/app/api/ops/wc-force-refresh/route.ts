@@ -9,21 +9,20 @@
  * expansion and per-player stats enrichment) invisible until the next 7:30am
  * ET scheduled refresh — up to 24 hours out.
  *
- * This endpoint lets an operator (or this codebase, via curl with the
- * OPS_READ_TOKEN) force a re-sync now:
- *   GET /api/ops/wc-force-refresh?step=all   ← squads + form + enrich + priors
- *   GET /api/ops/wc-force-refresh?step=form  ← form + enrich + priors only
- *   GET /api/ops/wc-force-refresh?step=priors ← compute_all_priors only
+ * This endpoint lets an admin force a re-sync now:
+ *   POST /api/ops/wc-force-refresh?step=all    ← squads + form + enrich + priors
+ *   POST /api/ops/wc-force-refresh?step=form   ← form + enrich + priors only
+ *   POST /api/ops/wc-force-refresh?step=priors ← compute_all_priors only
  *
- * GET-only by design so it goes through the middleware's read-token gate
- * (POST would require an admin session). Read token must be present.
+ * Important: this mutates cached/prod data, so it must stay POST-only.
+ * The /api/ops middleware allows OPS_READ_TOKEN for GET routes only; using
+ * POST keeps this behind an admin session instead of read-token automation.
  *
  * Idempotent: every underlying sync uses ON CONFLICT UPDATE — re-running
  * refreshes data, never duplicates it.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
-import path from "path";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +53,7 @@ function runPython(args: string[], timeoutMs: number, appRoot: string): StepResu
   };
 }
 
-export async function GET(req: NextRequest) {
+async function runRefresh(req: NextRequest) {
   const stepParam = req.nextUrl.searchParams.get("step") ?? "all";
   const validSteps: Step[] = ["all", "form", "priors"];
   if (!validSteps.includes(stepParam as Step)) {
@@ -150,4 +149,15 @@ except Exception as e:
     runner: r,
     summary: parsedSummary,
   });
+}
+
+export async function POST(req: NextRequest) {
+  return runRefresh(req);
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { ok: false, error: "wc-force-refresh mutates data and must be called with POST by an admin session" },
+    { status: 405, headers: { Allow: "POST" } },
+  );
 }
