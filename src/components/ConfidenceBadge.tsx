@@ -26,7 +26,7 @@ export function ConfidencePill({ confidence, compact }: { confidence: Confidence
         <span className={cn("text-[11px] font-bold", s.text)}>{confidence.label}</span>
       </div>
       <p className="text-[10px] text-[#71717a] leading-relaxed">{confidence.explanation}</p>
-      {/* Confidence bar */}
+      {/* Signal-strength bar */}
       <div className="h-[2px] w-full bg-[#141417] rounded-full mt-1.5 overflow-hidden">
         <div
           className="h-full rounded-full transition-all"

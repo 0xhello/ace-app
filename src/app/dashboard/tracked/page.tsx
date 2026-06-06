@@ -118,7 +118,7 @@ function BetCard({ bet, onSettle }: { bet: BetRecord; onSettle: (id: string, s: 
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <span className="text-[8px] font-bold uppercase tracking-widest bg-[#111113] border border-[#2e332a] px-1.5 py-0.5 rounded text-[#6b7068]">{bet.market}</span>
         <span className="text-[8px] font-semibold uppercase tracking-wide" style={{ color: TIER_COLOR[bet.confidenceTier] }}>
-          {bet.confidenceTier} conf
+          {bet.confidenceTier} strength
         </span>
         <div className="flex items-center gap-1 ml-auto">
           <img src={bookLogoUrl(bet.book)} alt={m.name} className="h-3 w-3 rounded-sm opacity-60" />
@@ -223,7 +223,7 @@ export default function TrackedPage() {
 
         <div className="mb-6">
           <h1 className="text-[20px] font-bold text-white">Tracked</h1>
-          <p className="text-[12px] text-[#6b7068] mt-1">Your bet history, outcomes, and confidence accuracy.</p>
+          <p className="text-[12px] text-[#6b7068] mt-1">Your bet history, outcomes, and signal-strength accuracy.</p>
         </div>
 
         <div className="flex gap-3 mb-6">
@@ -247,7 +247,7 @@ export default function TrackedPage() {
             { key: "watching", label: `Watching (${watchedGames.length})` },
             { key: "active", label: `Active (${pending.length})` },
             { key: "history", label: `History (${settled.length})` },
-            { key: "stats", label: "Confidence Accuracy" },
+            { key: "stats", label: "Signal Strength Accuracy" },
           ] as const).map((t) => (
             <button
               key={t.key}
@@ -372,14 +372,14 @@ export default function TrackedPage() {
 
         {tab === "stats" && (
           <div className="space-y-4">
-            <p className="text-[11px] text-[#6b7068]">Win rate by confidence tier — how accurate the ACE model has been on your bets.</p>
+            <p className="text-[11px] text-[#6b7068]">Win rate by signal-strength tier — heuristic strength versus actual outcomes.</p>
             {(["high", "medium", "low"] as const).map((tier) => {
               const rate = tier === "high" ? stats.highHit : tier === "medium" ? stats.medHit : stats.lowHit;
               return (
                 <div key={tier} className="rounded-xl border border-[#22251f] bg-[#121412] p-4">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: TIER_COLOR[tier] }}>
-                      {tier} confidence
+                      {tier} strength
                     </span>
                     <span className="text-[18px] font-black font-mono" style={{ color: rate !== null ? TIER_COLOR[tier] : "#27272a" }}>
                       {rate !== null ? `${rate}%` : "—"}

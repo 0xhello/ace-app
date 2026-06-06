@@ -1,5 +1,5 @@
-// Real confidence scoring for ACE.
-// Replaces the deterministic hash-based mock in signals.ts.
+// Market-read scoring for ACE.
+// This is signal strength from live odds/context, not calibrated model confidence.
 // Inputs: live odds (no-vig prob), ESPN injury signals, weather, line movement.
 
 import { Game } from "@/types/game";
@@ -78,8 +78,8 @@ function movementModifier(
   if (!movement) return 0;
   const favKey = favoredMarket === "ml-away" ? "ml-away" : "ml-home";
   const dir = movement[favKey];
-  // Line moving up = odds shortening = market gaining confidence in this side
-  // Line moving down = odds lengthening = market losing confidence
+  // Line moving up = odds shortening = market backing this side
+  // Line moving down = odds lengthening = market cooling on this side
   if (dir === "up") return 4;
   if (dir === "down") return -4;
   return 0;
@@ -96,7 +96,7 @@ export function computeConfidence(
   const awayOdds = bestOddsForTeam(game, game.away_team);
   const homeOdds = bestOddsForTeam(game, game.home_team);
 
-  // If we don't have odds for both sides, return a low-confidence neutral read
+  // If we don't have odds for both sides, return a weak neutral read
   if (!awayOdds || !homeOdds) {
     return {
       pct: 50,
@@ -122,9 +122,9 @@ export function computeConfidence(
   const tier: ConfTier = pct >= 72 ? "high" : pct >= 60 ? "medium" : "low";
 
   const label =
-    tier === "high" ? `High conviction — ${favoredTeam.split(" ").pop()} favored`
-    : tier === "medium" ? `Moderate read — ${favoredTeam.split(" ").pop()} leaning`
-    : "Low confidence — signals mixed or insufficient";
+    tier === "high" ? `Strong market read — ${favoredTeam.split(" ").pop()} favored`
+    : tier === "medium" ? `Moderate market read — ${favoredTeam.split(" ").pop()} leaning`
+    : "Weak market read — signals mixed or insufficient";
 
   return {
     pct,
@@ -164,7 +164,7 @@ export function computeRecommendation(
     };
   }
 
-  // Moneyline recommendation when confidence is high enough
+  // Moneyline recommendation when signal strength is high enough
   if (confidence.pct >= 62) {
     const market: MarketRec = favoredIsAway ? "ml-away" : "ml-home";
     const components = confidence.components;
@@ -185,7 +185,7 @@ export function computeRecommendation(
     return {
       market,
       confidence: confidence.pct,
-      reason: `Spread line moving toward ${movingTeam.split(" ").pop()} — sharp action detected. Market conviction building.`,
+      reason: `Spread line moving toward ${movingTeam.split(" ").pop()} — sharp action detected. Market support building.`,
     };
   }
 

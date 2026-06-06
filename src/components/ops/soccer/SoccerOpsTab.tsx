@@ -267,18 +267,18 @@ function stakeSizeDetail(units: number | null | undefined): string {
 }
 
 function confidenceText(tier: "A" | "B" | "C" | null | undefined): string {
-  if (tier === "A") return "High confidence";
-  if (tier === "B") return "Medium-high confidence";
-  if (tier === "C") return "Low confidence";
-  return "Unrated confidence";
+  if (tier === "A") return "A signal strength";
+  if (tier === "B") return "B signal strength";
+  if (tier === "C") return "C signal strength";
+  return "Unrated signal strength";
 }
 
 function confidenceFromEdge(edge: number | null | undefined): string {
-  if (typeof edge !== "number" || !Number.isFinite(edge)) return "Unrated confidence";
-  if (edge >= 0.07) return "High confidence";
-  if (edge >= 0.05) return "Medium-high confidence";
-  if (edge >= 0.03) return "Medium confidence";
-  return "Low confidence";
+  if (typeof edge !== "number" || !Number.isFinite(edge)) return "Unrated signal strength";
+  if (edge >= 0.07) return "Strong signal";
+  if (edge >= 0.05) return "Firm signal";
+  if (edge >= 0.03) return "Moderate signal";
+  return "Weak signal";
 }
 
 // Map any market+side+line into a clean human label for the candidate
@@ -1861,7 +1861,7 @@ function MatchIntelligencePanel() {
 
       <p className="text-[10px] text-[#3a4033] mt-3 leading-relaxed">
         Pre-odds model probabilities from Understat xG + M9 prior regression + M7/M8 lineup adjustments (when fresh).
-        Confidence tiers: A ≥5pp · B ≥3pp · C ≥1.5pp · below = no bet.
+        Signal tiers: A ≥5pp · B ≥3pp · C ≥1.5pp · below = no bet.
         Stake recommendation is shown in plain English; quarter-Kelly sizing still runs under the hood.
       </p>
     </Panel>

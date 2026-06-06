@@ -136,7 +136,7 @@ export default function ModelPerformanceCard() {
                 <div className="py-3 border-b border-[#1e231d]">
                   {s.bets_graded > 0 ? (
                     <>
-                      <p className="text-[8px] uppercase tracking-[0.18em] text-[#5f665d] mb-2">High-conf bets ({s.bets_graded} graded)</p>
+                      <p className="text-[8px] uppercase tracking-[0.18em] text-[#5f665d] mb-2">Strong-signal bets ({s.bets_graded} graded)</p>
                       <div className="flex justify-around">
                         <StatCell label="Record" value={`${s.bets_wins}–${s.bets_losses}`} />
                         <StatCell label="Win %" value={pct(s.bets_win_rate)} highlight={s.bets_win_rate !== null ? (s.bets_win_rate >= 0.524 ? "green" : "red") : "neutral"} />
@@ -229,7 +229,7 @@ export default function ModelPerformanceCard() {
                         {/* Confidence */}
                         <div className="flex flex-col items-center shrink-0">
                           <span className="text-[11px] font-bold font-mono" style={{ color: confColor }}>{confPct}</span>
-                          <span className="text-[7px] uppercase tracking-[0.1em] text-[#3a4033]">conf</span>
+                          <span className="text-[7px] uppercase tracking-[0.1em] text-[#3a4033]">signal</span>
                         </div>
 
                         {/* Result badge */}

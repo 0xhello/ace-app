@@ -24,7 +24,7 @@ function Sparkline({ values }: { values: { idx: number; pct: number }[] }) {
   );
 }
 
-function historyFromConfidence(pct: number, delta?: number | null) {
+function historyFromSignalStrength(pct: number, delta?: number | null) {
   return Array.from({ length: 12 }).map((_, i) => ({ idx: i, pct: Math.max(45, Math.min(95, pct - (delta ?? 0) + ((i % 5) - 2))) }));
 }
 
@@ -56,9 +56,9 @@ function changeSummary(confidence: any, signals: any[]) {
     return top?.summary || "No material change surfaced yet.";
   }
   if (delta > 0) {
-    return `Confidence improved ${delta} points — ${top?.summary || "supporting context strengthened"}`;
+    return `Read strengthened ${delta} points — ${top?.summary || "supporting context strengthened"}`;
   }
-  return `Confidence fell ${Math.abs(delta)} points — ${top?.summary || "new uncertainty entered the read"}`;
+  return `Read weakened ${Math.abs(delta)} points — ${top?.summary || "new uncertainty entered the read"}`;
 }
 
 function impactSummary(signals: any[]) {
@@ -98,7 +98,7 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
   const game = intel.game;
   const confidence = intel.confidence;
   const signals = intel.signals || [];
-  const history = historyFromConfidence(confidence?.pct ?? 70, confidence?.delta);
+  const history = historyFromSignalStrength(confidence?.pct ?? 70, confidence?.delta);
   const scoreboard = intel.scoreboard;
   const sourceStatus = intel.source_status || {};
   const coverage = intel.coverage || {};
@@ -171,7 +171,7 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
         <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-4">
           <div className="rounded-2xl border border-[#22251f] bg-[#121412] p-5">
             <div className="flex items-center justify-between mb-4">
-              <p className="text-[11px] text-[#6b7068] uppercase tracking-widest">Confidence history</p>
+              <p className="text-[11px] text-[#6b7068] uppercase tracking-widest">Signal strength history</p>
               <div className="text-[11px] text-[#9ca39a] inline-flex items-center gap-1.5"><LineChart className="h-3.5 w-3.5 text-[#3ee68a]" /> Internal trend</div>
             </div>
             <Sparkline values={history} />
@@ -179,7 +179,7 @@ export default async function TrackedGamePage({ params }: { params: Promise<{ ga
 
           <div className="rounded-2xl border border-[#22251f] bg-[#121412] p-5">
             <div className="flex items-center justify-between mb-4">
-              <p className="text-[11px] text-[#6b7068] uppercase tracking-widest">Market confidence</p>
+              <p className="text-[11px] text-[#6b7068] uppercase tracking-widest">Market read</p>
               <div className="text-[11px] text-[#9ca39a] inline-flex items-center gap-1.5"><Activity className="h-3.5 w-3.5 text-[#3ee68a]" /> Monitoring view</div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

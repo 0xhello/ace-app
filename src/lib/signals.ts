@@ -240,20 +240,20 @@ const CONFIDENCE_TEMPLATES: Array<{
   harms: string[];
 }> = [
   {
-    summary: "Model confidence elevated",
-    details: "ACE model shows strong conviction on this game. Multiple signals aligned in same direction.",
+    summary: "Signal strength elevated",
+    details: "Multiple market and context signals are aligned in the same direction.",
     severity: "low",
     direction: "positive",
     benefits: ["ACE-recommended side"],
     harms: [],
   },
   {
-    summary: "Confidence dropping — signals conflicting",
-    details: "New information is degrading model confidence. Injury and market signals pointing different directions.",
+    summary: "Signal strength dropping — signals conflicting",
+    details: "New information is weakening the read. Injury and market signals are pointing different directions.",
     severity: "high",
     direction: "uncertain",
     benefits: ["Caution warranted on all sides"],
-    harms: ["Previously high-confidence picks losing edge"],
+    harms: ["Previously strong signals losing edge"],
   },
 ];
 
