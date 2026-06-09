@@ -21,6 +21,7 @@ import { type MatchRead } from "@/lib/match-read";
 import { getGameViewBundle, warmGameViewBundlesSoon } from "@/lib/game-view-bundle";
 import LiveCenter from "@/components/game/LiveCenter";
 import LiveHeroCenter from "@/components/game/LiveHeroCenter";
+import TaleOfTape from "@/components/game/TaleOfTape";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
 import { formatAmericanOdds } from "@/lib/utils";
@@ -476,6 +477,11 @@ export default async function GamePage({ params, searchParams }: { params: Promi
               <FormColumn team={away} sport={game.sport} form={awayForm} align="left" />
               <FormColumn team={home} sport={game.sport} form={homeForm} align="right" />
             </div>
+            {awayForm?.summary && homeForm?.summary && (
+              <div className="mt-3">
+                <TaleOfTape awayTeam={away} homeTeam={home} awaySummary={awayForm.summary} homeSummary={homeForm.summary} />
+              </div>
+            )}
           </section>
         )}
 
