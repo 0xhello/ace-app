@@ -20,6 +20,7 @@ import { type MatchAlphaDigest } from "@/lib/match-alpha";
 import { type MatchRead } from "@/lib/match-read";
 import { getGameViewBundle, warmGameViewBundlesSoon } from "@/lib/game-view-bundle";
 import LiveCenter from "@/components/game/LiveCenter";
+import LiveHeroCenter from "@/components/game/LiveHeroCenter";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
 import { formatAmericanOdds } from "@/lib/utils";
@@ -414,12 +415,7 @@ export default async function GamePage({ params, searchParams }: { params: Promi
               <span className="text-[17px] md:text-[20px] font-bold tracking-tight leading-tight">{away}</span>
               {awayML && <span className="text-[13px] font-mono font-bold text-[#3ee68a]">{formatAmericanOdds(awayML.price)}</span>}
             </div>
-            <div className="flex flex-col items-center gap-1.5 px-2">
-              {isLive && game.scoreboard?.away_score != null
-                ? <span className="text-[30px] font-black font-mono tabular-nums leading-none">{game.scoreboard.away_score}<span className="text-[#3a4033] mx-1">–</span>{game.scoreboard.home_score}</span>
-                : <span className="text-[15px] font-black tracking-[0.18em] text-[#3a4033]">VS</span>}
-              <span className="text-[10px] text-[#6b7068] whitespace-nowrap">{isLive ? (game.scoreboard?.clock ?? "Live") : kickoff(game.commence_time)}</span>
-            </div>
+            <LiveHeroCenter gameId={game.id} fixtureId={liveFixtureId} poll={showLive} kickoffLabel={kickoff(game.commence_time)} />
             <div className="flex flex-col items-center text-center gap-2.5">
               <TeamCrest team={home} sport={game.sport} size={44} />
               <span className="text-[17px] md:text-[20px] font-bold tracking-tight leading-tight">{home}</span>
@@ -429,10 +425,9 @@ export default async function GamePage({ params, searchParams }: { params: Promi
         </header>
 
         {showLive && (
-          <section className="mt-5">
-            <Label icon={Activity}>Live match</Label>
+          <div className="mt-5">
             <LiveCenter gameId={game.id} fixtureId={liveFixtureId} homeTeam={home} awayTeam={away} />
-          </section>
+          </div>
         )}
 
         {isSoccer && alpha && !showLive && (
