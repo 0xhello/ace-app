@@ -1,6 +1,6 @@
 import type { Game } from "@/types/game";
 import type { PreparedGameIntel } from "@/lib/game-intel-cache";
-import type { MatchAlphaDigest } from "@/lib/match-alpha";
+import { lineupsAreLive, type MatchAlphaDigest } from "@/lib/match-alpha";
 import { formatEtTime } from "@/lib/time-format";
 
 export type MatchReadStatus = "quiet" | "watch" | "lineups" | "live" | "final";
@@ -83,6 +83,9 @@ export function buildSoccerMatchRead(
   const isLive = game.status === "live";
   const isFinal = game.status === "final";
   const h = hoursToKickoff(game);
+  // Only trust lineup coverage as CONFIRMED XIs near kickoff (or live/final) —
+  // rows further out are projected/stale. Avoids "Starting XIs are in" days out.
+  const lineupsConfirmed = lineupsAreLive(game, alpha.coverage.lineups);
   const moments: MatchReadMoment[] = [];
 
   if (alpha.coverage.latestChange) {
@@ -107,7 +110,7 @@ export function buildSoccerMatchRead(
     });
   }
 
-  if (alpha.coverage.lineups > 0) {
+  if (lineupsConfirmed) {
     moments.push({
       type: "lineups_confirmed",
       rank: isLive ? 3 : 1,
@@ -149,7 +152,7 @@ export function buildSoccerMatchRead(
   let status: MatchReadStatus = "quiet";
   if (isFinal) status = "final";
   else if (isLive) status = "live";
-  else if (alpha.coverage.lineups > 0) status = "lineups";
+  else if (lineupsConfirmed) status = "lineups";
   else if (primary.importance !== "low") status = "watch";
 
   const headline = isFinal

@@ -5,6 +5,20 @@ import type { PreparedGameIntel } from "@/lib/game-intel-cache";
 
 export type MatchAlphaTone = "good" | "warn" | "neutral" | "alert";
 
+// Confirmed starting XIs are only released ~1h before kickoff. Lineup rows that
+// exist further out are projected/stale (e.g. a team's previous match), so we
+// only TRUST lineup coverage as "confirmed XIs" within this window of kickoff
+// (or once the match is live/final). Prevents "Starting XIs are in" days out.
+export const LINEUP_WINDOW_HOURS = 3;
+
+export function lineupsAreLive(game: Game, lineups: number): boolean {
+  if (lineups <= 0) return false;
+  if (game.status === "live" || game.status === "final") return true;
+  const d = new Date(game.commence_time);
+  if (!Number.isFinite(d.getTime())) return false;
+  return (d.getTime() - Date.now()) / 3_600_000 <= LINEUP_WINDOW_HOURS;
+}
+
 export interface MatchAlphaCard {
   label: string;
   title: string;
@@ -183,7 +197,7 @@ export async function getMatchAlphaDigest(game: Game, prepared: PreparedGameInte
   const gaps: string[] = [];
 
   if (coverage.sportmonksBundle) {
-    if (coverage.lineups > 0) {
+    if (lineupsAreLive(game, coverage.lineups)) {
       cards.push({
         label: "Lineups",
         title: coverage.starters >= 22 ? "Starting XIs are in" : `${coverage.lineups} names on the team sheet`,
@@ -191,7 +205,7 @@ export async function getMatchAlphaDigest(game: Game, prepared: PreparedGameInte
         tone: coverage.starters >= 22 ? "good" : "neutral",
       });
     } else {
-      gaps.push("Lineups are not out yet.");
+      gaps.push("Confirmed XIs land ~1 hour before kickoff.");
     }
 
     if (coverage.events || coverage.statistics) {
