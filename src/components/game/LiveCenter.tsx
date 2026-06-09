@@ -9,6 +9,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeftRight } from "lucide-react";
+import { liveWinProb } from "@/lib/live-win-prob";
 
 interface LiveEvent {
   minute: number | null;
@@ -20,7 +21,8 @@ interface LiveEvent {
 }
 interface LiveState {
   live?: boolean; finished?: boolean; status?: string | null; minute?: number | null;
-  home_team?: string | null; away_team?: string | null; events?: LiveEvent[];
+  home_team?: string | null; away_team?: string | null;
+  home_score?: number | null; away_score?: number | null; events?: LiveEvent[];
 }
 const POLL_MS = 20_000;
 
@@ -65,8 +67,11 @@ function EventRow({ ev, home, away }: { ev: LiveEvent; home: string; away: strin
 }
 
 export default function LiveCenter({
-  gameId, fixtureId, homeTeam, awayTeam,
-}: { gameId: string; fixtureId: string | null; homeTeam: string; awayTeam: string }) {
+  gameId, fixtureId, homeTeam, awayTeam, homePrior, awayPrior, totalLine,
+}: {
+  gameId: string; fixtureId: string | null; homeTeam: string; awayTeam: string;
+  homePrior?: number; awayPrior?: number; totalLine?: number | null;
+}) {
   const [state, setState] = useState<LiveState | null>(null);
   const [loaded, setLoaded] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -112,6 +117,12 @@ export default function LiveCenter({
 
   const events = state?.events ?? [];
   const clock = finished ? "Full time" : state?.minute != null ? `${state.minute}'` : "Live";
+  const wp = liveWinProb({
+    homePrior: homePrior ?? 0.4, awayPrior: awayPrior ?? 0.35,
+    homeScore: state?.home_score ?? 0, awayScore: state?.away_score ?? 0,
+    minute: state?.minute ?? null, totalLine: totalLine ?? null, finished,
+  });
+  const wpPct = (n: number) => `${Math.round(n * 100)}%`;
   return (
     <div className="relative overflow-hidden rounded-2xl border border-[#26321f] bg-[#0a0c0a]">
       <div className="pointer-events-none absolute inset-0 opacity-[0.05] bg-[repeating-linear-gradient(0deg,transparent,transparent_3px,#3ee68a_3px,#3ee68a_4px)]" />
@@ -122,6 +133,20 @@ export default function LiveCenter({
           : "inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-[#ef6b6b]"}>
           {!finished && <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />}{clock}
         </span>
+      </div>
+      {/* live win-probability — updates with score + time */}
+      <div className="relative px-5 pt-3.5 pb-3 border-b border-[#161a16]">
+        <div className="flex h-2 w-full overflow-hidden rounded-full bg-[#141714]">
+          <div className="bg-[#3a4250]" style={{ width: `${wp.away * 100}%` }} />
+          <div className="bg-[#6b6f3a]" style={{ width: `${wp.draw * 100}%` }} />
+          <div className="bg-[#3ee68a]" style={{ width: `${wp.home * 100}%` }} />
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[10.5px] font-mono">
+          <span className="text-[#8a93a3] truncate max-w-[34%]">{away} {wpPct(wp.away)}</span>
+          <span className="text-[#b8b06a]">Draw {wpPct(wp.draw)}</span>
+          <span className="text-[#5fe39a] truncate max-w-[34%] text-right">{home} {wpPct(wp.home)}</span>
+        </div>
+        <p className="mt-2 text-[9.5px] text-[#4a524a]">{finished ? "Final result." : "Live win chance — updates with the score and time left."}</p>
       </div>
       {events.length > 0 ? (
         <div className="relative px-3 py-2 max-h-[300px] overflow-y-auto">

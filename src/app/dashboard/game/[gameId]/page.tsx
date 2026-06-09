@@ -426,7 +426,12 @@ export default async function GamePage({ params, searchParams }: { params: Promi
 
         {showLive && (
           <div className="mt-5">
-            <LiveCenter gameId={game.id} fixtureId={liveFixtureId} homeTeam={home} awayTeam={away} />
+            <LiveCenter
+              gameId={game.id} fixtureId={liveFixtureId} homeTeam={home} awayTeam={away}
+              homePrior={read ? (read.fav.name === home ? read.fav.prob : read.dog.prob) : undefined}
+              awayPrior={read ? (read.fav.name === away ? read.fav.prob : read.dog.prob) : undefined}
+              totalLine={read?.totalLine ?? null}
+            />
           </div>
         )}
 
