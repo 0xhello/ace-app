@@ -19,6 +19,7 @@ import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
 import { type MatchAlphaDigest } from "@/lib/match-alpha";
 import { type MatchRead } from "@/lib/match-read";
 import { getGameViewBundle, warmGameViewBundlesSoon } from "@/lib/game-view-bundle";
+import LiveCenter from "@/components/game/LiveCenter";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
 import { formatAmericanOdds } from "@/lib/utils";
@@ -325,8 +326,9 @@ function GameCommandStack({
   );
 }
 
-export default async function GamePage({ params }: { params: Promise<{ gameId: string }> }) {
+export default async function GamePage({ params, searchParams }: { params: Promise<{ gameId: string }>; searchParams?: Promise<{ live?: string }> }) {
   const { gameId } = await params;
+  const sp = (await searchParams) ?? {};
   const game = await getGame(gameId);
   if (!game) notFound();
 
@@ -349,6 +351,13 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
 
   const alpha = bundle?.alpha ?? null;
   const matchRead = bundle?.matchRead ?? null;
+
+  // Live match view: mount the real-time module once the game is live/finished or
+  // kickoff has passed (so it can detect the live flip even if board status lags).
+  // `?live=<sportmonks fixture id>` forces it on for demoing against a live match.
+  const kickoffPassed = new Date(game.commence_time).getTime() <= Date.now();
+  const liveFixtureId = (sp.live && /^\d+$/.test(sp.live)) ? sp.live : (alpha?.coverage.fixtureId ?? null);
+  const showLive = isSoccer && !!liveFixtureId && (isLive || game.status === "final" || kickoffPassed || !!sp.live);
   const liveUnavailable: LiveCenterInjury[] = (alpha?.coverage.unavailable ?? []).map((p) => ({
     playerName: p.playerName,
     teamName: p.teamName,
@@ -419,7 +428,14 @@ export default async function GamePage({ params }: { params: Promise<{ gameId: s
           </div>
         </header>
 
-        {isSoccer && alpha && (
+        {showLive && (
+          <section className="mt-5">
+            <Label icon={Activity}>Live match</Label>
+            <LiveCenter gameId={game.id} fixtureId={liveFixtureId} homeTeam={home} awayTeam={away} />
+          </section>
+        )}
+
+        {isSoccer && alpha && !showLive && (
           <GameCommandStack
             game={game}
             away={away}
