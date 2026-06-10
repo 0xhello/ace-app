@@ -82,6 +82,21 @@ export async function set(key: string, data: any, games?: any[]): Promise<void> 
   memStore.set(key, entry);
 }
 
+// Durable write — NO TTL. For ledgers/records that must survive indefinitely
+// (e.g. the CLV ledger), not for odds/research caches (those use set()).
+export async function setPersistent(key: string, data: any): Promise<void> {
+  const entry: CacheEntry = { data, fetchedAt: Date.now() };
+  if (redis) {
+    try {
+      await redis.set(key, entry);
+      return;
+    } catch (e) {
+      console.error("[cache] Redis setPersistent error, falling back:", e);
+    }
+  }
+  memStore.set(key, entry);
+}
+
 export function isStale(entry: CacheEntry | null, games?: any[]): boolean {
   if (!entry) return true;
   const ttl = games ? ttlFor(games) : TTL_DEFAULT;

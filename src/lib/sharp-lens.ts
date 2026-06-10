@@ -37,21 +37,26 @@ export interface SharpLens {
 const MIN_EDGE_PP = 2.0;
 const MIN_FAIR_PROB = 0.06;
 
-function implied(price: number): number {
+export function implied(price: number): number {
   return price >= 0 ? 100 / (price + 100) : -price / (-price + 100);
 }
 
-export function sharpLens(game: Game): SharpLens | null {
-  // locate the sharp book's 3-way prices
+/** De-vigged (proportional) sharp-fair probability per h2h outcome, or null if
+ * the sharp book isn't on this game. Used by the lens and the CLV ledger. */
+export function sharpFair(game: Game): { book: string; fair: Map<string, number> } | null {
   const sharp = game.bookmakers.find((b) => SHARP_BOOKS.has(b.sportsbook));
   const sharpH2h = sharp?.markets.h2h ?? [];
   if (!sharp || sharpH2h.length < 2) return null;
-
-  // de-vig (proportional) → sharp fair per outcome
   const raw = sharpH2h.map((o) => ({ name: o.name, p: implied(o.price) }));
   const sum = raw.reduce((s, r) => s + r.p, 0);
   if (sum <= 0) return null;
-  const fair = new Map(raw.map((r) => [r.name, r.p / sum]));
+  return { book: sharp.sportsbook, fair: new Map(raw.map((r) => [r.name, r.p / sum])) };
+}
+
+export function sharpLens(game: Game): SharpLens | null {
+  const ref = sharpFair(game);
+  if (!ref) return null;
+  const { book: sharpBookKey, fair } = ref;
 
   // scan bettable books for prices sitting below sharp fair
   const out: SharpDivergence[] = [];
@@ -76,5 +81,5 @@ export function sharpLens(game: Game): SharpLens | null {
     if (!cur || d.edgePp > cur.edgePp) bestPer.set(d.selection, d);
   }
   const divergences = [...bestPer.values()].sort((a, b) => b.edgePp - a.edgePp);
-  return { sharpBook: sharp.sportsbook, divergences };
+  return { sharpBook: sharpBookKey, divergences };
 }
