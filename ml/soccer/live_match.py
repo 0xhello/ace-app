@@ -23,6 +23,23 @@ _LIVE_STATES = {2, 3, 22, 6, 7}        # 1st half, HT, 2nd half, ET, pens-ish
 _FINISHED_STATES = {5, 7, 8}           # FT, AET, FT_PEN
 _EVENT_KEEP = {"goal", "own-goal", "penalty", "yellowcard", "redcard",
                "yellowred", "substitution", "var"}
+_STARTER_TYPE = 11                      # Sportmonks lineup type_id for starters
+_POS = {24: "GK", 25: "DEF", 26: "MID", 27: "FWD"}
+
+
+def _normalize_lineups(raw, home_id):
+    out = []
+    for row in raw or []:
+        pl = row.get("player") or {}
+        out.append({
+            "name": pl.get("common_name") or row.get("player_name") or pl.get("display_name") or pl.get("name"),
+            "number": row.get("jersey_number"),
+            "pos": _POS.get(row.get("position_id")),
+            "team": "home" if row.get("team_id") == home_id else "away",
+            "starter": row.get("type_id") == _STARTER_TYPE,
+            "order": row.get("formation_position") or 99,
+        })
+    return out
 
 
 def _current_scores(scores: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
@@ -73,7 +90,7 @@ def live_state(fixture_id: int) -> Dict[str, Any]:
     """Current state for one fixture. {live, finished, status, minute, home/away score, events}."""
     payload = _sportmonks_get(
         f"/fixtures/{fixture_id}",
-        {"include": "participants;scores;periods;state;events.type"},
+        {"include": "participants;scores;periods;state;events.type;lineups.player"},
     )
     data = payload.get("data") or {}
     parts = data.get("participants") or []
@@ -94,6 +111,7 @@ def live_state(fixture_id: int) -> Dict[str, Any]:
         "home_score": scores["home"],
         "away_score": scores["away"],
         "events": _normalize_events(data.get("events") or [], (home or {}).get("id")),
+        "lineups": _normalize_lineups(data.get("lineups") or [], (home or {}).get("id")),
         "fetched_at": data.get("starting_at"),
     }
 

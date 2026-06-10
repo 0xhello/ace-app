@@ -22,6 +22,7 @@ import { getGameViewBundle, warmGameViewBundlesSoon } from "@/lib/game-view-bund
 import LiveCenter from "@/components/game/LiveCenter";
 import LiveHeroCenter from "@/components/game/LiveHeroCenter";
 import TaleOfTape from "@/components/game/TaleOfTape";
+import LiveLineups from "@/components/game/LiveLineups";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
 import { formatAmericanOdds } from "@/lib/utils";
@@ -357,9 +358,13 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   // Live match view: mount the real-time module once the game is live/finished or
   // kickoff has passed (so it can detect the live flip even if board status lags).
   // `?live=<sportmonks fixture id>` forces it on for demoing against a live match.
-  const kickoffPassed = new Date(game.commence_time).getTime() <= Date.now();
+  const msToKickoff = new Date(game.commence_time).getTime() - Date.now();
+  const kickoffPassed = msToKickoff <= 0;
+  const within3hPre = msToKickoff > 0 && msToKickoff <= 3 * 3_600_000;
   const liveFixtureId = (sp.live && /^\d+$/.test(sp.live)) ? sp.live : (alpha?.coverage.fixtureId ?? null);
   const showLive = isSoccer && !!liveFixtureId && (isLive || game.status === "final" || kickoffPassed || !!sp.live);
+  // Lineups land ~1h before kickoff — mount the lineups module a bit earlier than the live score module.
+  const showLineups = isSoccer && !!liveFixtureId && (showLive || within3hPre);
   const liveUnavailable: LiveCenterInjury[] = (alpha?.coverage.unavailable ?? []).map((p) => ({
     playerName: p.playerName,
     teamName: p.teamName,
@@ -434,6 +439,10 @@ export default async function GamePage({ params, searchParams }: { params: Promi
               totalLine={read?.totalLine ?? null}
             />
           </div>
+        )}
+
+        {showLineups && (
+          <LiveLineups gameId={game.id} fixtureId={liveFixtureId} homeTeam={home} awayTeam={away} />
         )}
 
         {isSoccer && alpha && !showLive && (
