@@ -27,7 +27,7 @@ import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
 import { formatAmericanOdds } from "@/lib/utils";
 import { formatDurationUntil, formatEtDate, formatEtDateTime } from "@/lib/time-format";
-import { bookMeta } from "@/lib/books";
+import { bookMeta, isSharpBook } from "@/lib/books";
 import * as serverCache from "@/lib/server-cache";
 import type { Game } from "@/types/game";
 
@@ -120,9 +120,14 @@ function fmtDate(iso: string): string {
   } catch { return iso; }
 }
 function best(game: Game, market: "h2h" | "spreads" | "totals", name: string) {
+  // Bettable books only — sharp/reference books (Pinnacle) feed the analysis
+  // layer (market read, win-prob) but are never shown as a bettable price.
   let top: { price: number; book: string; point?: number } | null = null;
-  for (const b of game.bookmakers) for (const o of (b.markets[market] ?? [])) {
-    if (o.name === name && (!top || o.price > top.price)) top = { price: o.price, book: b.sportsbook, point: o.point };
+  for (const b of game.bookmakers) {
+    if (isSharpBook(b.sportsbook)) continue;
+    for (const o of (b.markets[market] ?? [])) {
+      if (o.name === name && (!top || o.price > top.price)) top = { price: o.price, book: b.sportsbook, point: o.point };
+    }
   }
   return top;
 }

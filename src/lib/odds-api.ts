@@ -1,10 +1,18 @@
 import { Game, BookOdds, MarketOutcome } from "@/types/game";
 import { getActiveSports, setActiveSports, set as cacheSet, writeOddsQuota } from "@/lib/server-cache";
+import { SHARP_BOOKS } from "@/lib/books";
 
 const BASE = "https://api.the-odds-api.com/v4";
 
-// Books to pull — ordered by priority
-const BOOKS = "fanduel,draftkings,betmgm,caesars,pointsbet,bet365";
+// Books to pull — ordered by priority. The Odds API bills ceil(books/10) per
+// market, so 10 books costs exactly the same as 3. Keys must be The Odds API's
+// own: Caesars = "williamhill_us" (the old "caesars" key, plus the defunct
+// "pointsbet", silently returned nothing — we ran on 3 live books for months).
+// "pinnacle" is the SHARP reference: it feeds the analysis layer (divergence vs
+// sharp consensus, CLV) but is excluded from consumer best-price displays via
+// SHARP_BOOKS — most of our users can't bet there, so showing it as "best
+// price" would mislead.
+const BOOKS = "fanduel,draftkings,betmgm,williamhill_us,betrivers,espnbet,fanatics,bovada,betonlineag,pinnacle";
 const MARKETS = "h2h,spreads,totals";
 
 // All sports ACE monitors. The API returns [] for off-season sports — no wasted credits.
@@ -108,9 +116,10 @@ function transformBookmaker(b: any): BookOdds {
 }
 
 function bestPrice(bookmakers: BookOdds[], team: string): number | null {
-  const prices = bookmakers.flatMap((b) =>
-    (b.markets.h2h ?? []).filter((o) => o.name === team).map((o) => o.price)
-  );
+  // Consumer-facing best price: bettable books only (no sharp/reference books).
+  const prices = bookmakers
+    .filter((b) => !SHARP_BOOKS.has(b.sportsbook))
+    .flatMap((b) => (b.markets.h2h ?? []).filter((o) => o.name === team).map((o) => o.price));
   return prices.length ? Math.max(...prices) : null;
 }
 

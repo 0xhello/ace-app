@@ -7,7 +7,7 @@ import { cn, formatAmericanOdds, teamAbbr } from "@/lib/utils";
 import { etDateKey, formatDurationUntil, formatEtDate, formatEtTimeLabel } from "@/lib/time-format";
 import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users, ArrowUpRight } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
-import { bookMeta, bookLogoUrl } from "@/lib/books";
+import { bookMeta, bookLogoUrl, isSharpBook } from "@/lib/books";
 import { impliedProbability, edgePct } from "@/lib/edge";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getTeamStyle } from "@/lib/team-style";
@@ -32,8 +32,15 @@ function TeamIcon({ team, sport }: { team: string; sport: string }) {
   );
 }
 
+// Consumer action cells: best price across BETTABLE books only — sharp/reference
+// books (Pinnacle) stay in the data for analysis but are never shown as a price
+// the user should go bet.
+function bettable(game: Game) {
+  return game.bookmakers.filter((b) => !isSharpBook(b.sportsbook));
+}
+
 function bestH2H(game: Game, team: string) {
-  const all = game.bookmakers.flatMap((b) =>
+  const all = bettable(game).flatMap((b) =>
     (b.markets.h2h || []).filter((o) => o.name === team).map((o) => ({ price: o.price, book: b.sportsbook }))
   );
   if (!all.length) return null;
@@ -41,7 +48,7 @@ function bestH2H(game: Game, team: string) {
 }
 
 function bestSpread(game: Game, team: string) {
-  const all = game.bookmakers.flatMap((b) =>
+  const all = bettable(game).flatMap((b) =>
     (b.markets.spreads || []).filter((o) => o.name === team).map((o) => ({ ...o, book: b.sportsbook }))
   );
   if (!all.length) return null;
@@ -49,7 +56,7 @@ function bestSpread(game: Game, team: string) {
 }
 
 function bestTotal(game: Game, side: "Over" | "Under") {
-  const all = game.bookmakers.flatMap((b) =>
+  const all = bettable(game).flatMap((b) =>
     (b.markets.totals || []).filter((o) => o.name === side).map((o) => ({ ...o, book: b.sportsbook }))
   );
   if (!all.length) return null;
