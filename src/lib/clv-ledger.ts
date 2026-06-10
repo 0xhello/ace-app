@@ -19,6 +19,7 @@
  */
 import * as serverCache from "@/lib/server-cache";
 import { sharpLens, sharpFair } from "@/lib/sharp-lens";
+import { computeAceLean, type LeanTier } from "@/lib/ace-leans";
 import type { Game } from "@/types/game";
 
 const LEDGER_KEY = "clv-ledger-v1";
@@ -41,6 +42,9 @@ export interface ClvFlag {
   graded: boolean;
   clvPp?: number;        // (lastFair − softProb) × 100, set at grading
   gradedAt?: string;
+  // ACE Signal tier at FIRST flag time (immutable once set) — lets the ledger
+  // publish per-tier records ("Tier B has beaten the close X of Y").
+  tier?: LeanTier;
 }
 
 export interface ClvSummary {
@@ -66,9 +70,17 @@ async function save(ledger: Ledger): Promise<void> {
   await serverCache.setPersistent(LEDGER_KEY, ledger);
 }
 
-/** One tick: record new lens flags, refresh sharp-fair on open flags, grade
- * anything past kickoff. Pure function of the passed board games. */
-export async function clvLedgerTick(games: Game[]): Promise<{ newFlags: number; updated: number; graded: number; total: number }> {
+export interface LedgerTickOpts {
+  /** board movementMap (gameId → {ml_home/ml_away: "up"|"down"|null}) */
+  movementMap?: Record<string, Record<string, "up" | "down" | null>>;
+  /** current out/suspended player names for a team (normalized lookup) */
+  injuriesFor?: (team: string) => string[];
+}
+
+/** One tick: record new lens flags (annotated with their ACE Signal tier when
+ * one fires), refresh sharp-fair on open flags, grade anything past kickoff.
+ * Pure function of the passed board games. */
+export async function clvLedgerTick(games: Game[], opts: LedgerTickOpts = {}): Promise<{ newFlags: number; updated: number; graded: number; total: number }> {
   const ledger = await load();
   const now = new Date();
   const nowIso = now.toISOString();
@@ -80,11 +92,19 @@ export async function clvLedgerTick(games: Game[]): Promise<{ newFlags: number; 
     const ref = sharpFair(game);
 
     // 1. Record new flags (pre-kickoff only — a "flag" is only meaningful as a
-    //    price you could still take).
+    //    price you could still take). If an ACE Signal fires on this game, its
+    //    tier is stamped on the matching flag at FIRST sight (immutable).
     if (preKick) {
+      const lean = computeAceLean(game, {
+        movement: opts.movementMap?.[game.id] ?? null,
+        injuries: opts.injuriesFor
+          ? { home: opts.injuriesFor(game.home_team), away: opts.injuriesFor(game.away_team) }
+          : undefined,
+      });
       const lens = sharpLens(game);
       for (const d of lens?.divergences ?? []) {
         const id = `${game.id}|${d.selection}|${d.book}`;
+        const tier = lean && lean.ledgerId === id ? lean.tier : undefined;
         if (!ledger[id]) {
           ledger[id] = {
             id, gameId: game.id,
@@ -96,8 +116,13 @@ export async function clvLedgerTick(games: Game[]): Promise<{ newFlags: number; 
             firstSeen: nowIso, kickoff: game.commence_time,
             lastFair: d.fairProb, lastFairAt: nowIso,
             graded: false,
+            ...(tier ? { tier } : {}),
           };
           newFlags++;
+        } else if (tier && !ledger[id].tier && !ledger[id].graded) {
+          // a flag can be promoted to signal-grade later (evidence arrived);
+          // stamp the tier the first time it qualifies, never overwrite.
+          ledger[id].tier = tier;
         }
       }
     }
@@ -143,13 +168,23 @@ export async function clvLedgerRead(): Promise<{ summary: ClvSummary; flags: Clv
   return { summary, flags };
 }
 
-/** Tick off the cached board (no API spend). Used by the scheduler + ops route. */
+/** Tick off the cached board (no API spend). Used by the scheduler + ops route.
+ * Loads injuries via the python cache reader (a few seconds — fine off the
+ * render path) so tier annotation matches what the board showed users. */
 export async function clvLedgerTickFromCache(): Promise<any> {
   try {
     const entry = await serverCache.get("board-games"); // must match api/board route
     const games: Game[] = entry?.data?.games ?? [];
     if (!games.length) return { skipped: "board cache empty" };
-    return await clvLedgerTick(games);
+    const movementMap = entry?.data?.movementMap ?? {};
+    let injuriesFor: ((team: string) => string[]) | undefined;
+    try {
+      const { fetchSoccerInjuries } = await import("@/lib/soccer-injuries");
+      const { normTeamKey } = await import("@/lib/soccer-recent-form");
+      const injMap = fetchSoccerInjuries();
+      injuriesFor = (team: string) => (injMap.get(normTeamKey(team)) ?? []).map((r) => r.player_name);
+    } catch { /* injuries unavailable → leans just get less corroboration */ }
+    return await clvLedgerTick(games, { movementMap, injuriesFor });
   } catch (e) {
     return { error: String(e).slice(0, 200) };
   }

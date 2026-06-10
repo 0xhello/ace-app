@@ -7,6 +7,7 @@ import { WeatherData } from "@/lib/weather";
 import { computeConfidence, computeRecommendation, ConfidenceResult, RecommendationResult } from "@/lib/confidence";
 import { ModelSignal } from "@/lib/model-signals";
 import { noVigProb } from "@/lib/edge";
+import { computeAceLean, type AceLean } from "@/lib/ace-leans";
 import type { Signal } from "@/types/signal";
 
 export interface GameSignal {
@@ -58,6 +59,10 @@ export interface GameIntel {
   weather: WeatherData | null;
   // Server-side line movement for this game
   movement: Record<string, "up" | "down" | null> | undefined;
+  // ACE Signal (lean): price-gap-triggered + evidence-corroborated, or null.
+  // Scarce by design — most games have none. Confidence is empirical (tier
+  // records graded by the CLV ledger), never cosmetic.
+  ace_lean: AceLean | null;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -468,6 +473,33 @@ export function generateIntelMap(
       }
     }
 
+    // ACE Signal (lean): price-gap trigger + evidence corroboration, tiered.
+    // Computed before top-signal selection so it can lead the feed. Injuries
+    // are passed per side so the engine can credit opposing-team absences.
+    const mergedInjuryAlerts = mergeSoccerInjuries(buildInjuryAlerts(matched, game), game, soccerInjuryMap);
+    const leanInjuries = { home: [] as string[], away: [] as string[] };
+    for (const a of mergedInjuryAlerts) {
+      // only definite absences corroborate a lean — "questionable" is not evidence
+      if (a.status !== "out" && (a.status as string) !== "suspended") continue;
+      if (a.teamName === game.home_team) leanInjuries.home.push(a.playerName);
+      else if (a.teamName === game.away_team) leanInjuries.away.push(a.playerName);
+    }
+    const aceLean = game.status === "upcoming"
+      ? computeAceLean(game, { injuries: leanInjuries, movement })
+      : null;
+    if (aceLean) {
+      signals.unshift({
+        type: "market",
+        severity: "high",
+        title: `ACE Signal · ${aceLean.selection} ${aceLean.price > 0 ? `+${aceLean.price}` : aceLean.price} (${aceLean.book})`,
+        detail: aceLean.evidence.map((e) => e.text).join(" · "),
+        time: "now",
+        teamAffected: null,
+        benefits: [aceLean.selection],
+        harms: [],
+      });
+    }
+
     // Compute real confidence + recommendation
     const confidence = computeConfidence(game, signals, weather, movement);
     const recommendation = computeRecommendation(game, signals, weather, movement, confidence);
@@ -501,13 +533,14 @@ export function generateIntelMap(
       has_new_signal: hasNew || recentNews.length > 0,
       signals,
       top_signal: topGs ? gameSignalToSignal(topGs, game.id, 0) : null,
-      injury_alerts: mergeSoccerInjuries(buildInjuryAlerts(matched, game), game, soccerInjuryMap),
+      injury_alerts: mergedInjuryAlerts,
       top_model_signal: topModelSignal,
       no_vig_home_prob: computeNoVigHomeProb(game),
       confidence,
       recommendation,
       weather,
       movement,
+      ace_lean: aceLean,
     };
   }
 

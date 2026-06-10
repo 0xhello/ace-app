@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Game } from "@/types/game";
 import { cn, formatAmericanOdds, teamAbbr } from "@/lib/utils";
 import { etDateKey, formatDurationUntil, formatEtDate, formatEtTimeLabel } from "@/lib/time-format";
-import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users, ArrowUpRight } from "lucide-react";
+import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users, ArrowUpRight, Zap } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta, bookLogoUrl, isSharpBook } from "@/lib/books";
 import { impliedProbability, edgePct } from "@/lib/edge";
@@ -383,6 +383,7 @@ export default function GameRow({
   const HOOK_TYPES = ["news", "injury", "lineup", "weather", "trade"];
   const hookSignal = topSignal && HOOK_TYPES.includes(topSignal.type) ? topSignal : null;
   const isHighSeverity = boardIntel?.has_high_severity ?? false;
+  const aceLean = boardIntel?.ace_lean ?? null;
   const aiRecommendation = boardIntel?.recommendation ?? null;
   const marketMovement = boardIntel?.market_movement ?? {};
   const marketConfidence = boardIntel?.market_confidence ?? {};
@@ -497,6 +498,19 @@ export default function GameRow({
                   Injuries rank #1 (a benched star shifts the game), then the top
                   news storyline. No model / no-vig jargon — the odds already tell
                   the favorite story. */}
+              {/* ACE Signal — leads the strip when one fires (scarce by design). */}
+              {aceLean && (
+                <div className="mt-2 pl-[26px] flex items-center gap-1.5 min-w-0">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-[#10241a] border border-[#2c5a38] px-2 py-[3px] text-[10.5px] font-semibold leading-none text-[#5fe39a] min-w-0">
+                    <Zap className="h-3 w-3 shrink-0" strokeWidth={2.2} />
+                    <span className="truncate">
+                      ACE Signal · {aceLean.selection} {aceLean.price > 0 ? `+${aceLean.price}` : aceLean.price} @ {bookMeta(aceLean.book)?.short ?? aceLean.book}
+                    </span>
+                    <span className="rounded bg-[#16331f] px-1 py-[1px] text-[9px] font-mono shrink-0">T{aceLean.tier}</span>
+                  </span>
+                </div>
+              )}
+
               {injuryAlerts.length > 0 && (
                 <div className="mt-2 pl-[26px] flex flex-wrap items-center gap-1.5">
                   {injuryAlerts.slice(0, 3).map((a, i) => {
