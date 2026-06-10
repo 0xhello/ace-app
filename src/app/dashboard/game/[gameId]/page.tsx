@@ -12,7 +12,7 @@
  */
 import { notFound } from "next/navigation";
 import { spawnSync } from "child_process";
-import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3 } from "lucide-react";
+import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3, Crosshair } from "lucide-react";
 import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
 import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
@@ -28,6 +28,7 @@ import { getNationFlagUrl } from "@/lib/nation-flags";
 import { formatAmericanOdds } from "@/lib/utils";
 import { formatDurationUntil, formatEtDate, formatEtDateTime } from "@/lib/time-format";
 import { bookMeta, isSharpBook } from "@/lib/books";
+import { sharpLens } from "@/lib/sharp-lens";
 import * as serverCache from "@/lib/server-cache";
 import type { Game } from "@/types/game";
 
@@ -356,6 +357,7 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   const awayML = best(game, "h2h", away), homeML = best(game, "h2h", home);
   const isLive = game.status === "live";
   const read = bundle?.read ?? null;
+  const lens = sharpLens(game);
 
   const alpha = bundle?.alpha ?? null;
   const matchRead = bundle?.matchRead ?? null;
@@ -480,6 +482,30 @@ export default async function GamePage({ params, searchParams }: { params: Promi
               </div>
               <p className="mt-2.5 text-[10px] text-[#5f655c]">Implied from current market prices.</p>
             </div>
+          </section>
+        )}
+
+        {/* ── Sharp lens (soft book vs sharp reference) ─────────────────── */}
+        {lens && (
+          <section className="mt-5 rounded-2xl border border-[#1b201a] bg-[#0d0f0d] p-5">
+            <Label icon={Crosshair}>Sharp lens</Label>
+            <p className="text-[12.5px] text-[#9ca39a] leading-relaxed">
+              Prices below are paying more than the sharp market&apos;s fair value for that result — spots where a regular book hasn&apos;t caught up to the sharper consensus.
+            </p>
+            <div className="mt-3 divide-y divide-[#141714]">
+              {lens.divergences.slice(0, 3).map((d, i) => (
+                <div key={i} className="flex items-center gap-3 py-2.5">
+                  <span className="text-[13px] font-semibold text-[#e7eae4] truncate">{d.selection}</span>
+                  <span className="text-[13px] font-mono font-bold text-[#3ee68a] shrink-0">{formatAmericanOdds(d.price)}</span>
+                  <span className="text-[11px] text-[#7a8278] shrink-0">{bookMeta(d.book)?.name ?? d.book}</span>
+                  <span className="ml-auto text-[11px] font-mono text-[#5fe39a] shrink-0">+{d.edgePp.toFixed(1)}pp vs fair</span>
+                  <span className="hidden sm:inline text-[10px] font-mono text-[#565c52] shrink-0">sharp fair {Math.round(d.fairProb * 100)}%</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[10px] text-[#5f655c] leading-relaxed">
+              Measured against the low-margin book professionals bet into. A gap is a research lead, not a sure thing — gaps matter most near kickoff and are noisiest on long odds. Every flagged gap gets graded against the closing line.
+            </p>
           </section>
         )}
 
