@@ -116,6 +116,63 @@ def live_state(fixture_id: int) -> Dict[str, Any]:
     }
 
 
+def resolve_fixture_ids(pairs: List[Dict[str, Any]], days: int = 6) -> Dict[str, int]:
+    """Map board games → Sportmonks fixture ids by team names + date.
+
+    `pairs` = [{game_id, home, away, commence}]. One cheap discovery call gets
+    every fixture in the window across our configured leagues (incl. World Cup
+    732); each board game is then matched locally by alias-aware team names and
+    a ±36h date band. Decouples the LIVE view from the heavy bundle/slate-sync —
+    we only need the fixture id; live_state() fetches score/events/lineups itself.
+    """
+    import datetime as _dt
+    from ml.soccer.sportmonks_fixture import discover_fixtures_in_window
+    from ml.soccer.injuries import _norm, _TEAM_ALIASES
+
+    def norm(name):
+        n = _norm(name or "")
+        return _norm(_TEAM_ALIASES.get(n, name or "")) if n in _TEAM_ALIASES else n
+
+    today = _dt.date.today()
+    try:
+        fixtures = discover_fixtures_in_window(date_from=today - _dt.timedelta(days=1),
+                                               date_to=today + _dt.timedelta(days=days))
+    except Exception:
+        return {}
+
+    index = []
+    for fx in fixtures:
+        parts = fx.get("participants") or []
+        names = [norm(p.get("name")) for p in parts if p.get("name")]
+        ts = None
+        try:
+            ts = _dt.datetime.fromisoformat((fx.get("starting_at") or "").replace(" ", "T")).timestamp()
+        except Exception:
+            pass
+        if len(names) >= 2 and fx.get("id"):
+            index.append({"id": fx["id"], "teams": set(names[:2]), "ts": ts})
+
+    out: Dict[str, int] = {}
+    for pr in pairs:
+        want = {norm(pr.get("home")), norm(pr.get("away"))}
+        ct = None
+        try:
+            ct = _dt.datetime.fromisoformat((pr.get("commence") or "").replace("Z", "+00:00")).timestamp()
+        except Exception:
+            pass
+        best = None
+        for ix in index:
+            if ix["teams"] != want:
+                continue
+            if ct and ix["ts"] and abs(ix["ts"] - ct) > 36 * 3600:
+                continue
+            best = ix["id"]
+            break
+        if best:
+            out[pr["game_id"]] = best
+    return out
+
+
 def inplay_fixture_ids() -> List[Dict[str, Any]]:
     """Fixtures live right now (for testing / discovery)."""
     payload = _sportmonks_get("/livescores/inplay", {"include": "participants"})

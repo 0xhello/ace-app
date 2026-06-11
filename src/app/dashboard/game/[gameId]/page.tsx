@@ -32,6 +32,7 @@ import { bookMeta, isSharpBook } from "@/lib/books";
 import { sharpLens } from "@/lib/sharp-lens";
 import { computeAceLean, tierRecordLine } from "@/lib/ace-leans";
 import { clvLedgerRead } from "@/lib/clv-ledger";
+import { getFixtureIdMap } from "@/lib/soccer-fixture-id";
 import * as serverCache from "@/lib/server-cache";
 import type { Game } from "@/types/game";
 
@@ -464,10 +465,16 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   const msToKickoff = new Date(game.commence_time).getTime() - Date.now();
   const kickoffPassed = msToKickoff <= 0;
   const within3hPre = msToKickoff > 0 && msToKickoff <= 3 * 3_600_000;
-  const liveFixtureId = (sp.live && /^\d+$/.test(sp.live)) ? sp.live : (alpha?.coverage.fixtureId ?? null);
+  const within12hPre = msToKickoff > 0 && msToKickoff <= 12 * 3_600_000;
+  // Fixture id for the live view: demo override → resolved map (the WC source of
+  // truth, since the slate-sync bundle doesn't cover these) → bundle fallback.
+  const fxMap = isSoccer ? await getFixtureIdMap().catch(() => ({} as Record<string, number>)) : {};
+  const liveFixtureId = (sp.live && /^\d+$/.test(sp.live))
+    ? sp.live
+    : (fxMap[game.id] != null ? String(fxMap[game.id]) : (alpha?.coverage.fixtureId ?? null));
   const showLive = isSoccer && !!liveFixtureId && (isLive || game.status === "final" || kickoffPassed || !!sp.live);
   // Lineups land ~1h before kickoff — mount the lineups module a bit earlier than the live score module.
-  const showLineups = isSoccer && !!liveFixtureId && (showLive || within3hPre);
+  const showLineups = isSoccer && !!liveFixtureId && (showLive || within12hPre);
   const liveLineupCoverage = showLineups ? getLiveLineupCoverage(liveFixtureId) : { lineups: 0, starters: 0 };
   const matchRead = withLiveLineupRead(bundle?.matchRead ?? null, liveLineupCoverage, isLive, game.status === "final");
   const liveUnavailable: LiveCenterInjury[] = (alpha?.coverage.unavailable ?? []).map((p) => ({

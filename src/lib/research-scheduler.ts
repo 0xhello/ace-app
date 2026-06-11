@@ -10,6 +10,7 @@
 import { refreshSoccerResearch } from "@/lib/research-refresh";
 import { warmGameViewBundles } from "@/lib/game-view-bundle";
 import { clvLedgerTickFromCache } from "@/lib/clv-ledger";
+import { refreshFixtureIdMap } from "@/lib/soccer-fixture-id";
 
 const REFRESH_EVERY = 3 * 60 * 60 * 1000;      // 3 hours
 const GAME_INTEL_EVERY = 10 * 60 * 1000;       // 10 minutes — keeps click path fast/fresh
@@ -63,6 +64,20 @@ async function ledgerTick(label: string) {
 // API spend. First run shortly after the board cache is warm.
 setTimeout(() => { void ledgerTick("boot"); }, GAME_INTEL_FIRST_DELAY + 30_000);
 setInterval(() => { void ledgerTick("interval"); }, GAME_INTEL_EVERY);
+
+// Fixture-id map: resolves board soccer games → Sportmonks fixture ids (one
+// cheap discovery call) so the LIVE view can find each match. The WC slate-sync
+// bundle doesn't cover these, so this is the live view's source of truth.
+async function fixtureIdTick(label: string) {
+  try {
+    const r = await refreshFixtureIdMap();
+    console.log(`[fixture-ids:${label}]`, JSON.stringify(r));
+  } catch (e) {
+    console.error("[fixture-ids] failed:", e);
+  }
+}
+setTimeout(() => { void fixtureIdTick("boot"); }, FIRST_DELAY + 45_000);
+setInterval(() => { void fixtureIdTick("interval"); }, GAME_INTEL_EVERY);
 
 setInterval(() => { void kick("interval"); }, REFRESH_EVERY);
 setInterval(() => { void warmIntel("interval"); }, GAME_INTEL_EVERY);
