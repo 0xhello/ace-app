@@ -16,7 +16,7 @@ import { fetchSoccerInjuries } from "@/lib/soccer-injuries";
 import * as serverCache from "@/lib/server-cache";
 
 const CACHE_KEY = "board-games";
-const BOARD_INTEL_KEY = "board-generated-intel-v1";
+const BOARD_INTEL_KEY = "board-generated-intel-v2";
 
 function gameIdsKey(games: Game[]): string {
   return games.map((g) => g.id).sort().join("|");

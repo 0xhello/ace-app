@@ -5,10 +5,9 @@ import type { PreparedGameIntel } from "@/lib/game-intel-cache";
 
 export type MatchAlphaTone = "good" | "warn" | "neutral" | "alert";
 
-// Confirmed starting XIs are only released ~1h before kickoff. Lineup rows that
-// exist further out are projected/stale (e.g. a team's previous match), so we
-// only TRUST lineup coverage as "confirmed XIs" within this window of kickoff
-// (or once the match is live/final). Prevents "Starting XIs are in" days out.
+// Lineups usually land close to kickoff. Rows that exist further out can be
+// projected/stale (e.g. a team's previous match), so we only treat lineup
+// coverage as actionable within this window of kickoff (or once live/final).
 export const LINEUP_WINDOW_HOURS = 3;
 
 export function lineupsAreLive(game: Game, lineups: number): boolean {

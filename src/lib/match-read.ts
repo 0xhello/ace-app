@@ -83,8 +83,9 @@ export function buildSoccerMatchRead(
   const isLive = game.status === "live";
   const isFinal = game.status === "final";
   const h = hoursToKickoff(game);
-  // Only trust lineup coverage as CONFIRMED XIs near kickoff (or live/final) —
-  // rows further out are projected/stale. Avoids "Starting XIs are in" days out.
+  // Only treat lineup coverage as actionable near kickoff (or live/final).
+  // Pre-kickoff copy should say team sheets/lineups received, not overclaim
+  // official confirmation when the provider fixture is still Not Started.
   const lineupsConfirmed = lineupsAreLive(game, alpha.coverage.lineups);
   const moments: MatchReadMoment[] = [];
 
@@ -115,10 +116,14 @@ export function buildSoccerMatchRead(
       type: "lineups_confirmed",
       rank: isLive ? 3 : 1,
       label: "Lineups",
-      title: alpha.coverage.starters >= 22 ? "Starting XIs are in" : `${alpha.coverage.lineups} names on the sheet`,
+      title: alpha.coverage.starters >= 22
+        ? (isLive || isFinal ? "Starting XIs are in" : "Team sheets are in")
+        : `${alpha.coverage.lineups} names on the sheet`,
       detail: alpha.coverage.starters >= 22
-        ? "The page can move from pre-match assumptions to actual shape, roles and matchups."
-        : "The sheet is partially populated. Wait for confirmed XIs before treating it as decisive.",
+        ? (isLive || isFinal
+          ? "The page can move from pre-match assumptions to actual shape, roles and matchups."
+          : "The provider has posted both XIs. Treat this as the lineup read, then watch for late scratches before kickoff.")
+        : "The sheet is partially populated. Wait for the full XI before treating it as decisive.",
       importance: alpha.coverage.starters >= 22 ? "high" : "medium",
     });
   } else if (!isLive && !isFinal) {

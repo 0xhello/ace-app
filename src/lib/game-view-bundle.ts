@@ -14,7 +14,7 @@ import { getPreparedGameIntel, warmGameIntelCache, type PreparedGameIntel } from
 import { getMatchAlphaDigest, type MatchAlphaDigest } from "@/lib/match-alpha";
 import { buildSoccerMatchRead, type MatchRead } from "@/lib/match-read";
 
-const BUNDLE_KEY = "game-view-bundles-v1";
+const BUNDLE_KEY = "game-view-bundles-v3";
 const BOARD_KEY = "board-games";
 
 export interface GameViewBundle {

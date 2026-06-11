@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * LiveLineups — confirmed starting XIs from the real Sportmonks lineup feed.
+ * LiveLineups — team sheets from the real Sportmonks lineup feed.
  * Polls the live endpoint (lineups change rarely, so a slow ~60s poll) and
- * renders both teams' starters by position once they're posted (~1h before
- * kickoff). Honest waiting state until then; never invents a lineup.
+ * renders both teams' starters once the provider posts them. Do not overclaim
+ * pre-kickoff: these are provider lineups/team sheets, not app-invented picks.
  */
 import { useEffect, useState } from "react";
 import { Users } from "lucide-react";
@@ -68,7 +68,7 @@ export default function LiveLineups({
     <section className="mt-6">
       <div className="flex items-center gap-2 mb-3">
         <Users className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={1.9} />
-        <h2 className="text-[10.5px] font-bold uppercase tracking-[0.22em] text-[#aab0a4]">Confirmed lineups</h2>
+        <h2 className="text-[10.5px] font-bold uppercase tracking-[0.22em] text-[#aab0a4]">Team sheets</h2>
       </div>
       {ready ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -77,7 +77,7 @@ export default function LiveLineups({
         </div>
       ) : (
         <div className="rounded-2xl border border-dashed border-[#22271f] bg-[#0b0d0b] px-5 py-4">
-          <p className="text-[12.5px] text-[#9ca39a]">Confirmed starting XIs aren&apos;t posted yet — they typically land about an hour before kickoff. The moment they do, both lineups appear here.</p>
+          <p className="text-[12.5px] text-[#9ca39a]">Team sheets aren&apos;t posted yet — they typically land about an hour before kickoff. The moment the provider sends them, both lineups appear here.</p>
         </div>
       )}
     </section>

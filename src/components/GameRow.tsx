@@ -10,9 +10,23 @@ import { SlipLeg } from "@/components/dashboard/DashboardShell";
 import { bookMeta, bookLogoUrl, isSharpBook } from "@/lib/books";
 import { impliedProbability, edgePct } from "@/lib/edge";
 import { getTeamLogoUrl } from "@/lib/team-logos";
+import { getNationFlagUrl } from "@/lib/nation-flags";
 import { getTeamStyle } from "@/lib/team-style";
 
 function TeamIcon({ team, sport }: { team: string; sport: string }) {
+  const flagUrl = sport.startsWith("soccer") ? getNationFlagUrl(team) : null;
+  if (flagUrl) {
+    return (
+      <img
+        src={flagUrl}
+        alt=""
+        className="h-[18px] w-[26px] rounded-[3px] object-cover shrink-0 ring-1 ring-white/10"
+        loading="lazy"
+        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+      />
+    );
+  }
+
   const logoUrl = getTeamLogoUrl(team, sport);
   if (logoUrl) {
     return (

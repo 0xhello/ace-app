@@ -14,7 +14,7 @@ import { sportTab } from "@/lib/sport-tab";
 import type { Game } from "@/types/game";
 
 const BOARD_KEY = "board-games";
-const INTEL_KEY = "game-intel-v1";
+const INTEL_KEY = "game-intel-v2";
 
 export interface PreparedGameIntel {
   gameId: string;

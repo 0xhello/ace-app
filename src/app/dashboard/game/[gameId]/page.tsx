@@ -17,7 +17,7 @@ import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
 import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
 import { type MatchAlphaDigest } from "@/lib/match-alpha";
-import { type MatchRead } from "@/lib/match-read";
+import { type MatchRead, type MatchReadMoment } from "@/lib/match-read";
 import { getGameViewBundle, warmGameViewBundlesSoon } from "@/lib/game-view-bundle";
 import LiveCenter from "@/components/game/LiveCenter";
 import LiveHeroCenter from "@/components/game/LiveHeroCenter";
@@ -25,6 +25,7 @@ import TaleOfTape from "@/components/game/TaleOfTape";
 import LiveLineups from "@/components/game/LiveLineups";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
+import { fetchSoccerInjuries, type SoccerInjuryRow } from "@/lib/soccer-injuries";
 import { formatAmericanOdds } from "@/lib/utils";
 import { formatDurationUntil, formatEtDate, formatEtDateTime } from "@/lib/time-format";
 import { bookMeta, isSharpBook } from "@/lib/books";
@@ -35,6 +36,58 @@ import * as serverCache from "@/lib/server-cache";
 import type { Game } from "@/types/game";
 
 export const dynamic = "force-dynamic";
+
+function getLiveLineupCoverage(fixtureId: string | null): { lineups: number; starters: number } {
+  if (!fixtureId || !/^\d+$/.test(fixtureId)) return { lineups: 0, starters: 0 };
+  const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
+  const script = `
+import json
+from ml.soccer.live_match import live_state
+try:
+    data = live_state(${JSON.stringify(Number(fixtureId))})
+    lineups = data.get("lineups") or []
+    print(json.dumps({"lineups": len(lineups), "starters": sum(1 for x in lineups if x.get("starter"))}))
+except Exception:
+    print(json.dumps({"lineups": 0, "starters": 0}))
+`;
+  const r = spawnSync("python3", ["-c", script], { cwd: appRoot, encoding: "utf-8", timeout: 12_000 });
+  try {
+    const data = JSON.parse(r.stdout || "{}");
+    return { lineups: Number(data.lineups) || 0, starters: Number(data.starters) || 0 };
+  } catch {
+    return { lineups: 0, starters: 0 };
+  }
+}
+
+function withLiveLineupRead(read: MatchRead | null, coverage: { lineups: number; starters: number }, isLive: boolean, isFinal: boolean): MatchRead | null {
+  if (!read || coverage.lineups <= 0) return read;
+  const hasLineupMoment = read.moments.some((m) => m.type === "lineups_confirmed");
+  if (hasLineupMoment) return read;
+  const title = coverage.starters >= 22
+    ? (isLive || isFinal ? "Starting XIs are in" : "Team sheets are in")
+    : `${coverage.lineups} names on the sheet`;
+  const detail = coverage.starters >= 22
+    ? (isLive || isFinal
+      ? "The page can move from pre-match assumptions to actual shape, roles and matchups."
+      : "The provider has posted both XIs. Treat this as the lineup read, then watch for late scratches before kickoff.")
+    : "The sheet is partially populated. Wait for the full XI before treating it as decisive.";
+  const lineupMoment: MatchReadMoment = {
+    type: "lineups_confirmed",
+    rank: 1,
+    label: "Lineups",
+    title,
+    detail,
+    importance: coverage.starters >= 22 ? "high" : "medium",
+  };
+  return {
+    ...read,
+    status: isFinal ? "final" : isLive ? "live" : "lineups",
+    headline: title,
+    summary: detail,
+    moments: [lineupMoment, ...read.moments.filter((m) => m.type !== "lineup_window")].slice(0, 5),
+    nextWindows: read.nextWindows.filter((w) => w.label.toLowerCase() !== "lineups"),
+  };
+}
 
 function getFriendlyGame(id: string): Game | null {
   if (!id.startsWith("friendly_")) return null;
@@ -230,6 +283,7 @@ function deriveMeetings(home: string, away: string, homeForm?: TeamRecentForm, a
 
 type LiveCenterStory = { title: string; detail?: string; time: string };
 type LiveCenterInjury = { playerName: string; status: string; teamName: string; reason?: string | null };
+type GamePageInjury = LiveCenterInjury & { teamAffected: "home" | "away" };
 
 function GameCommandStack({
   game,
@@ -249,6 +303,21 @@ function GameCommandStack({
   const awayScore = game.scoreboard?.away_score;
   const homeScore = game.scoreboard?.home_score;
   const matchState = alpha.coverage.stateName ?? (isLive ? "Live" : isFinal ? "Final" : "Upcoming");
+  const primaryMoment = read?.moments?.[0] ?? null;
+  const heroHeadline = isLive && awayScore != null
+    ? <>{away}<span className="text-[#3a4033] mx-2">{awayScore}</span><span className="text-[#3a4033] mx-2">/</span><span className="text-[#3a4033] mx-2">{homeScore}</span>{home}</>
+    : isFinal
+      ? (read?.headline ?? "Final read")
+      : "Prematch watchlist";
+  const stateNote = isLive
+    ? read?.summary
+    : isFinal
+      ? read?.summary
+      : primaryMoment?.type === "lineups_confirmed"
+        ? "Provider lineups are in. Watch for late scratches and market movement before kickoff."
+        : primaryMoment
+          ? "Waiting on the next actionable signal before forcing a bet."
+          : "No major match-state signal has landed yet.";
 
   return (
     <section className="mt-4">
@@ -275,7 +344,7 @@ function GameCommandStack({
                   </p>
                 </div>
                 <p className="mt-2 text-[24px] md:text-[28px] font-black tracking-tight text-white">
-                  {isLive && awayScore != null ? <>{away}<span className="text-[#3a4033] mx-2">{awayScore}</span><span className="text-[#3a4033] mx-2">/</span><span className="text-[#3a4033] mx-2">{homeScore}</span>{home}</> : read?.headline ?? "No clear angle yet"}
+                  {heroHeadline}
                 </p>
                 <p className="mt-1 text-[12px] text-[#9ca39a]">
                   {isLive ? (game.scoreboard?.clock ?? "Clock updating") : kickoff(game.commence_time)}
@@ -292,8 +361,8 @@ function GameCommandStack({
                 <span className="text-[#8a9286]">Current match state</span>
                 <span className="font-mono font-bold text-[#dfe4dc]">{matchState}</span>
               </div>
-              {read?.summary && (
-                <p className="mt-3 text-[12px] leading-relaxed text-[#9ca39a]">{read.summary}</p>
+              {stateNote && (
+                <p className="mt-3 text-[12px] leading-relaxed text-[#9ca39a]">{stateNote}</p>
               )}
             </div>
           </div>
@@ -353,16 +422,41 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   const prepared = bundle?.prepared ?? null;
   const researchLoaded = !!prepared;
   const stories = prepared?.stories ?? [];
-  const injuries = prepared?.injuryAlerts ?? [];
   const away = game.away_team, home = game.home_team;
   const isSoccer = game.sport.startsWith("soccer");
+  const directSoccerInjuryMap = isSoccer ? fetchSoccerInjuries() : new Map<string, SoccerInjuryRow[]>();
+  const directSoccerInjuries: GamePageInjury[] = [
+    ...(directSoccerInjuryMap.get(normTeamKey(away)) ?? []).map((p): GamePageInjury => ({
+      playerName: p.player_name,
+      status: p.status,
+      teamAffected: "away",
+      teamName: away,
+      reason: p.reason ?? null,
+    })),
+    ...(directSoccerInjuryMap.get(normTeamKey(home)) ?? []).map((p): GamePageInjury => ({
+      playerName: p.player_name,
+      status: p.status,
+      teamAffected: "home",
+      teamName: home,
+      reason: p.reason ?? null,
+    })),
+  ];
+  const preparedInjuries: GamePageInjury[] = (prepared?.injuryAlerts ?? []).map((p) => ({
+    playerName: p.playerName,
+    status: p.status,
+    teamAffected: p.teamAffected,
+    teamName: p.teamName,
+    reason: null,
+  }));
+  const injuries = [...directSoccerInjuries, ...preparedInjuries].filter((item, index, arr) => (
+    arr.findIndex((x) => x.playerName === item.playerName && x.teamName === item.teamName) === index
+  ));
   const awayML = best(game, "h2h", away), homeML = best(game, "h2h", home);
   const isLive = game.status === "live";
   const read = bundle?.read ?? null;
   const lens = sharpLens(game);
 
   const alpha = bundle?.alpha ?? null;
-  const matchRead = bundle?.matchRead ?? null;
 
   // Live match view: mount the real-time module once the game is live/finished or
   // kickoff has passed (so it can detect the live flip even if board status lags).
@@ -374,6 +468,8 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   const showLive = isSoccer && !!liveFixtureId && (isLive || game.status === "final" || kickoffPassed || !!sp.live);
   // Lineups land ~1h before kickoff — mount the lineups module a bit earlier than the live score module.
   const showLineups = isSoccer && !!liveFixtureId && (showLive || within3hPre);
+  const liveLineupCoverage = showLineups ? getLiveLineupCoverage(liveFixtureId) : { lineups: 0, starters: 0 };
+  const matchRead = withLiveLineupRead(bundle?.matchRead ?? null, liveLineupCoverage, isLive, game.status === "final");
   const liveUnavailable: LiveCenterInjury[] = (alpha?.coverage.unavailable ?? []).map((p) => ({
     playerName: p.playerName,
     teamName: p.teamName,
@@ -384,7 +480,7 @@ export default async function GamePage({ params, searchParams }: { params: Promi
     playerName: p.playerName,
     teamName: p.teamName,
     status: p.status,
-    reason: null,
+    reason: p.reason ?? null,
   }));
   const availability: LiveCenterInjury[] = [...preparedUnavailable, ...liveUnavailable].filter((item, index, arr) => (
     arr.findIndex((x) => x.playerName === item.playerName && x.teamName === item.teamName) === index
