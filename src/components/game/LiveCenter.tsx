@@ -183,7 +183,7 @@ export default function LiveCenter({
           </div>
           <StatRow label="SOT" pair={stats?.shots_on_target} />
           <StatRow label="Shots" pair={stats?.shots_total} />
-          <StatRow label="Poss" pair={stats?.possession} suffix="%" />
+          <StatRow label="Possession" pair={stats?.possession} suffix="%" />
           <StatRow label="Corners" pair={stats?.corners} />
         </div>
       )}
