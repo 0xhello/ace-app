@@ -454,29 +454,33 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   ));
   const awayML = best(game, "h2h", away), homeML = best(game, "h2h", home);
   const isLive = game.status === "live";
+  const isFinal = game.status === "final";
+  // Betting-market modules are pregame only. After kickoff, goals/cards make any
+  // stale soft-book-vs-sharp gap misleading unless it is rebuilt from a live model.
+  const msToKickoff = new Date(game.commence_time).getTime() - Date.now();
+  const kickoffPassed = msToKickoff <= 0;
+  const within3hPre = msToKickoff > 0 && msToKickoff <= 3 * 3_600_000;
+  const within12hPre = msToKickoff > 0 && msToKickoff <= 12 * 3_600_000;
   const read = bundle?.read ?? null;
-  const lens = sharpLens(game);
 
   const alpha = bundle?.alpha ?? null;
 
   // Live match view: mount the real-time module once the game is live/finished or
   // kickoff has passed (so it can detect the live flip even if board status lags).
   // `?live=<sportmonks fixture id>` forces it on for demoing against a live match.
-  const msToKickoff = new Date(game.commence_time).getTime() - Date.now();
-  const kickoffPassed = msToKickoff <= 0;
-  const within3hPre = msToKickoff > 0 && msToKickoff <= 3 * 3_600_000;
-  const within12hPre = msToKickoff > 0 && msToKickoff <= 12 * 3_600_000;
   // Fixture id for the live view: demo override → resolved map (the WC source of
   // truth, since the slate-sync bundle doesn't cover these) → bundle fallback.
   const fxMap = isSoccer ? await getFixtureIdMap().catch(() => ({} as Record<string, number>)) : {};
   const liveFixtureId = (sp.live && /^\d+$/.test(sp.live))
     ? sp.live
     : (fxMap[game.id] != null ? String(fxMap[game.id]) : (alpha?.coverage.fixtureId ?? null));
-  const showLive = isSoccer && !!liveFixtureId && (isLive || game.status === "final" || kickoffPassed || !!sp.live);
+  const showLive = isSoccer && !!liveFixtureId && (isLive || isFinal || kickoffPassed || !!sp.live);
+  const showPregameMarketModules = !showLive && !isLive && !isFinal && !kickoffPassed;
+  const lens = showPregameMarketModules ? sharpLens(game) : null;
   // Lineups land ~1h before kickoff — mount the lineups module a bit earlier than the live score module.
   const showLineups = isSoccer && !!liveFixtureId && (showLive || within12hPre);
   const liveLineupCoverage = showLineups ? getLiveLineupCoverage(liveFixtureId) : { lineups: 0, starters: 0 };
-  const matchRead = withLiveLineupRead(bundle?.matchRead ?? null, liveLineupCoverage, isLive, game.status === "final");
+  const matchRead = withLiveLineupRead(bundle?.matchRead ?? null, liveLineupCoverage, isLive, isFinal);
   const liveUnavailable: LiveCenterInjury[] = (alpha?.coverage.unavailable ?? []).map((p) => ({
     playerName: p.playerName,
     teamName: p.teamName,
@@ -496,7 +500,7 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   // ACE Signal (lean) for the decision module — same engine as the board feed.
   // Movement comes off the cached board payload; only definite absences count.
   let aceLean = null, aceTierLine: string | null = null;
-  if (!isLive && game.status !== "final") {
+  if (showPregameMarketModules) {
     let movement: Record<string, "up" | "down" | null> | null = null;
     try {
       const boardEntry = await serverCache.get("board-games");
@@ -593,7 +597,7 @@ export default async function GamePage({ params, searchParams }: { params: Promi
               {aceTierLine ?? "Calibrating — graded record builds as flagged games finish"} · every signal is graded against the closing line · research, not a guarantee.
             </p>
           </section>
-        ) : isSoccer && game.status === "upcoming" ? (
+        ) : isSoccer && showPregameMarketModules ? (
           <div className="mt-5 rounded-2xl border border-[#1a1f18] bg-[#0b0d0b] px-5 py-3.5 flex items-center gap-2.5">
             <Zap className="h-3.5 w-3.5 text-[#565c52] shrink-0" strokeWidth={1.8} />
             <p className="text-[12px] text-[#8a9286]">No ACE Signal on this game — nothing clears the evidence bar right now. That can change as prices and team news move.</p>
@@ -626,7 +630,7 @@ export default async function GamePage({ params, searchParams }: { params: Promi
         )}
 
         {/* ── What the line says (market read) ──────────────────────────── */}
-        {read && (
+        {read && showPregameMarketModules && (
           <section className="mt-5 rounded-2xl border border-[#23301f] bg-gradient-to-b from-[#0e120d] to-[#0c0e0c] p-5">
             <Label icon={Activity}>What the line says</Label>
             <p className="text-[15px] md:text-[16px] font-semibold text-white leading-snug">{read.headline}</p>

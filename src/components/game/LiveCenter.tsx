@@ -19,10 +19,18 @@ interface LiveEvent {
   player: string | null;
   related: string | null;
 }
+interface StatPair { home?: number | string | null; away?: number | string | null }
+interface LiveStats {
+  shots_on_target?: StatPair;
+  shots_total?: StatPair;
+  possession?: StatPair;
+  corners?: StatPair;
+}
 interface LiveState {
   live?: boolean; finished?: boolean; status?: string | null; minute?: number | null;
   home_team?: string | null; away_team?: string | null;
   home_score?: number | null; away_score?: number | null; events?: LiveEvent[];
+  statistics?: LiveStats;
 }
 const POLL_MS = 20_000;
 
@@ -46,6 +54,21 @@ function TypeChip({ type }: { type: LiveEvent["type"] }) {
         : null}
       {m.label}
     </span>
+  );
+}
+
+function statDisplay(v: number | string | null | undefined, suffix = "") {
+  if (v == null || v === "") return "—";
+  return `${v}${suffix}`;
+}
+
+function StatRow({ label, pair, suffix = "" }: { label: string; pair?: StatPair; suffix?: string }) {
+  return (
+    <div className="grid grid-cols-[52px_1fr_52px] items-center gap-3 py-1.5 text-[11px]">
+      <span className="font-mono font-bold text-[#8a93a3] text-right tabular-nums">{statDisplay(pair?.away, suffix)}</span>
+      <span className="text-center text-[#6b7068] uppercase tracking-[0.14em] text-[9px] font-bold">{label}</span>
+      <span className="font-mono font-bold text-[#5fe39a] tabular-nums">{statDisplay(pair?.home, suffix)}</span>
+    </div>
   );
 }
 
@@ -123,6 +146,9 @@ export default function LiveCenter({
     minute: state?.minute ?? null, totalLine: totalLine ?? null, finished,
   });
   const wpPct = (n: number) => `${Math.round(n * 100)}%`;
+  const stats = state?.statistics;
+  const hasStats = !!stats && [stats.shots_on_target, stats.shots_total, stats.possession, stats.corners]
+    .some((pair) => pair?.home != null || pair?.away != null);
   return (
     <div className="relative overflow-hidden rounded-2xl border border-[#26321f] bg-[#0a0c0a]">
       <div className="pointer-events-none absolute inset-0 opacity-[0.05] bg-[repeating-linear-gradient(0deg,transparent,transparent_3px,#3ee68a_3px,#3ee68a_4px)]" />
@@ -148,6 +174,19 @@ export default function LiveCenter({
         </div>
         <p className="mt-2 text-[9.5px] text-[#4a524a]">{finished ? "Final result." : "Live win chance — updates with the score and time left."}</p>
       </div>
+      {hasStats && (
+        <div className="relative px-5 py-3 border-b border-[#161a16]">
+          <div className="mb-1 grid grid-cols-[52px_1fr_52px] items-center gap-3 text-[9px] uppercase tracking-[0.16em] text-[#4a524a]">
+            <span className="text-right truncate">{away}</span>
+            <span className="text-center">Live stats</span>
+            <span className="truncate">{home}</span>
+          </div>
+          <StatRow label="SOT" pair={stats?.shots_on_target} />
+          <StatRow label="Shots" pair={stats?.shots_total} />
+          <StatRow label="Poss" pair={stats?.possession} suffix="%" />
+          <StatRow label="Corners" pair={stats?.corners} />
+        </div>
+      )}
       {events.length > 0 ? (
         <div className="relative px-3 py-2 max-h-[300px] overflow-y-auto">
           {events.map((ev, i) => <EventRow key={`${ev.minute}-${ev.type}-${i}`} ev={ev} home={home} away={away} />)}

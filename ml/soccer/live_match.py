@@ -57,6 +57,38 @@ def _ticking_minute(periods: List[Dict[str, Any]]) -> Optional[int]:
     return max(done) if done else None
 
 
+def _stat_value(stats: List[Dict[str, Any]], developer_name: str, side: str) -> Optional[Any]:
+    for row in stats or []:
+        typ = row.get("type") or {}
+        if typ.get("developer_name") != developer_name:
+            continue
+        if row.get("location") != side:
+            continue
+        return (row.get("data") or {}).get("value")
+    return None
+
+
+def _normalize_statistics(raw: List[Dict[str, Any]]) -> Dict[str, Dict[str, Optional[Any]]]:
+    return {
+        "shots_on_target": {
+            "home": _stat_value(raw, "SHOTS_ON_TARGET", "home"),
+            "away": _stat_value(raw, "SHOTS_ON_TARGET", "away"),
+        },
+        "shots_total": {
+            "home": _stat_value(raw, "SHOTS_TOTAL", "home"),
+            "away": _stat_value(raw, "SHOTS_TOTAL", "away"),
+        },
+        "possession": {
+            "home": _stat_value(raw, "BALL_POSSESSION", "home"),
+            "away": _stat_value(raw, "BALL_POSSESSION", "away"),
+        },
+        "corners": {
+            "home": _stat_value(raw, "CORNERS", "home"),
+            "away": _stat_value(raw, "CORNERS", "away"),
+        },
+    }
+
+
 def _normalize_events(raw: List[Dict[str, Any]], home_id: Optional[int]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for e in raw or []:
@@ -90,7 +122,7 @@ def live_state(fixture_id: int) -> Dict[str, Any]:
     """Current state for one fixture. {live, finished, status, minute, home/away score, events}."""
     payload = _sportmonks_get(
         f"/fixtures/{fixture_id}",
-        {"include": "participants;scores;periods;state;events.type;lineups.player"},
+        {"include": "participants;scores;periods;state;events.type;lineups.player;statistics.type"},
     )
     data = payload.get("data") or {}
     parts = data.get("participants") or []
@@ -112,6 +144,7 @@ def live_state(fixture_id: int) -> Dict[str, Any]:
         "away_score": scores["away"],
         "events": _normalize_events(data.get("events") or [], (home or {}).get("id")),
         "lineups": _normalize_lineups(data.get("lineups") or [], (home or {}).get("id")),
+        "statistics": _normalize_statistics(data.get("statistics") or []),
         "fetched_at": data.get("starting_at"),
     }
 
