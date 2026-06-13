@@ -600,7 +600,9 @@ export default async function GamePage({ params, searchParams }: { params: Promi
           <LiveLineups gameId={game.id} fixtureId={liveFixtureId} homeTeam={home} awayTeam={away} />
         )}
 
-        {isSoccer && alpha && !showLive && (
+        {/* "The Read" command stack is retired from the PRE-MATCH view — ACE
+           Take is the prematch read now. Kept only for post-match recap. */}
+        {isSoccer && alpha && !showLive && !showPregameMarketModules && (
           <GameCommandStack
             game={game}
             away={away}
