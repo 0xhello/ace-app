@@ -11,6 +11,7 @@ import { refreshSoccerResearch } from "@/lib/research-refresh";
 import { warmGameViewBundles } from "@/lib/game-view-bundle";
 import { clvLedgerTickFromCache } from "@/lib/clv-ledger";
 import { refreshFixtureIdMap } from "@/lib/soccer-fixture-id";
+import { warmMatchTakes } from "@/lib/match-takes";
 
 const REFRESH_EVERY = 3 * 60 * 60 * 1000;      // 3 hours
 const GAME_INTEL_EVERY = 10 * 60 * 1000;       // 10 minutes — keeps click path fast/fresh
@@ -78,6 +79,21 @@ async function fixtureIdTick(label: string) {
 }
 setTimeout(() => { void fixtureIdTick("boot"); }, FIRST_DELAY + 45_000);
 setInterval(() => { void fixtureIdTick("interval"); }, GAME_INTEL_EVERY);
+
+// ACE Takes: grounded analyst takes per soccer game. Rides the 10-min cadence
+// but the python layer only hits Sportmonks when a fixture's bundle is >2h old,
+// so provider spend stays minimal. Runs after the fixture-id map is warm (it
+// needs the game→fixture mapping).
+async function takesTick(label: string) {
+  try {
+    const r = await warmMatchTakes(label);
+    console.log(`[match-takes:${label}]`, JSON.stringify(r));
+  } catch (e) {
+    console.error("[match-takes] failed:", e);
+  }
+}
+setTimeout(() => { void takesTick("boot"); }, FIRST_DELAY + 90_000);
+setInterval(() => { void takesTick("interval"); }, GAME_INTEL_EVERY);
 
 setInterval(() => { void kick("interval"); }, REFRESH_EVERY);
 setInterval(() => { void warmIntel("interval"); }, GAME_INTEL_EVERY);

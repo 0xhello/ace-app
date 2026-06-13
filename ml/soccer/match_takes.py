@@ -317,16 +317,51 @@ def row_conf(conf: str) -> str:
     return {"high": "strong", "medium": "solid", "low": "thin"}.get(conf, "club")
 
 
-# ── public entrypoint ────────────────────────────────────────────────────────
-def build_match_takes(fixture_id: int, home: str, away: str, corner_line: Optional[float] = None) -> Dict[str, Any]:
+# ── cache-first input loading (bounds Sportmonks spend) ──────────────────────
+def _resolve_inputs(fixture_id: int, max_age_min: int = 120):
+    """(predictions, lineups, source). Prefer the cached Sportmonks bundle in
+    soccer_sportmonks_fixture_cache (predictions are already normalized there);
+    only hit the live API when the cache is missing or older than max_age_min,
+    and store the fresh pull so the next caller is free."""
+    import datetime as _dt
     try:
-        bundle = fetch_fixture_bundle(int(fixture_id))
+        from ml.soccer.sportmonks_fixture import _get_db
+        conn = _get_db()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT predictions_json, lineups_json, fetched_at FROM "
+            "soccer_sportmonks_fixture_cache WHERE fixture_id = ?", (fixture_id,),
+        ).fetchone()
+        conn.close()
+        if row and row["predictions_json"] and row["fetched_at"]:
+            try:
+                age = (_dt.datetime.now(_dt.timezone.utc) -
+                       _dt.datetime.fromisoformat(str(row["fetched_at"]).replace("Z", "+00:00"))).total_seconds() / 60
+            except Exception:
+                age = 1e9
+            if age <= max_age_min:
+                preds = json.loads(row["predictions_json"]) or {}
+                lus = json.loads(row["lineups_json"]) if row["lineups_json"] else []
+                return preds, lus, "cache"
+    except Exception:
+        pass
+    # cache cold/stale — fetch live and persist for the next caller
+    bundle = fetch_fixture_bundle(int(fixture_id))
+    try:
+        from ml.soccer.sportmonks_fixture import cache_fixture_bundle
+        cache_fixture_bundle(int(fixture_id), bundle=bundle)
+    except Exception:
+        pass
+    return _normalize_predictions(bundle.get("predictions")), _normalize_lineups(bundle.get("lineups")), "live"
+
+
+# ── public entrypoint ────────────────────────────────────────────────────────
+def build_match_takes(fixture_id: int, home: str, away: str, corner_line: Optional[float] = None,
+                      max_age_min: int = 120) -> Dict[str, Any]:
+    try:
+        preds, lineups, source = _resolve_inputs(int(fixture_id), max_age_min)
     except Exception as e:
         return {"fixture_id": fixture_id, "takes": [], "error": str(e)[:160]}
-    preds = _normalize_predictions(bundle.get("predictions"))
-    lineups = _normalize_lineups(bundle.get("lineups"))
-    parts = bundle.get("participants") or []
-    home_id = next((p.get("id") for p in parts if (p.get("meta") or {}).get("location") == "home"), None)
 
     takes: List[Dict[str, Any]] = []
     takes += _result_take(preds, home, away)
@@ -334,22 +369,43 @@ def build_match_takes(fixture_id: int, home: str, away: str, corner_line: Option
     takes += _btts_take(preds)
     takes += _corners_take(preds, corner_line)
     takes += _first_scorer_take(preds, home, away)
-    takes += _player_takes(lineups, home_id)
+    takes += _player_takes(lineups, None)
 
     return {
         "fixture_id": fixture_id,
         "home": home, "away": away,
+        "source": source,
         "has_predictions": bool(preds),
         "lineups_posted": sum(1 for r in lineups if r.get("is_starter")) >= 22,
         "takes": takes,
-        "generated_at": bundle.get("starting_at"),
     }
+
+
+def build_takes_batch(items: List[Dict[str, Any]], max_age_min: int = 120) -> Dict[str, Any]:
+    """One spawn computes takes for the whole slate. items = [{game_id,
+    fixture_id, home, away, corner_line}]. Returns {game_id: take_payload}."""
+    out: Dict[str, Any] = {}
+    for it in items:
+        fid = it.get("fixture_id")
+        gid = it.get("game_id")
+        if fid is None or gid is None:
+            continue
+        try:
+            out[gid] = build_match_takes(int(fid), it.get("home", "Home"), it.get("away", "Away"),
+                                         it.get("corner_line"), max_age_min)
+        except Exception as e:
+            out[gid] = {"fixture_id": fid, "takes": [], "error": str(e)[:160]}
+    return out
 
 
 if __name__ == "__main__":
     import sys
-    fid = int(sys.argv[1])
-    home = sys.argv[2] if len(sys.argv) > 2 else "Home"
-    away = sys.argv[3] if len(sys.argv) > 3 else "Away"
-    cl = float(sys.argv[4]) if len(sys.argv) > 4 else None
-    print(json.dumps(build_match_takes(fid, home, away, cl), indent=2, default=str))
+    if sys.argv[1] == "batch":
+        items = json.loads(sys.argv[2])
+        print(json.dumps(build_takes_batch(items), default=str))
+    else:
+        fid = int(sys.argv[1])
+        home = sys.argv[2] if len(sys.argv) > 2 else "Home"
+        away = sys.argv[3] if len(sys.argv) > 3 else "Away"
+        cl = float(sys.argv[4]) if len(sys.argv) > 4 else None
+        print(json.dumps(build_match_takes(fid, home, away, cl), indent=2, default=str))

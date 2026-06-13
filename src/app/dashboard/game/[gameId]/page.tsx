@@ -12,7 +12,7 @@
  */
 import { notFound } from "next/navigation";
 import { spawnSync } from "child_process";
-import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3, Crosshair, Zap } from "lucide-react";
+import { Newspaper, HeartPulse, BarChart3, Activity, Swords, Radio, Clock3 } from "lucide-react";
 import GamePageBackButton from "@/components/dashboard/GamePageBackButton";
 import { fetchAllGames } from "@/lib/odds-api";
 import { normTeamKey, type TeamRecentForm } from "@/lib/soccer-recent-form";
@@ -29,9 +29,9 @@ import { fetchSoccerInjuries, type SoccerInjuryRow } from "@/lib/soccer-injuries
 import { formatAmericanOdds } from "@/lib/utils";
 import { formatDurationUntil, formatEtDate, formatEtDateTime } from "@/lib/time-format";
 import { bookMeta, isSharpBook, dropLiveOutliers } from "@/lib/books";
-import { sharpLens, sharpFair } from "@/lib/sharp-lens";
-import { computeAceLean, tierRecordLine } from "@/lib/ace-leans";
-import { clvLedgerRead } from "@/lib/clv-ledger";
+import { sharpFair } from "@/lib/sharp-lens";
+import { getMatchTakes } from "@/lib/match-takes";
+import MatchTakes from "@/components/game/MatchTakes";
 import { getFixtureIdMap } from "@/lib/soccer-fixture-id";
 import * as serverCache from "@/lib/server-cache";
 import type { Game } from "@/types/game";
@@ -479,7 +479,6 @@ export default async function GamePage({ params, searchParams }: { params: Promi
     : (fxMap[game.id] != null ? String(fxMap[game.id]) : (alpha?.coverage.fixtureId ?? null));
   const showLive = isSoccer && !!liveFixtureId && (isLive || isFinal || kickoffPassed || !!sp.live);
   const showPregameMarketModules = !showLive && !isLive && !isFinal && !kickoffPassed;
-  const lens = showPregameMarketModules ? sharpLens(game) : null;
 
   // Live sharp-market note: what the sharp book prices RIGHT NOW (de-vigged) and
   // whether it has moved the live goals line away from retail. Server-computed
@@ -528,29 +527,10 @@ export default async function GamePage({ params, searchParams }: { params: Promi
     arr.findIndex((x) => x.playerName === item.playerName && x.teamName === item.teamName) === index
   ));
 
-  // ACE Signal (lean) for the decision module — same engine as the board feed.
-  // Movement comes off the cached board payload; only definite absences count.
-  let aceLean = null, aceTierLine: string | null = null;
-  if (showPregameMarketModules) {
-    let movement: Record<string, "up" | "down" | null> | null = null;
-    try {
-      const boardEntry = await serverCache.get("board-games");
-      movement = boardEntry?.data?.movementMap?.[game.id] ?? null;
-    } catch { /* movement optional */ }
-    const leanInjuries = { home: [] as string[], away: [] as string[] };
-    for (const a of availability) {
-      if (a.status !== "out" && a.status !== "suspended") continue;
-      if (a.teamName === home) leanInjuries.home.push(a.playerName);
-      else if (a.teamName === away) leanInjuries.away.push(a.playerName);
-    }
-    aceLean = computeAceLean(game, { injuries: leanInjuries, movement });
-    if (aceLean) {
-      try {
-        const { flags } = await clvLedgerRead();
-        aceTierLine = tierRecordLine(aceLean.tier, flags);
-      } catch { aceTierLine = null; }
-    }
-  }
+  // ACE Take — grounded analyst reads (Sportmonks match model + our player
+  // baselines), warmed in the background and read here as a single cache GET.
+  // Replaces the old de-vig "ACE Signal" / Sharp Lens decision modules.
+  const takes = isSoccer ? await getMatchTakes(game.id) : null;
   const awayForm = isSoccer ? prepared?.awayForm ?? undefined : undefined;
   const homeForm = isSoccer ? prepared?.homeForm ?? undefined : undefined;
   const hasForm = !!(awayForm || homeForm);
@@ -601,39 +581,8 @@ export default async function GamePage({ params, searchParams }: { params: Promi
           </div>
         </header>
 
-        {/* ── ACE Signal (the decision module) ──────────────────────────── */}
-        {aceLean ? (
-          <section className="mt-5 rounded-2xl border border-[#2c4a2f] bg-gradient-to-b from-[#0f1a10] to-[#0c0e0c] p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Zap className="h-3.5 w-3.5 text-[#3ee68a]" strokeWidth={2} />
-                <h2 className="text-[10.5px] font-bold uppercase tracking-[0.22em] text-[#5fe39a]">ACE Signal</h2>
-              </div>
-              <span className="rounded-md bg-[#16331f] ring-1 ring-[#215a2e] px-2 py-0.5 text-[10px] font-bold font-mono text-[#5fe39a]">TIER {aceLean.tier}</span>
-            </div>
-            <div className="flex items-baseline gap-3 flex-wrap">
-              <span className="text-[19px] font-bold text-white">{aceLean.selection}</span>
-              <span className="text-[17px] font-mono font-bold text-[#3ee68a]">{formatAmericanOdds(aceLean.price)}</span>
-              <span className="text-[12px] text-[#9ca39a]">at {bookMeta(aceLean.book)?.name ?? aceLean.book}</span>
-              <span className="ml-auto text-[11px] font-mono text-[#7a8278]">sharp fair {pct(aceLean.winProb)} to win</span>
-            </div>
-            <ul className="mt-3 space-y-1.5">
-              {aceLean.evidence.map((e, i) => (
-                <li key={i} className="flex gap-2 text-[12.5px] text-[#c4c7c0] leading-snug">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]/60 mt-1.5 shrink-0" />{e.text}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 pt-3 border-t border-[#16331f]/60 text-[10px] text-[#5f655c] leading-relaxed">
-              {aceTierLine ?? "Calibrating — graded record builds as flagged games finish"} · every signal is graded against the closing line · research, not a guarantee.
-            </p>
-          </section>
-        ) : isSoccer && showPregameMarketModules ? (
-          <div className="mt-5 rounded-2xl border border-[#1a1f18] bg-[#0b0d0b] px-5 py-3.5 flex items-center gap-2.5">
-            <Zap className="h-3.5 w-3.5 text-[#565c52] shrink-0" strokeWidth={1.8} />
-            <p className="text-[12px] text-[#8a9286]">No ACE Signal on this game — nothing clears the evidence bar right now. That can change as prices and team news move.</p>
-          </div>
-        ) : null}
+        {/* ── ACE Take (the decision module) ────────────────────────────── */}
+        {isSoccer && !isFinal && <MatchTakes takes={takes} />}
 
         {showLive && (
           <div className="mt-5">
@@ -681,30 +630,6 @@ export default async function GamePage({ params, searchParams }: { params: Promi
               </div>
               <p className="mt-2.5 text-[10px] text-[#5f655c]">Implied from current market prices.</p>
             </div>
-          </section>
-        )}
-
-        {/* ── Sharp lens (soft book vs sharp reference) ─────────────────── */}
-        {lens && (
-          <section className="mt-5 rounded-2xl border border-[#1b201a] bg-[#0d0f0d] p-5">
-            <Label icon={Crosshair}>Sharp lens</Label>
-            <p className="text-[12.5px] text-[#9ca39a] leading-relaxed">
-              Prices below are paying more than the sharp market&apos;s fair value for that result — spots where a regular book hasn&apos;t caught up to the sharper consensus.
-            </p>
-            <div className="mt-3 divide-y divide-[#141714]">
-              {lens.divergences.slice(0, 3).map((d, i) => (
-                <div key={i} className="flex items-center gap-3 py-2.5">
-                  <span className="text-[13px] font-semibold text-[#e7eae4] truncate">{d.selection}</span>
-                  <span className="text-[13px] font-mono font-bold text-[#3ee68a] shrink-0">{formatAmericanOdds(d.price)}</span>
-                  <span className="text-[11px] text-[#7a8278] shrink-0">{bookMeta(d.book)?.name ?? d.book}</span>
-                  <span className="ml-auto text-[11px] font-mono text-[#5fe39a] shrink-0">+{d.edgePp.toFixed(1)}pp vs fair</span>
-                  <span className="hidden sm:inline text-[10px] font-mono text-[#565c52] shrink-0">sharp fair {Math.round(d.fairProb * 100)}%</span>
-                </div>
-              ))}
-            </div>
-            <p className="mt-3 text-[10px] text-[#5f655c] leading-relaxed">
-              Measured against the low-margin book professionals bet into. A gap is a research lead, not a sure thing — gaps matter most near kickoff and are noisiest on long odds. Every flagged gap gets graded against the closing line.
-            </p>
           </section>
         )}
 
