@@ -69,11 +69,16 @@ except Exception:
 
 /** Normalize a team name to match the loader's keys (accent-fold + &→and). */
 export function normTeamKey(name: string): string {
-  return name
+  const key = name
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/&/g, "and")
     .replace(/\s+/g, " ")
     .trim();
+
+  // Odds API and Sportmonks disagree on a few national-team display names.
+  // Keep this loader alias-only so game-page copy still uses the board name.
+  if (key === "united states" || key === "united states of america") return "usa";
+  return key;
 }
