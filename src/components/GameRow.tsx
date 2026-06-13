@@ -7,7 +7,7 @@ import { cn, formatAmericanOdds, teamAbbr } from "@/lib/utils";
 import { etDateKey, formatDurationUntil, formatEtDate, formatEtTimeLabel } from "@/lib/time-format";
 import { Star, Sparkles, TrendingUp, TrendingDown, Newspaper, Cloud, Users, ArrowUpRight, Zap } from "lucide-react";
 import { SlipLeg } from "@/components/dashboard/DashboardShell";
-import { bookMeta, bookLogoUrl, isSharpBook } from "@/lib/books";
+import { bookMeta, bookLogoUrl, isSharpBook, dropLiveOutliers } from "@/lib/books";
 import { impliedProbability, edgePct } from "@/lib/edge";
 import { getTeamLogoUrl } from "@/lib/team-logos";
 import { getNationFlagUrl } from "@/lib/nation-flags";
@@ -54,25 +54,28 @@ function bettable(game: Game) {
 }
 
 function bestH2H(game: Game, team: string) {
-  const all = bettable(game).flatMap((b) =>
+  let all = bettable(game).flatMap((b) =>
     (b.markets.h2h || []).filter((o) => o.name === team).map((o) => ({ price: o.price, book: b.sportsbook }))
   );
+  if (game.status === "live") all = dropLiveOutliers(all);
   if (!all.length) return null;
   return all.reduce((best, cur) => cur.price > best.price ? cur : best);
 }
 
 function bestSpread(game: Game, team: string) {
-  const all = bettable(game).flatMap((b) =>
+  let all = bettable(game).flatMap((b) =>
     (b.markets.spreads || []).filter((o) => o.name === team).map((o) => ({ ...o, book: b.sportsbook }))
   );
+  if (game.status === "live") all = dropLiveOutliers(all);
   if (!all.length) return null;
   return all.reduce((best, cur) => cur.price > best.price ? cur : best);
 }
 
 function bestTotal(game: Game, side: "Over" | "Under") {
-  const all = bettable(game).flatMap((b) =>
+  let all = bettable(game).flatMap((b) =>
     (b.markets.totals || []).filter((o) => o.name === side).map((o) => ({ ...o, book: b.sportsbook }))
   );
+  if (game.status === "live") all = dropLiveOutliers(all);
   if (!all.length) return null;
   return all.reduce((best, cur) => cur.price > best.price ? cur : best);
 }

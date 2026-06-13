@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeftRight } from "lucide-react";
 import { liveWinProb } from "@/lib/live-win-prob";
+import LiveSignalPanel from "@/components/game/LiveSignalPanel";
 
 interface LiveEvent {
   minute: number | null;
@@ -25,6 +26,7 @@ interface LiveStats {
   shots_total?: StatPair;
   possession?: StatPair;
   corners?: StatPair;
+  dangerous_attacks?: StatPair;
 }
 interface LiveState {
   live?: boolean; finished?: boolean; status?: string | null; minute?: number | null;
@@ -90,10 +92,11 @@ function EventRow({ ev, home, away }: { ev: LiveEvent; home: string; away: strin
 }
 
 export default function LiveCenter({
-  gameId, fixtureId, homeTeam, awayTeam, homePrior, awayPrior, totalLine,
+  gameId, fixtureId, homeTeam, awayTeam, homePrior, awayPrior, totalLine, marketNote,
 }: {
   gameId: string; fixtureId: string | null; homeTeam: string; awayTeam: string;
   homePrior?: number; awayPrior?: number; totalLine?: number | null;
+  marketNote?: string | null;
 }) {
   const [state, setState] = useState<LiveState | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -160,6 +163,7 @@ export default function LiveCenter({
           {!finished && <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444] animate-pulse" />}{clock}
         </span>
       </div>
+      <LiveSignalPanel state={state} home={home} away={away} />
       {/* live win-probability — updates with score + time */}
       <div className="relative px-5 pt-3.5 pb-3 border-b border-[#161a16]">
         <div className="flex h-2 w-full overflow-hidden rounded-full bg-[#141714]">
@@ -173,6 +177,12 @@ export default function LiveCenter({
           <span className="text-[#5fe39a] truncate max-w-[34%] text-right">{home} {wpPct(wp.home)}</span>
         </div>
         <p className="mt-2 text-[9.5px] text-[#4a524a]">{finished ? "Final result." : "Live win chance — updates with the score and time left."}</p>
+        {!finished && marketNote && (
+          <p className="mt-2 pt-2 border-t border-[#121512] text-[11px] text-[#9ca39a] leading-relaxed">
+            <span className="text-[#5fe39a] font-semibold">Market read · </span>{marketNote}
+            <span className="text-[#4a524a]"> From the latest odds refresh — a read, not a recommendation.</span>
+          </p>
+        )}
       </div>
       {hasStats && (
         <div className="relative px-5 py-3 border-b border-[#161a16]">
@@ -181,9 +191,10 @@ export default function LiveCenter({
             <span className="text-center">Live stats</span>
             <span className="truncate">{home}</span>
           </div>
-          <StatRow label="SOT" pair={stats?.shots_on_target} />
-          <StatRow label="Shots" pair={stats?.shots_total} />
           <StatRow label="Possession" pair={stats?.possession} suffix="%" />
+          <StatRow label="Danger attacks" pair={stats?.dangerous_attacks} />
+          <StatRow label="Shots" pair={stats?.shots_total} />
+          <StatRow label="SOT" pair={stats?.shots_on_target} />
           <StatRow label="Corners" pair={stats?.corners} />
         </div>
       )}

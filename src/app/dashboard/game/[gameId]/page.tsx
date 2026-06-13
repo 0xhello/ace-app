@@ -28,8 +28,8 @@ import { getNationFlagUrl } from "@/lib/nation-flags";
 import { fetchSoccerInjuries, type SoccerInjuryRow } from "@/lib/soccer-injuries";
 import { formatAmericanOdds } from "@/lib/utils";
 import { formatDurationUntil, formatEtDate, formatEtDateTime } from "@/lib/time-format";
-import { bookMeta, isSharpBook } from "@/lib/books";
-import { sharpLens } from "@/lib/sharp-lens";
+import { bookMeta, isSharpBook, dropLiveOutliers } from "@/lib/books";
+import { sharpLens, sharpFair } from "@/lib/sharp-lens";
 import { computeAceLean, tierRecordLine } from "@/lib/ace-leans";
 import { clvLedgerRead } from "@/lib/clv-ledger";
 import { getFixtureIdMap } from "@/lib/soccer-fixture-id";
@@ -179,14 +179,17 @@ function fmtDate(iso: string): string {
 function best(game: Game, market: "h2h" | "spreads" | "totals", name: string) {
   // Bettable books only — sharp/reference books (Pinnacle) feed the analysis
   // layer (market read, win-prob) but are never shown as a bettable price.
-  let top: { price: number; book: string; point?: number } | null = null;
+  // Live games additionally drop stale-feed outliers (phantom "best prices").
+  let all: Array<{ price: number; book: string; point?: number }> = [];
   for (const b of game.bookmakers) {
     if (isSharpBook(b.sportsbook)) continue;
     for (const o of (b.markets[market] ?? [])) {
-      if (o.name === name && (!top || o.price > top.price)) top = { price: o.price, book: b.sportsbook, point: o.point };
+      if (o.name === name) all.push({ price: o.price, book: b.sportsbook, point: o.point });
     }
   }
-  return top;
+  if (game.status === "live") all = dropLiveOutliers(all);
+  if (!all.length) return null;
+  return all.reduce((top, cur) => (cur.price > top.price ? cur : top));
 }
 
 function TeamCrest({ team, sport, size = 38 }: { team: string; sport: string; size?: number }) {
@@ -477,6 +480,34 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   const showLive = isSoccer && !!liveFixtureId && (isLive || isFinal || kickoffPassed || !!sp.live);
   const showPregameMarketModules = !showLive && !isLive && !isFinal && !kickoffPassed;
   const lens = showPregameMarketModules ? sharpLens(game) : null;
+
+  // Live sharp-market note: what the sharp book prices RIGHT NOW (de-vigged) and
+  // whether it has moved the live goals line away from retail. Server-computed
+  // off the board snapshot; the copy stays descriptive — a read, not a tip.
+  let liveMarketNote: string | null = null;
+  if (isLive) {
+    const ref = sharpFair(game);
+    if (ref) {
+      const entries = [...ref.fair.entries()].sort((a, b) => b[1] - a[1]);
+      liveMarketNote = `Sharp books currently make it ${entries.map(([n, p]) => `${n === game.home_team || n === game.away_team ? n : "Draw"} ${Math.round(p * 100)}%`).join(" · ")}`;
+      const sharpBk = game.bookmakers.find((b) => isSharpBook(b.sportsbook));
+      const pinPoint = (sharpBk?.markets.totals ?? []).find((o) => o.name === "Over")?.point ?? null;
+      const counts = new Map<number, number>();
+      for (const b of game.bookmakers) {
+        if (isSharpBook(b.sportsbook)) continue;
+        for (const o of b.markets.totals ?? []) if (o.point != null && o.name === "Over") counts.set(o.point, (counts.get(o.point) ?? 0) + 1);
+      }
+      let modal: number | null = null, modalN = 0;
+      for (const [pt, n] of counts) if (n > modalN) { modalN = n; modal = pt; }
+      if (pinPoint != null && modal != null && pinPoint !== modal) {
+        liveMarketNote += pinPoint > modal
+          ? ` — and they've nudged the live goals line up to ${pinPoint} while retail sits at ${modal}.`
+          : ` — and they've cut the live goals line to ${pinPoint} while retail sits at ${modal}.`;
+      } else {
+        liveMarketNote += ".";
+      }
+    }
+  }
   // Lineups land ~1h before kickoff — mount the lineups module a bit earlier than the live score module.
   const showLineups = isSoccer && !!liveFixtureId && (showLive || within12hPre);
   const liveLineupCoverage = showLineups ? getLiveLineupCoverage(liveFixtureId) : { lineups: 0, starters: 0 };
@@ -611,6 +642,7 @@ export default async function GamePage({ params, searchParams }: { params: Promi
               homePrior={read ? (read.fav.name === home ? read.fav.prob : read.dog.prob) : undefined}
               awayPrior={read ? (read.fav.name === away ? read.fav.prob : read.dog.prob) : undefined}
               totalLine={read?.totalLine ?? null}
+              marketNote={liveMarketNote}
             />
           </div>
         )}

@@ -25,6 +25,20 @@ export const BOOK_META: Record<string, { short: string; color: string; name: str
 export const SHARP_BOOKS = new Set(["pinnacle"]);
 export const isSharpBook = (key: string) => SHARP_BOOKS.has(key);
 
+// In-play stale-feed guard. Live odds arrive by polling; a lagging book can be
+// minutes behind (seen live: BetOnline +110 on a side every fresh book had at
+// -272 — a phantom "best price"). For LIVE games, drop quotes whose implied
+// probability deviates from the cross-book MEDIAN by more than maxDevPp. Never
+// applied pre-match: pre-kickoff dispersion is real signal, not staleness.
+export function dropLiveOutliers<T extends { price: number }>(arr: T[], maxDevPp = 12): T[] {
+  if (arr.length < 3) return arr;
+  const imp = (p: number) => (p >= 0 ? 100 / (p + 100) : -p / (-p + 100));
+  const probs = arr.map((a) => imp(a.price)).sort((x, y) => x - y);
+  const med = probs[Math.floor(probs.length / 2)];
+  const kept = arr.filter((a) => Math.abs(imp(a.price) - med) * 100 <= maxDevPp);
+  return kept.length ? kept : arr;
+}
+
 export function bookMeta(key: string) {
   return BOOK_META[key] ?? { short: key.slice(0, 3).toUpperCase(), color: "#52525b", name: key, domain: "" };
 }

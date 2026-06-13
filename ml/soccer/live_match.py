@@ -86,6 +86,11 @@ def _normalize_statistics(raw: List[Dict[str, Any]]) -> Dict[str, Dict[str, Opti
             "home": _stat_value(raw, "CORNERS", "home"),
             "away": _stat_value(raw, "CORNERS", "away"),
         },
+        # best single "pressure" proxy the provider gives us in-play
+        "dangerous_attacks": {
+            "home": _stat_value(raw, "DANGEROUS_ATTACKS", "home"),
+            "away": _stat_value(raw, "DANGEROUS_ATTACKS", "away"),
+        },
     }
 
 
