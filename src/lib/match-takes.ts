@@ -58,16 +58,16 @@ interface TakesPayload {
 
 type Item = { game_id: string; fixture_id: number; home: string; away: string; corner_line: number | null };
 
-function runBatch(items: Item[], timeoutMs = 60_000): Promise<Record<string, GameTakes>> {
+function runBatch(items: Item[], timeoutMs = 60_000, maxAgeMin = 120): Promise<Record<string, GameTakes>> {
   const appRoot = process.cwd().includes("/.next/standalone") ? "/app" : process.cwd();
   const script = `
 import json, sys
 from ml.soccer.match_takes import build_takes_batch
-print(json.dumps(build_takes_batch(json.loads(sys.argv[1]))))
+print(json.dumps(build_takes_batch(json.loads(sys.argv[1]), int(sys.argv[2]))))
 `;
   return new Promise((resolve) => {
     let out = "";
-    const child = spawn("python3", ["-c", script, JSON.stringify(items)], { cwd: appRoot });
+    const child = spawn("python3", ["-c", script, JSON.stringify(items), String(maxAgeMin)], { cwd: appRoot });
     const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* */ } resolve({}); }, timeoutMs);
     child.stdout.on("data", (d) => { out += d; });
     child.on("error", () => { clearTimeout(timer); resolve({}); });
@@ -78,10 +78,12 @@ print(json.dumps(build_takes_batch(json.loads(sys.argv[1]))))
 let warming = false;
 let lastWarmAt = 0;
 
-/** Warm takes for the board's upcoming soccer games and persist the map. */
-export async function warmMatchTakes(reason = "manual"): Promise<{ ok: boolean; warmed: number; games: number }> {
+/** Warm takes for the board's upcoming soccer games and persist the map.
+ * `force` bypasses the rate-guard and re-fetches each fixture's Sportmonks
+ * bundle now (maxAge 0) — used to pull fresh sidelined/injuries on demand. */
+export async function warmMatchTakes(reason = "manual", force = false): Promise<{ ok: boolean; warmed: number; games: number }> {
   if (warming) return { ok: true, warmed: 0, games: 0 };
-  if (Date.now() - lastWarmAt < 60_000) return { ok: true, warmed: 0, games: 0 };
+  if (!force && Date.now() - lastWarmAt < 60_000) return { ok: true, warmed: 0, games: 0 };
   warming = true;
   try {
     const board = (await serverCache.get("board-games"))?.data as { games?: Game[] } | undefined;
@@ -92,7 +94,7 @@ export async function warmMatchTakes(reason = "manual"): Promise<{ ok: boolean; 
       .map((g) => ({ game_id: g.id, fixture_id: fxMap[g.id], home: g.home_team, away: g.away_team, corner_line: null }));
     if (!items.length) return { ok: true, warmed: 0, games: 0 };
 
-    const result = await runBatch(items);
+    const result = await runBatch(items, 90_000, force ? 0 : 120);
     const prev = ((await serverCache.get(KEY))?.data as TakesPayload | undefined)?.games ?? {};
     // Keep a previous non-empty take set if a refresh transiently returns empty.
     const merged: Record<string, GameTakes> = { ...prev };

@@ -3,7 +3,7 @@
  *   GET  — read the current ACE Takes cache (debug)
  *   POST — warm takes for the board's upcoming soccer games and persist
  */
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { warmMatchTakes, getMatchTakesPayload } from "@/lib/match-takes";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,8 @@ export async function GET() {
   return NextResponse.json({ refreshedAt: payload?.refreshedAt ?? null, count: summary.length, games: summary });
 }
 
-export async function POST() {
-  const r = await warmMatchTakes("ops");
+export async function POST(req: NextRequest) {
+  const force = req.nextUrl.searchParams.get("force") === "1";
+  const r = await warmMatchTakes("ops", force);
   return NextResponse.json(r);
 }
