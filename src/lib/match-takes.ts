@@ -17,9 +17,10 @@ import { getFixtureIdMap } from "@/lib/soccer-fixture-id";
 import { sportTab } from "@/lib/sport-tab";
 import type { Game } from "@/types/game";
 
-const KEY = "match-takes-v1";
+const KEY = "match-takes-v1";        // rule-engine takes (scheduler-warmed)
+const KEY_AGENT = "agent-takes-v1";  // analyst-agent takes (override; takes precedence)
 
-export type TakeTier = "Strong" | "Lean" | "Slight";
+export type TakeTier = "Strong" | "Lean" | "Slight" | "Pass";
 export interface Take {
   market: string;
   market_label: string;
@@ -28,17 +29,21 @@ export interface Take {
   model_pct: number | null;
   reasons: string[];
   source: string;
+  odds?: string | null;   // optional book price the agent is reading, e.g. "+180 FanDuel"
 }
 export interface GameTakes {
   fixture_id: number;
   home: string;
   away: string;
-  source?: "cache" | "live";
+  source?: "cache" | "live" | "agent";
   has_predictions: boolean;
   lineups_posted: boolean;
   takes: Take[];
+  summary?: string | null;   // the analyst's bottom-line (agent only)
+  generatedBy?: string;      // e.g. "ACE Analyst (opus-4.8)"
   error?: string;
 }
+interface AgentPayload { refreshedAt: string; games: Record<string, GameTakes> }
 interface TakesPayload {
   refreshedAt: string;
   games: Record<string, GameTakes>;
@@ -97,11 +102,38 @@ export async function warmMatchTakes(reason = "manual"): Promise<{ ok: boolean; 
   }
 }
 
-/** Cache-only read for the game page (single Redis GET). */
+/** Cache-only read for the game page (single Redis GET). The analyst-agent
+ * override wins when present (it reasoned over the full grounding); otherwise
+ * fall back to the rule-engine take. */
 export async function getMatchTakes(gameId: string): Promise<GameTakes | null> {
   try {
+    const agent = (await serverCache.get(KEY_AGENT))?.data as AgentPayload | undefined;
+    const a = agent?.games?.[gameId];
+    if (a && a.takes?.length) return { ...a, source: "agent" };
     const payload = (await serverCache.get(KEY))?.data as TakesPayload | undefined;
     return payload?.games?.[gameId] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write analyst-agent takes for one or more games (override store). Used by the
+ * ops route now and by the production agent once a funded key exists. Merges so
+ * a partial write never wipes other games. */
+export async function writeAgentTakes(games: Record<string, GameTakes>): Promise<{ ok: boolean; wrote: number }> {
+  try {
+    const prev = ((await serverCache.get(KEY_AGENT))?.data as AgentPayload | undefined)?.games ?? {};
+    const merged = { ...prev, ...games };
+    await serverCache.setPersistent(KEY_AGENT, { refreshedAt: new Date().toISOString(), games: merged } satisfies AgentPayload);
+    return { ok: true, wrote: Object.keys(games).length };
+  } catch {
+    return { ok: false, wrote: 0 };
+  }
+}
+
+export async function getAgentTakesPayload(): Promise<AgentPayload | null> {
+  try {
+    return ((await serverCache.get(KEY_AGENT))?.data as AgentPayload | undefined) ?? null;
   } catch {
     return null;
   }
