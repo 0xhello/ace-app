@@ -123,7 +123,12 @@ export function marketRead(game: Game): MarketRead | null {
 
   // Headline — what it MEANS (qualitative; the bar below carries the numbers, so
   // never restate percentages here).
-  const drawLive = drawProb != null && drawProb >= 0.24;
+  // Draw copy is DEMOTED by design: proportional de-vig flatters longshots, so
+  // draw-at-fair reads look better than they are — and users read any draw
+  // mention as a recommendation. Only name the draw when it's genuinely a
+  // leading outcome (≥30%, true stalemate matchups). The probability bar still
+  // shows the draw % factually; this only governs editorial copy.
+  const drawLive = drawProb != null && drawProb >= 0.30;
   let headline: string;
   if (favStrength === "pick'em") {
     headline = `Too close to call — the market doesn't separate ${fav.name} and ${dog.name}${drawLive ? ", and a draw is firmly in play" : ""}.`;

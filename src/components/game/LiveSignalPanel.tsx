@@ -20,6 +20,8 @@ export interface LiveSignalState {
   finished?: boolean;
   status?: string | null;
   minute?: number | null;
+  extra?: number | null;
+  clock?: string | null;
   home_team?: string | null;
   away_team?: string | null;
   home_score?: number | null;
@@ -56,6 +58,12 @@ function countEvents(events: LiveEvent[], type: LiveEvent["type"], side: Side) {
   return events.filter((ev) => ev.type === type && ev.team === side).length;
 }
 
+function displayMinute(state: LiveSignalState) {
+  if (state.clock) return state.clock;
+  if (state.minute == null) return null;
+  return `${state.minute}${state.extra ? `+${state.extra}` : ""}'`;
+}
+
 function buildLiveSignal(state: LiveSignalState | null, home: string, away: string): LiveSignal | null {
   if (!state?.live && !state?.finished) return null;
 
@@ -66,6 +74,7 @@ function buildLiveSignal(state: LiveSignalState | null, home: string, away: stri
   const leader: Side | null = scoreDiff > 0 ? "home" : scoreDiff < 0 ? "away" : null;
   const trailer: Side | null = leader === "home" ? "away" : leader === "away" ? "home" : null;
   const minute = state.minute ?? 0;
+  const minuteLabel = displayMinute(state);
   const stats = state.statistics;
 
   const homeSot = numberVal(stats?.shots_on_target?.home);
@@ -87,7 +96,7 @@ function buildLiveSignal(state: LiveSignalState | null, home: string, away: stri
 
   const bullets: string[] = [];
   if (leader) {
-    bullets.push(`${teamLabel(leader, home, away)} leads ${leader === "home" ? homeScore : awayScore}-${leader === "home" ? awayScore : homeScore}${minute ? ` in the ${minute}'` : ""}`);
+    bullets.push(`${teamLabel(leader, home, away)} leads ${leader === "home" ? homeScore : awayScore}-${leader === "home" ? awayScore : homeScore}${minuteLabel ? ` in the ${minuteLabel}` : ""}`);
   }
   if (homeReds || awayReds) bullets.push(`Red cards: ${away} ${awayReds}, ${home} ${homeReds}`);
   if (homeShots != null && awayShots != null) bullets.push(`Shot volume: ${away} ${awayShots}, ${home} ${homeShots}`);

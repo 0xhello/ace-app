@@ -27,19 +27,44 @@ _STARTER_TYPE = 11                      # Sportmonks lineup type_id for starters
 _POS = {24: "GK", 25: "DEF", 26: "MID", 27: "FWD"}
 
 
+def _position_label(value: Any) -> Optional[str]:
+    try:
+        return _POS.get(int(value))
+    except Exception:
+        return None
+
+
+def _player_name(row: Dict[str, Any]) -> Optional[str]:
+    return row.get("common_name") or row.get("display_name") or row.get("name")
+
+
 def _normalize_lineups(raw, home_id):
     out = []
     for row in raw or []:
         pl = row.get("player") or {}
         out.append({
-            "name": pl.get("common_name") or row.get("player_name") or pl.get("display_name") or pl.get("name"),
+            "id": row.get("player_id") or pl.get("id"),
+            "name": _player_name(pl) or row.get("player_name"),
             "number": row.get("jersey_number"),
-            "pos": _POS.get(row.get("position_id")),
+            "pos": _position_label(row.get("position_id") or pl.get("position_id")),
             "team": "home" if row.get("team_id") == home_id else "away",
             "starter": row.get("type_id") == _STARTER_TYPE,
             "order": row.get("formation_position") or 99,
         })
     return out
+
+
+def _player_position_index(lineups: List[Dict[str, Any]]) -> Dict[Any, str]:
+    index: Dict[Any, str] = {}
+    for row in lineups or []:
+        pos = row.get("pos")
+        if not pos:
+            continue
+        if row.get("id") is not None:
+            index[row.get("id")] = pos
+        if row.get("name"):
+            index[str(row.get("name")).casefold()] = pos
+    return index
 
 
 def _current_scores(scores: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
@@ -48,13 +73,31 @@ def _current_scores(scores: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
     return {"home": cur.get("home"), "away": cur.get("away")}
 
 
-def _ticking_minute(periods: List[Dict[str, Any]]) -> Optional[int]:
+def _period_extra_minute(period: Dict[str, Any]) -> Optional[int]:
+    # Sportmonks has changed this field name across payloads/plans; keep this
+    # deliberately defensive and only expose a real provider value.
+    for key in ("extra_minute", "extra_minutes", "stoppage_time", "stoppage_minutes", "injury_time", "additional_time", "added_time"):
+        value = period.get(key)
+        if value is None:
+            continue
+        try:
+            value = int(value)
+        except Exception:
+            continue
+        return value if value > 0 else None
+    return None
+
+
+def _ticking_clock(periods: List[Dict[str, Any]]) -> Dict[str, Optional[int]]:
     for p in periods or []:
         if p.get("ticking"):
-            return p.get("minutes")
+            return {"minute": p.get("minutes"), "extra": _period_extra_minute(p)}
     # fall back to the latest period's minutes
-    done = [p.get("minutes") for p in (periods or []) if p.get("minutes") is not None]
-    return max(done) if done else None
+    done = [p for p in (periods or []) if p.get("minutes") is not None]
+    if not done:
+        return {"minute": None, "extra": None}
+    latest = max(done, key=lambda p: p.get("minutes") or 0)
+    return {"minute": latest.get("minutes"), "extra": _period_extra_minute(latest)}
 
 
 def _stat_value(stats: List[Dict[str, Any]], developer_name: str, side: str) -> Optional[Any]:
@@ -94,8 +137,28 @@ def _normalize_statistics(raw: List[Dict[str, Any]]) -> Dict[str, Dict[str, Opti
     }
 
 
-def _normalize_events(raw: List[Dict[str, Any]], home_id: Optional[int]) -> List[Dict[str, Any]]:
+def _event_position(e: Dict[str, Any], pos_index: Dict[Any, str], related: bool = False) -> Optional[str]:
+    player_key = "related_player" if related else "player"
+    id_keys = ("related_player_id", "related_id") if related else ("player_id",)
+    for key in id_keys:
+        if e.get(key) in pos_index:
+            return pos_index[e.get(key)]
+    player = e.get(player_key) or {}
+    if player.get("id") in pos_index:
+        return pos_index[player.get("id")]
+    pos = _position_label(player.get("position_id") or player.get("type_id"))
+    if pos:
+        return pos
+    name = e.get("related_player_name") if related else e.get("player_name")
+    name = name or _player_name(player)
+    if name and str(name).casefold() in pos_index:
+        return pos_index[str(name).casefold()]
+    return None
+
+
+def _normalize_events(raw: List[Dict[str, Any]], home_id: Optional[int], pos_index: Optional[Dict[Any, str]] = None) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
+    pos_index = pos_index or {}
     for e in raw or []:
         kind = (e.get("type", {}) or {}).get("developer_name") or e.get("type_id")
         code = str(kind).lower().replace("_", "").replace("-", "")
@@ -115,8 +178,10 @@ def _normalize_events(raw: List[Dict[str, Any]], home_id: Optional[int]) -> List
             "extra": e.get("extra_minute"),
             "type": bucket,
             "team": "home" if e.get("participant_id") == home_id else "away",
-            "player": e.get("player_name") or (e.get("player", {}) or {}).get("name"),
-            "related": e.get("related_player_name"),
+            "player": e.get("player_name") or _player_name(e.get("player", {}) or {}),
+            "player_position": _event_position(e, pos_index),
+            "related": e.get("related_player_name") or _player_name(e.get("related_player", {}) or {}),
+            "related_position": _event_position(e, pos_index, related=True),
             "info": e.get("info"),
         })
     out.sort(key=lambda x: ((x["minute"] or 0), (x["extra"] or 0)), reverse=True)
@@ -136,19 +201,23 @@ def live_state(fixture_id: int) -> Dict[str, Any]:
     state_id = data.get("state_id")
     state = (data.get("state") or {})
     scores = _current_scores(data.get("scores") or [])
+    lineups = _normalize_lineups(data.get("lineups") or [], (home or {}).get("id"))
+    clock = _ticking_clock(data.get("periods") or [])
     return {
         "fixture_id": fixture_id,
         "live": state_id in _LIVE_STATES,
         "finished": state_id in _FINISHED_STATES,
         "state_id": state_id,
         "status": state.get("developer_name") or state.get("name"),
-        "minute": _ticking_minute(data.get("periods") or []),
+        "minute": clock["minute"],
+        "extra": clock["extra"],
+        "clock": f"{clock['minute']}+{clock['extra']}'" if clock["minute"] is not None and clock["extra"] else (f"{clock['minute']}'" if clock["minute"] is not None else None),
         "home_team": (home or {}).get("name"),
         "away_team": (away or {}).get("name"),
         "home_score": scores["home"],
         "away_score": scores["away"],
-        "events": _normalize_events(data.get("events") or [], (home or {}).get("id")),
-        "lineups": _normalize_lineups(data.get("lineups") or [], (home or {}).get("id")),
+        "events": _normalize_events(data.get("events") or [], (home or {}).get("id"), _player_position_index(lineups)),
+        "lineups": lineups,
         "statistics": _normalize_statistics(data.get("statistics") or []),
         "fetched_at": data.get("starting_at"),
     }

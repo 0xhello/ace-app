@@ -18,7 +18,9 @@ interface LiveEvent {
   type: "goal" | "own-goal" | "redcard" | "yellowcard" | "substitution" | "var";
   team: "home" | "away";
   player: string | null;
+  player_position?: string | null;
   related: string | null;
+  related_position?: string | null;
 }
 interface StatPair { home?: number | string | null; away?: number | string | null }
 interface LiveStats {
@@ -30,6 +32,7 @@ interface LiveStats {
 }
 interface LiveState {
   live?: boolean; finished?: boolean; status?: string | null; minute?: number | null;
+  extra?: number | null; clock?: string | null;
   home_team?: string | null; away_team?: string | null;
   home_score?: number | null; away_score?: number | null; events?: LiveEvent[];
   statistics?: LiveStats;
@@ -74,17 +77,37 @@ function StatRow({ label, pair, suffix = "" }: { label: string; pair?: StatPair;
   );
 }
 
+function PositionPill({ value }: { value?: string | null }) {
+  if (!value) return null;
+  return (
+    <span className="ml-1 inline-flex rounded border border-[#26321f] px-1 py-[1px] align-middle font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-[#7f8a78]">
+      {value}
+    </span>
+  );
+}
+
+function formatClock(minute?: number | null, extra?: number | null, fallback?: string | null) {
+  if (fallback) return fallback;
+  if (minute == null) return "Live";
+  return `${minute}${extra ? `+${extra}` : ""}'`;
+}
+
 function EventRow({ ev, home, away }: { ev: LiveEvent; home: string; away: string }) {
   const team = ev.team === "home" ? home : away;
   const isGoal = ev.type === "goal" || ev.type === "own-goal";
   const min = ev.minute != null ? `${ev.minute}${ev.extra ? `+${ev.extra}` : ""}'` : "";
   return (
     <div className={`flex items-center gap-2.5 px-2 py-2.5 rounded-lg animate-[fadeIn_0.4s_ease] ${isGoal ? "bg-[#3ee68a]/[0.05]" : ""}`}>
-      <span className="text-[11px] font-mono text-[#6b7068] w-[34px] shrink-0 tabular-nums text-right">{min}</span>
+      <span className="text-[11px] font-mono text-[#6b7068] w-[42px] shrink-0 tabular-nums text-right">{min}</span>
       <TypeChip type={ev.type} />
       <span className={`text-[12.5px] truncate min-w-0 ${isGoal ? "text-white font-semibold" : "text-[#c4c7c0]"}`}>
         {ev.player || META[ev.type].label}
-        {ev.related && ev.type === "substitution" && <span className="text-[#6b7068]"> ↔ {ev.related}</span>}
+        <PositionPill value={ev.player_position} />
+        {ev.related && ev.type === "substitution" && (
+          <span className="text-[#6b7068]">
+            <span aria-hidden="true"> ↔ </span>{ev.related}<PositionPill value={ev.related_position} />
+          </span>
+        )}
       </span>
       <span className="ml-auto text-[10.5px] text-[#7a8278] shrink-0 truncate max-w-[110px]">{team}</span>
     </div>
@@ -142,7 +165,7 @@ export default function LiveCenter({
   }
 
   const events = state?.events ?? [];
-  const clock = finished ? "Full time" : state?.minute != null ? `${state.minute}'` : "Live";
+  const clock = finished ? "Full time" : formatClock(state?.minute, state?.extra, state?.clock);
   const wp = liveWinProb({
     homePrior: homePrior ?? 0.4, awayPrior: awayPrior ?? 0.35,
     homeScore: state?.home_score ?? 0, awayScore: state?.away_score ?? 0,

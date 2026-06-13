@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 
 interface LiveState {
   live?: boolean; finished?: boolean; status?: string | null; minute?: number | null;
+  extra?: number | null; clock?: string | null;
   home_score?: number | null; away_score?: number | null;
 }
 const POLL_MS = 20_000;
@@ -39,7 +40,7 @@ export default function LiveHeroCenter({
   const finished = !!s?.finished;
 
   if (live || finished) {
-    const clock = finished ? "FT" : s?.minute != null ? `${s.minute}'` : (s?.status || "LIVE");
+    const clock = finished ? "FT" : s?.clock || (s?.minute != null ? `${s.minute}${s.extra ? `+${s.extra}` : ""}'` : (s?.status || "LIVE"));
     return (
       <div className="flex flex-col items-center gap-1.5 px-2">
         <span className="text-[34px] md:text-[38px] font-black font-mono tabular-nums leading-none">
