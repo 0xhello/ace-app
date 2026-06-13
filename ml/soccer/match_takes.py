@@ -361,7 +361,10 @@ def build_match_takes(fixture_id: int, home: str, away: str, corner_line: Option
     try:
         preds, lineups, source = _resolve_inputs(int(fixture_id), max_age_min)
     except Exception as e:
-        return {"fixture_id": fixture_id, "takes": [], "error": str(e)[:160]}
+        # keep home/away so a transient provider error still labels the matchup
+        return {"fixture_id": fixture_id, "home": home, "away": away,
+                "has_predictions": False, "lineups_posted": False,
+                "takes": [], "error": str(e)[:160]}
 
     takes: List[Dict[str, Any]] = []
     takes += _result_take(preds, home, away)
@@ -394,7 +397,9 @@ def build_takes_batch(items: List[Dict[str, Any]], max_age_min: int = 120) -> Di
             out[gid] = build_match_takes(int(fid), it.get("home", "Home"), it.get("away", "Away"),
                                          it.get("corner_line"), max_age_min)
         except Exception as e:
-            out[gid] = {"fixture_id": fid, "takes": [], "error": str(e)[:160]}
+            out[gid] = {"fixture_id": fid, "home": it.get("home"), "away": it.get("away"),
+                        "has_predictions": False, "lineups_posted": False,
+                        "takes": [], "error": str(e)[:160]}
     return out
 
 
