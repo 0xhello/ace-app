@@ -31,7 +31,7 @@ export interface LiveSignalState {
 }
 
 type Side = "home" | "away";
-type SignalTone = "strong" | "control" | "pressure" | "neutral";
+type SignalTone = "strong" | "control" | "pressure";
 
 interface LiveSignal {
   tone: SignalTone;
@@ -94,14 +94,10 @@ function buildLiveSignal(state: LiveSignalState | null, home: string, away: stri
   const cornerDiff = homeCorners != null && awayCorners != null ? homeCorners - awayCorners : 0;
   const possDiff = homePoss != null && awayPoss != null ? homePoss - awayPoss : 0;
 
-  const bullets: string[] = [];
-  if (leader) {
-    bullets.push(`${teamLabel(leader, home, away)} leads ${leader === "home" ? homeScore : awayScore}-${leader === "home" ? awayScore : homeScore}${minuteLabel ? ` in the ${minuteLabel}` : ""}`);
-  }
-  if (homeReds || awayReds) bullets.push(`Red cards: ${away} ${awayReds}, ${home} ${homeReds}`);
-  if (homeShots != null && awayShots != null) bullets.push(`Shot volume: ${away} ${awayShots}, ${home} ${homeShots}`);
-  if (homeSot != null && awaySot != null) bullets.push(`Shots on target: ${away} ${awaySot}, ${home} ${homeSot}`);
-  if (homePoss != null && awayPoss != null) bullets.push(`Possession: ${away} ${awayPoss}%, ${home} ${homePoss}%`);
+  const scoreContext = leader
+    ? `${teamLabel(leader, home, away)} leads ${leader === "home" ? homeScore : awayScore}-${leader === "home" ? awayScore : homeScore}${minuteLabel ? ` in the ${minuteLabel}` : ""}`
+    : minuteLabel ? `Level match in the ${minuteLabel}` : null;
+  const redContext = homeReds || awayReds ? `Player-count state: ${away} ${awayReds} red, ${home} ${homeReds} red` : null;
 
   if (leader && Math.abs(scoreDiff) >= 2 && redAdvSide === leader && minute >= 55) {
     return {
@@ -109,7 +105,7 @@ function buildLiveSignal(state: LiveSignalState | null, home: string, away: stri
       label: "Live signal",
       title: `${teamLabel(leader, home, away)} control edge`,
       summary: "Score, clock and player-count state are aligned. This is a strong live-state read; the market still needs to confirm price.",
-      bullets: bullets.slice(0, 4),
+      bullets: [scoreContext, redContext].filter(Boolean) as string[],
     };
   }
 
@@ -119,7 +115,7 @@ function buildLiveSignal(state: LiveSignalState | null, home: string, away: stri
       label: "Live signal",
       title: `${teamLabel(leader, home, away)} control building`,
       summary: "The live state favors the team already ahead. The next check is whether the market has fully adjusted.",
-      bullets: bullets.slice(0, 4),
+      bullets: [scoreContext, redContext].filter(Boolean) as string[],
     };
   }
 
@@ -133,7 +129,7 @@ function buildLiveSignal(state: LiveSignalState | null, home: string, away: stri
         label: "Live signal",
         title: `${teamLabel(trailer, home, away)} pressure building`,
         summary: "The trailing side is creating enough pressure to keep the match state unstable. Watch the next live price refresh rather than leaning on the score alone.",
-        bullets: bullets.slice(0, 4),
+        bullets: [scoreContext, "Pressure trigger: chance creation is outpacing the scoreline."].filter(Boolean) as string[],
       };
     }
   }
@@ -144,17 +140,11 @@ function buildLiveSignal(state: LiveSignalState | null, home: string, away: stri
       label: "Live signal",
       title: `${teamLabel(redAdvSide, home, away)} player-count edge`,
       summary: "The red-card state has changed the match shape. Wait for the market to refresh before treating it as actionable.",
-      bullets: bullets.slice(0, 4),
+      bullets: [redContext, scoreContext].filter(Boolean) as string[],
     };
   }
 
-  return {
-    tone: "neutral",
-    label: "Live read",
-    title: "Live state forming",
-    summary: "No clean control or pressure signal yet. Keep watching score, shots on target, possession and cards.",
-    bullets: bullets.slice(0, 4),
-  };
+  return null;
 }
 
 export default function LiveSignalPanel({ state, home, away }: { state: LiveSignalState | null; home: string; away: string }) {
@@ -165,9 +155,7 @@ export default function LiveSignalPanel({ state, home, away }: { state: LiveSign
     ? "border-[#2c4a2f] bg-[#0f1a10]"
     : signal.tone === "pressure"
       ? "border-[#4a3f20] bg-[#12100a]"
-      : signal.tone === "control"
-        ? "border-[#26321f] bg-[#0d120c]"
-        : "border-[#1a1f18] bg-[#0b0d0b]";
+      : "border-[#26321f] bg-[#0d120c]";
 
   return (
     <div className={`relative mx-5 mt-4 rounded-xl border px-4 py-3 ${toneClass}`}>
