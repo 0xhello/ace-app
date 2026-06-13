@@ -32,7 +32,7 @@ import { bookMeta, isSharpBook, dropLiveOutliers } from "@/lib/books";
 import { sharpLens, sharpFair } from "@/lib/sharp-lens";
 import { computeAceLean, tierRecordLine } from "@/lib/ace-leans";
 import { clvLedgerRead } from "@/lib/clv-ledger";
-import { getFixtureIdMap, resolveFixtureIdForGame } from "@/lib/soccer-fixture-id";
+import { getFixtureIdMap } from "@/lib/soccer-fixture-id";
 import * as serverCache from "@/lib/server-cache";
 import type { Game } from "@/types/game";
 
@@ -474,19 +474,9 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   // Fixture id for the live view: demo override → resolved map (the WC source of
   // truth, since the slate-sync bundle doesn't cover these) → bundle fallback.
   const fxMap = isSoccer ? await getFixtureIdMap().catch(() => ({} as Record<string, number>)) : {};
-  let liveFixtureId = (sp.live && /^\d+$/.test(sp.live))
+  const liveFixtureId = (sp.live && /^\d+$/.test(sp.live))
     ? sp.live
     : (fxMap[game.id] != null ? String(fxMap[game.id]) : (alpha?.coverage.fixtureId ?? null));
-  const shouldResolveLiveFixture = isSoccer && !liveFixtureId && (isLive || isFinal || kickoffPassed || within12hPre);
-  if (shouldResolveLiveFixture) {
-    const resolved = await resolveFixtureIdForGame({
-      game_id: game.id,
-      home,
-      away,
-      commence: game.commence_time,
-    }).catch(() => null);
-    if (resolved != null) liveFixtureId = String(resolved);
-  }
   const showLive = isSoccer && !!liveFixtureId && (isLive || isFinal || kickoffPassed || !!sp.live);
   const showPregameMarketModules = !showLive && !isLive && !isFinal && !kickoffPassed;
   const lens = showPregameMarketModules ? sharpLens(game) : null;

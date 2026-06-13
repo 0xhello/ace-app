@@ -52,24 +52,6 @@ export async function refreshFixtureIdMap(): Promise<{ ok: boolean; resolved: nu
   }
 }
 
-/** Resolve one game immediately when the page is already live/near-live and the
- * background map has not caught up yet. Keeps the live room from disappearing
- * just because the fixture-id scheduler missed a fresh board game.
- */
-export async function resolveFixtureIdForGame(pair: Pair, days = 2): Promise<number | null> {
-  try {
-    const map = await runResolver([pair], 12_000);
-    const id = map[pair.game_id];
-    if (id == null) return null;
-
-    const prev = ((await serverCache.get(KEY))?.data as Record<string, number>) ?? {};
-    await serverCache.setPersistent(KEY, { ...prev, ...map });
-    return id;
-  } catch {
-    return null;
-  }
-}
-
 /** Read the persisted map (Redis GET; {} if not populated yet). */
 export async function getFixtureIdMap(): Promise<Record<string, number>> {
   try {
