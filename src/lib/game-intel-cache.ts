@@ -111,7 +111,13 @@ export async function warmGameIntelCache(reason = "manual"): Promise<any> {
       gameCount: games.length,
       games: prepared,
     };
-    await serverCache.set(INTEL_KEY, payload, games);
+    // PERSISTENT (no TTL): this research layer (form/news/injuries) is refreshed
+    // by the background scheduler every ~10min and changes slowly. The old
+    // ttl-driven set() expired in 5min on live-game days — shorter than the
+    // scheduler interval — leaving the game page with cold, empty form/news/
+    // injuries for half of every window (the "random, refresh-fixes-it" bug).
+    // Stale-but-present always beats blank; the scheduler overwrites each tick.
+    await serverCache.setPersistent(INTEL_KEY, payload);
     lastWarmAt = Date.now();
     return {
       ok: true,

@@ -127,7 +127,13 @@ export async function warmGameViewBundles(reason = "manual"): Promise<any> {
       completeCount: Object.values(built).filter((b) => b.complete).length,
       games: built,
     };
-    await serverCache.set(BUNDLE_KEY, payload, games);
+    // PERSISTENT (no TTL): same fix as the prepared-intel cache. The ttl-driven
+    // set() expired this bundle in 5min on live-game days (shorter than the
+    // ~10min scheduler), so the match page kept falling back to a partial state
+    // (no alpha/match-read) between ticks. The scheduler overwrites every tick;
+    // odds are read live off the board cache elsewhere, so a persistent research
+    // bundle never serves stale prices.
+    await serverCache.setPersistent(BUNDLE_KEY, payload);
     lastWarmAt = Date.now();
 
     return {
