@@ -82,8 +82,28 @@ SPORTMONKS_LEAGUE_IDS: Dict[str, int] = {
 # player_id + name — used by M43 player-prop grading.
 _FIXTURE_BUNDLE_INCLUDES = (
     "lineups.player;predictions.type;xGFixture.type;"
-    "events.player;participants"
+    "events.player;participants;sidelined.player"
 )
+
+# Sportmonks player position_id → short label (general player position).
+_PLAYER_POS = {24: "GK", 25: "DEF", 26: "MID", 27: "FWD"}
+
+
+def _normalize_sidelined(raw, home_id):
+    """Per-fixture injuries/suspensions with the player's position. This is the
+    ONLY injury source that covers national teams (Sportmonks exposes nothing at
+    the team level for them), so the game page leans on it for the World Cup."""
+    out = []
+    for row in raw or []:
+        pl = row.get("player") or {}
+        pos = _PLAYER_POS.get(pl.get("position_id")) or _PLAYER_POS.get(row.get("position_id"))
+        out.append({
+            "player": pl.get("display_name") or pl.get("common_name") or pl.get("name") or row.get("player_name"),
+            "team": "home" if (row.get("participant_id") or row.get("team_id")) == home_id else "away",
+            "position": pos,
+            "reason": (row.get("type") or {}).get("name") or row.get("category"),
+        })
+    return [r for r in out if r["player"]]
 
 # Sportmonks event type_ids that count as a goal for grading purposes.
 # Verified via /types lookup: 14 = Goal, 15 = Own Goal (counts to the
@@ -194,6 +214,8 @@ def init_table(path: Optional[Path] = None) -> None:
                 xgfixture_metric_count INTEGER,
                 events_json          TEXT,                -- list[event] including goals (M43)
                 events_count         INTEGER,
+                sidelined_json       TEXT,                -- list[{player,team,position,reason}]
+                sidelined_count      INTEGER,
                 settled_at           TEXT,                -- first time xGFixture came back populated
                 fetched_at           TEXT NOT NULL,
                 updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
@@ -223,6 +245,10 @@ def init_table(path: Optional[Path] = None) -> None:
                 "ALTER TABLE soccer_sportmonks_fixture_cache "
                 "ADD COLUMN events_count INTEGER"
             )
+        if "sidelined_json" not in cols:
+            conn.execute("ALTER TABLE soccer_sportmonks_fixture_cache ADD COLUMN sidelined_json TEXT")
+        if "sidelined_count" not in cols:
+            conn.execute("ALTER TABLE soccer_sportmonks_fixture_cache ADD COLUMN sidelined_count INTEGER")
 
         conn.commit()
     finally:
@@ -426,6 +452,7 @@ def cache_fixture_bundle(
     )
     # M43 — events (goals, etc) — empty pre-match, populated during/after
     events = _normalize_events(bundle.get("events") or [])
+    sidelined = _normalize_sidelined(bundle.get("sidelined") or [], home_id)
 
     now = datetime.now(timezone.utc).isoformat()
     settled_at = now if xgfx else None
@@ -451,8 +478,9 @@ def cache_fixture_bundle(
                 predictions_json, predictions_market_count,
                 xgfixture_json, xgfixture_metric_count,
                 events_json, events_count,
+                sidelined_json, sidelined_count,
                 settled_at, fetched_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(fixture_id) DO UPDATE SET
                 sportmonks_league_id   = excluded.sportmonks_league_id,
                 league_name            = excluded.league_name,
@@ -469,6 +497,8 @@ def cache_fixture_bundle(
                 xgfixture_metric_count = excluded.xgfixture_metric_count,
                 events_json            = excluded.events_json,
                 events_count           = excluded.events_count,
+                sidelined_json         = excluded.sidelined_json,
+                sidelined_count        = excluded.sidelined_count,
                 settled_at             = COALESCE(soccer_sportmonks_fixture_cache.settled_at, excluded.settled_at),
                 fetched_at             = excluded.fetched_at,
                 updated_at             = excluded.updated_at
@@ -487,6 +517,8 @@ def cache_fixture_bundle(
                 len(xgfx) or None,
                 json.dumps(events, ensure_ascii=False) if events else None,
                 len(events) or None,
+                json.dumps(sidelined, ensure_ascii=False) if sidelined else None,
+                len(sidelined) or None,
                 settled_at,
                 now, now,
             ),

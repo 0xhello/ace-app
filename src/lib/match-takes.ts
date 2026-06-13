@@ -31,6 +31,12 @@ export interface Take {
   source: string;
   odds?: string | null;   // optional book price the agent is reading, e.g. "+180 FanDuel"
 }
+export interface InjuryRow {
+  playerName: string;
+  teamName: string;
+  position?: string | null;
+  reason?: string | null;
+}
 export interface GameTakes {
   fixture_id: number;
   home: string;
@@ -39,6 +45,7 @@ export interface GameTakes {
   has_predictions: boolean;
   lineups_posted: boolean;
   takes: Take[];
+  injuries?: InjuryRow[];    // per-fixture sidelined feed, with player position
   summary?: string | null;   // the analyst's bottom-line (agent only)
   generatedBy?: string;      // e.g. "ACE Analyst (opus-4.8)"
   error?: string;
@@ -136,6 +143,17 @@ export async function getAgentTakesPayload(): Promise<AgentPayload | null> {
     return ((await serverCache.get(KEY_AGENT))?.data as AgentPayload | undefined) ?? null;
   } catch {
     return null;
+  }
+}
+
+/** Injuries are FACTUAL — always read from the rule-engine store (the per-fixture
+ * sidelined feed), never the agent override (which may not carry them). */
+export async function getMatchInjuries(gameId: string): Promise<InjuryRow[]> {
+  try {
+    const payload = (await serverCache.get(KEY))?.data as TakesPayload | undefined;
+    return payload?.games?.[gameId]?.injuries ?? [];
+  } catch {
+    return [];
   }
 }
 

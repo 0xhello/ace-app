@@ -30,7 +30,7 @@ import { formatAmericanOdds } from "@/lib/utils";
 import { formatDurationUntil, formatEtDate, formatEtDateTime } from "@/lib/time-format";
 import { bookMeta, isSharpBook, dropLiveOutliers } from "@/lib/books";
 import { sharpFair } from "@/lib/sharp-lens";
-import { getMatchTakes } from "@/lib/match-takes";
+import { getMatchTakes, getMatchInjuries } from "@/lib/match-takes";
 import MatchTakes from "@/components/game/MatchTakes";
 import { getFixtureIdMap } from "@/lib/soccer-fixture-id";
 import * as serverCache from "@/lib/server-cache";
@@ -286,7 +286,7 @@ function deriveMeetings(home: string, away: string, homeForm?: TeamRecentForm, a
 }
 
 type LiveCenterStory = { title: string; detail?: string; time: string };
-type LiveCenterInjury = { playerName: string; status: string; teamName: string; reason?: string | null };
+type LiveCenterInjury = { playerName: string; status: string; teamName: string; reason?: string | null; position?: string | null };
 type GamePageInjury = LiveCenterInjury & { teamAffected: "home" | "away" };
 
 function GameCommandStack({
@@ -455,6 +455,9 @@ export default async function GamePage({ params, searchParams }: { params: Promi
   const injuries = [...directSoccerInjuries, ...preparedInjuries].filter((item, index, arr) => (
     arr.findIndex((x) => x.playerName === item.playerName && x.teamName === item.teamName) === index
   ));
+  // Per-fixture sidelined feed (with player position) — the reliable WC injury
+  // source, read from the engine takes store (factual, not the agent override).
+  const takesInjuries = isSoccer ? await getMatchInjuries(game.id) : [];
   const awayML = best(game, "h2h", away), homeML = best(game, "h2h", home);
   const isLive = game.status === "live";
   const isFinal = game.status === "final";
@@ -523,7 +526,16 @@ export default async function GamePage({ params, searchParams }: { params: Promi
     status: p.status,
     reason: p.reason ?? null,
   }));
-  const availability: LiveCenterInjury[] = [...preparedUnavailable, ...liveUnavailable].filter((item, index, arr) => (
+  // The per-fixture sidelined feed (with player position) is the richest WC
+  // injury source — list it FIRST so its positioned entries win the dedupe.
+  const takesUnavailable: LiveCenterInjury[] = takesInjuries.map((p) => ({
+    playerName: p.playerName,
+    teamName: p.teamName,
+    status: "out",
+    reason: p.reason ?? null,
+    position: p.position ?? null,
+  }));
+  const availability: LiveCenterInjury[] = [...takesUnavailable, ...preparedUnavailable, ...liveUnavailable].filter((item, index, arr) => (
     arr.findIndex((x) => x.playerName === item.playerName && x.teamName === item.teamName) === index
   ));
 
@@ -724,13 +736,16 @@ export default async function GamePage({ params, searchParams }: { params: Promi
             {availability.length === 0 ? (
               <div className="rounded-2xl border border-[#1b201a] bg-[#0d0f0d] px-5 py-4 flex items-center gap-2.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#3ee68a]/50" />
-                <p className="text-[12.5px] text-[#9ca39a]">No injuries, suspensions, or unavailable players found for this matchup yet.</p>
+                <p className="text-[12.5px] text-[#9ca39a]">No confirmed absences reported for this fixture yet. National-team injury reports are thin until lineups land — we&apos;ll show any sidelined player the moment the provider flags them.</p>
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {availability.map((a, i) => (
                   <span key={i} className="inline-flex items-center gap-2 rounded-xl border border-[#ef4444]/30 bg-[#1a0e0e] px-3 py-2 text-[12px]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#ef4444]" />
+                    {a.position && (
+                      <span className="rounded border border-[#3a2020] bg-[#220f0f] px-1 py-[1px] font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-[#c98b7a]">{a.position}</span>
+                    )}
                     <span className="font-semibold text-[#ef9a9a]">{a.playerName}</span>
                     <span className="text-[#9ca39a] text-[11px]">{a.status} · {a.teamName}{a.reason ? ` · ${a.reason}` : ""}</span>
                   </span>

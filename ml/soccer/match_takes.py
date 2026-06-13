@@ -329,7 +329,7 @@ def _resolve_inputs(fixture_id: int, max_age_min: int = 120):
         conn = _get_db()
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT predictions_json, lineups_json, fetched_at FROM "
+            "SELECT predictions_json, lineups_json, sidelined_json, fetched_at FROM "
             "soccer_sportmonks_fixture_cache WHERE fixture_id = ?", (fixture_id,),
         ).fetchone()
         conn.close()
@@ -342,29 +342,33 @@ def _resolve_inputs(fixture_id: int, max_age_min: int = 120):
             if age <= max_age_min:
                 preds = json.loads(row["predictions_json"]) or {}
                 lus = json.loads(row["lineups_json"]) if row["lineups_json"] else []
-                return preds, lus, "cache"
+                side = json.loads(row["sidelined_json"]) if row["sidelined_json"] else []
+                return preds, lus, side, "cache"
     except Exception:
         pass
     # cache cold/stale — fetch live and persist for the next caller
+    from ml.soccer.sportmonks_fixture import _normalize_sidelined, _extract_teams
     bundle = fetch_fixture_bundle(int(fixture_id))
     try:
         from ml.soccer.sportmonks_fixture import cache_fixture_bundle
         cache_fixture_bundle(int(fixture_id), bundle=bundle)
     except Exception:
         pass
-    return _normalize_predictions(bundle.get("predictions")), _normalize_lineups(bundle.get("lineups")), "live"
+    home_id = _extract_teams(bundle)[0]
+    side = _normalize_sidelined(bundle.get("sidelined") or [], home_id)
+    return _normalize_predictions(bundle.get("predictions")), _normalize_lineups(bundle.get("lineups")), side, "live"
 
 
 # ── public entrypoint ────────────────────────────────────────────────────────
 def build_match_takes(fixture_id: int, home: str, away: str, corner_line: Optional[float] = None,
                       max_age_min: int = 120) -> Dict[str, Any]:
     try:
-        preds, lineups, source = _resolve_inputs(int(fixture_id), max_age_min)
+        preds, lineups, sidelined, source = _resolve_inputs(int(fixture_id), max_age_min)
     except Exception as e:
         # keep home/away so a transient provider error still labels the matchup
         return {"fixture_id": fixture_id, "home": home, "away": away,
                 "has_predictions": False, "lineups_posted": False,
-                "takes": [], "error": str(e)[:160]}
+                "takes": [], "injuries": [], "error": str(e)[:160]}
 
     takes: List[Dict[str, Any]] = []
     takes += _result_take(preds, home, away)
@@ -374,6 +378,14 @@ def build_match_takes(fixture_id: int, home: str, away: str, corner_line: Option
     takes += _first_scorer_take(preds, home, away)
     takes += _player_takes(lineups, None)
 
+    # injuries/suspensions with position — the page's reliable WC injury source
+    injuries = [{
+        "playerName": s.get("player"),
+        "teamName": home if s.get("team") == "home" else away,
+        "position": s.get("position"),
+        "reason": s.get("reason"),
+    } for s in (sidelined or []) if s.get("player")]
+
     return {
         "fixture_id": fixture_id,
         "home": home, "away": away,
@@ -381,6 +393,7 @@ def build_match_takes(fixture_id: int, home: str, away: str, corner_line: Option
         "has_predictions": bool(preds),
         "lineups_posted": sum(1 for r in lineups if r.get("is_starter")) >= 22,
         "takes": takes,
+        "injuries": injuries,
     }
 
 
