@@ -13,7 +13,21 @@ import { fetchModelSignals } from "@/lib/model-signals";
 // import { fetchWCSignals } from "@/lib/wc-signals";
 import { fetchMLBSignals } from "@/lib/mlb-signals";
 import { fetchSoccerInjuries } from "@/lib/soccer-injuries";
+import { getMatchTakesPayload, getAgentTakesPayload, type GameTakes } from "@/lib/match-takes";
 import * as serverCache from "@/lib/server-cache";
+
+const TIER_RANK: Record<string, number> = { Strong: 0, Lean: 1, Slight: 2, Pass: 3 };
+
+/** Headline take for a game (best non-Pass by tier) + a play count, for the
+ * board's ACE Take chip. */
+function headlineTake(t: GameTakes | undefined) {
+  if (!t?.takes?.length) return null;
+  const sorted = [...t.takes].sort((a, b) => (TIER_RANK[a.tier] ?? 9) - (TIER_RANK[b.tier] ?? 9));
+  const top = sorted.find((x) => x.tier !== "Pass") ?? sorted[0];
+  if (!top) return null;
+  const plays = t.takes.filter((x) => x.tier !== "Pass").length;
+  return { tier: top.tier, selection: top.selection, market_label: top.market_label, source: t.source ?? "cache", plays };
+}
 
 const CACHE_KEY = "board-games";
 const BOARD_INTEL_KEY = "board-generated-intel-v2";
@@ -130,10 +144,24 @@ export default async function GamesFeed() {
     await serverCache.set(BOARD_INTEL_KEY, { gameIdsKey: idsKey, intelMap, topPicks, generatedAt: new Date().toISOString() }, games);
   }
 
+  // Inject the grounded ACE Take per game (agent override preferred, rule-engine
+  // fallback). Read-only overlay on the intel map — a cheap pair of Redis GETs,
+  // never persisted, so it stays fresh as takes update independently of intel.
+  const [agentTakes, engineTakes] = await Promise.all([
+    getAgentTakesPayload().catch(() => null),
+    getMatchTakesPayload().catch(() => null),
+  ]);
+  const takeIntel: Record<string, any> = { ...intelMap };
+  for (const g of games) {
+    const t = agentTakes?.games?.[g.id] ?? engineTakes?.games?.[g.id];
+    const head = headlineTake(t);
+    if (head) takeIntel[g.id] = { ...(takeIntel[g.id] ?? {}), ace_take: head };
+  }
+
   return (
     <DashboardShell
       games={games}
-      intelMap={intelMap}
+      intelMap={takeIntel}
       boardUpdatedAt={fetchedAt}
       topPicks={topPicks}
     />

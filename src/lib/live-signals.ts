@@ -7,7 +7,7 @@ import { WeatherData } from "@/lib/weather";
 import { computeConfidence, computeRecommendation, ConfidenceResult, RecommendationResult } from "@/lib/confidence";
 import { ModelSignal } from "@/lib/model-signals";
 import { noVigProb } from "@/lib/edge";
-import { computeAceLean, type AceLean } from "@/lib/ace-leans";
+import { type AceLean } from "@/lib/ace-leans";
 import type { Signal } from "@/types/signal";
 
 export interface GameSignal {
@@ -477,28 +477,8 @@ export function generateIntelMap(
     // Computed before top-signal selection so it can lead the feed. Injuries
     // are passed per side so the engine can credit opposing-team absences.
     const mergedInjuryAlerts = mergeSoccerInjuries(buildInjuryAlerts(matched, game), game, soccerInjuryMap);
-    const leanInjuries = { home: [] as string[], away: [] as string[] };
-    for (const a of mergedInjuryAlerts) {
-      // only definite absences corroborate a lean — "questionable" is not evidence
-      if (a.status !== "out" && (a.status as string) !== "suspended") continue;
-      if (a.teamName === game.home_team) leanInjuries.home.push(a.playerName);
-      else if (a.teamName === game.away_team) leanInjuries.away.push(a.playerName);
-    }
-    const aceLean = game.status === "upcoming"
-      ? computeAceLean(game, { injuries: leanInjuries, movement })
-      : null;
-    if (aceLean) {
-      signals.unshift({
-        type: "market",
-        severity: "high",
-        title: `ACE Signal · ${aceLean.selection} ${aceLean.price > 0 ? `+${aceLean.price}` : aceLean.price} (${aceLean.book})`,
-        detail: aceLean.evidence.map((e) => e.text).join(" · "),
-        time: "now",
-        teamAffected: null,
-        benefits: [aceLean.selection],
-        harms: [],
-      });
-    }
+    // ACE picks on the board now come from the grounded takes engine/agent
+    // (ace_take, injected in GamesFeed), not the retired de-vig ACE Signal.
 
     // Compute real confidence + recommendation
     const confidence = computeConfidence(game, signals, weather, movement);
@@ -540,7 +520,7 @@ export function generateIntelMap(
       recommendation,
       weather,
       movement,
-      ace_lean: aceLean,
+      ace_lean: null,
     };
   }
 

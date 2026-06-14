@@ -400,7 +400,7 @@ export default function GameRow({
   const HOOK_TYPES = ["news", "injury", "lineup", "weather", "trade"];
   const hookSignal = topSignal && HOOK_TYPES.includes(topSignal.type) ? topSignal : null;
   const isHighSeverity = boardIntel?.has_high_severity ?? false;
-  const aceLean = boardIntel?.ace_lean ?? null;
+  const aceTake = boardIntel?.ace_take ?? null;
   const aiRecommendation = boardIntel?.recommendation ?? null;
   const marketMovement = boardIntel?.market_movement ?? {};
   const marketConfidence = boardIntel?.market_confidence ?? {};
@@ -515,15 +515,16 @@ export default function GameRow({
                   Injuries rank #1 (a benched star shifts the game), then the top
                   news storyline. No model / no-vig jargon — the odds already tell
                   the favorite story. */}
-              {/* ACE Signal — leads the strip when one fires (scarce by design). */}
-              {aceLean && (
+              {/* ACE Take — the grounded analyst pick, leads the strip. */}
+              {aceTake && (
                 <div className="mt-2 pl-[26px] flex items-center gap-1.5 min-w-0">
                   <span className="inline-flex items-center gap-1.5 rounded-md bg-[#10241a] border border-[#2c5a38] px-2 py-[3px] text-[10.5px] font-semibold leading-none text-[#5fe39a] min-w-0">
                     <Zap className="h-3 w-3 shrink-0" strokeWidth={2.2} />
                     <span className="truncate">
-                      ACE Signal · {aceLean.selection} {aceLean.price > 0 ? `+${aceLean.price}` : aceLean.price} @ {bookMeta(aceLean.book)?.short ?? aceLean.book}
+                      ACE Take · {aceTake.selection}
                     </span>
-                    <span className="rounded bg-[#16331f] px-1 py-[1px] text-[9px] font-mono shrink-0">T{aceLean.tier}</span>
+                    <span className="rounded bg-[#16331f] px-1 py-[1px] text-[9px] font-mono shrink-0 uppercase">{aceTake.tier}</span>
+                    {aceTake.plays > 1 && <span className="text-[9px] text-[#7f8a78] font-mono shrink-0">+{aceTake.plays - 1}</span>}
                   </span>
                 </div>
               )}
